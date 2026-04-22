@@ -1,11 +1,15 @@
 import { ConvexProviderWrapper } from "@app/providers/ConvexProvider"
 
+import { AdminSessionGate } from "@features/admin-auth/ui"
+
 import AdminConsole from "./ui/AdminConsole"
 
 export default function AdminConsoleIsland() {
   return (
     <ConvexProviderWrapper>
-      <AdminConsole />
+      <AdminSessionGate>
+        {(session) => <AdminConsole onSignOut={session.onSignOut} sessionToken={session.sessionToken} username={session.username} />}
+      </AdminSessionGate>
     </ConvexProviderWrapper>
   )
 }

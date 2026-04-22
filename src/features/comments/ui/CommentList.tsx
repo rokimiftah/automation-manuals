@@ -10,7 +10,7 @@ export default function CommentList() {
     <p className="py-4 text-center text-gray-500">No comments found.</p>
   ) : (
     <div className="space-y-6">
-      {comments.map((comment) => (
+      {comments.map((comment: { _creationTime: number; _id: string; author: string; content: string }) => (
         <article key={comment._id} className="rounded-lg border border-gray-200 bg-gray-50 p-4 shadow-sm">
           <header className="mb-2 flex items-center justify-between">
             <strong className="font-medium text-gray-900">{comment.author}</strong>

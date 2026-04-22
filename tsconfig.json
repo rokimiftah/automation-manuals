@@ -2,16 +2,15 @@
   "compilerOptions": {
     "jsx": "react-jsx",
     "jsxImportSource": "react",
+    "skipLibCheck": true,
     "paths": {
       "@/*": ["./src/*"],
       "@app/*": ["./src/app/*"],
-      "@pages/*": ["./src/pages/*"],
       "@widgets/*": ["./src/widgets/*"],
       "@features/*": ["./src/features/*"],
       "@entities/*": ["./src/entities/*"],
       "@shared/*": ["./src/shared/*"],
-      "@convex/*": ["./convex/*"],
-      "@x/*": ["./src/*/index.ts"]
+      "@convex/*": ["./convex/*"]
     }
   },
   "exclude": ["dist"],

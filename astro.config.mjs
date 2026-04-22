@@ -12,7 +12,12 @@ const __dirname = path.dirname(fileURLToPath(import.meta.url))
 
 export default defineConfig({
   devToolbar: { enabled: false },
-  env: { schema: { CONVEX_URL: envField.string({ access: "public", context: "client" }) } },
+  env: {
+    schema: {
+      CONVEX_SITE_URL: envField.string({ access: "public", context: "client" }),
+      CONVEX_URL: envField.string({ access: "public", context: "client" })
+    }
+  },
   integrations: [react()],
   server: { host: "localhost", port: 3000 },
   site: "https://navigineer.web.id",
@@ -23,7 +28,6 @@ export default defineConfig({
       alias: {
         "@": path.resolve(__dirname, "./src"),
         "@app": path.resolve(__dirname, "./src/app"),
-        "@pages": path.resolve(__dirname, "./src/pages"),
         "@widgets": path.resolve(__dirname, "./src/widgets"),
         "@features": path.resolve(__dirname, "./src/features"),
         "@entities": path.resolve(__dirname, "./src/entities"),

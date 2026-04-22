@@ -14,7 +14,6 @@ export default defineConfig({
   devToolbar: { enabled: false },
   env: {
     schema: {
-      CONVEX_SITE_URL: envField.string({ access: "public", context: "client" }),
       CONVEX_URL: envField.string({ access: "public", context: "client" })
     }
   },

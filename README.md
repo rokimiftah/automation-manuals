@@ -72,6 +72,8 @@ This boilerplate provides a solid foundation for building scalable web applicati
 - **Import Sorting** - Automatic import organization with Prettier
 - **Linting** - Fast linting with Biome
 - **Type Safety** - Full TypeScript coverage
+- **Public Workspace** - `/` is a public engineer workspace with no authentication required
+- **Admin Console** - `/admin` is protected by minimal server-enforced admin session auth
 
 ---
 
@@ -302,13 +304,32 @@ bun run convex:deploy
 
 Copy `.env.local.example` to `.env.local` and fill in your values:
 
-| Variable            | Description                                 | Source           |
-| ------------------- | ------------------------------------------- | ---------------- |
-| `CONVEX_DEPLOYMENT` | Deployment identifier from Convex dashboard | Convex Dashboard |
-| `CONVEX_URL`        | Convex production URL                       | Convex Dashboard |
-| `CONVEX_SITE_URL`   | Convex site URL for production              | Convex Dashboard |
+| Variable                | Description                                 | Source           |
+| ----------------------- | ------------------------------------------- | ---------------- |
+| `CONVEX_DEPLOYMENT`     | Deployment identifier from Convex dashboard | Convex Dashboard |
+| `CONVEX_URL`            | Convex production URL                       | Convex Dashboard |
+| `CONVEX_SITE_URL`       | Convex site URL for production              | Convex Dashboard |
+| `ADMIN_USERNAME`        | Admin username for `/admin` access          | Your choice      |
+| `ADMIN_PASSWORD_HASH`   | Argon2id hash of admin password              | Generated via script |
+| `ADMIN_SESSION_TTL_MS`  | Admin session timeout in milliseconds        | Default: 1800000 |
 
 **Note:** Never commit `.env.local` to version control. It's already in `.gitignore`.
+
+### Admin Auth Configuration
+
+The `/admin` route is protected by minimal server-enforced admin session auth. To configure:
+
+1. Generate a password hash:
+   ```bash
+   node scripts/hash-admin-password.mjs "your-strong-password"
+   ```
+
+2. Set the following environment variables in `.env.local`:
+   - `ADMIN_USERNAME` - Your chosen admin username
+   - `ADMIN_PASSWORD_HASH` - The hash generated above
+   - `ADMIN_SESSION_TTL_MS` - Session timeout in milliseconds (default: 1800000 = 30 minutes)
+
+3. For production deployments, set these in the Convex Dashboard under Deployment Settings → Environment Variables.
 
 ---
 

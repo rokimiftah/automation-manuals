@@ -48,9 +48,26 @@ export default defineSchema({
     requestedBy: v.id("users"),
     status: ingestionStatusValidator,
     errorMessage: v.optional(v.string()),
+    provider: v.optional(v.literal("mineru")),
+    providerBatchId: v.optional(v.string()),
+    providerDataId: v.optional(v.string()),
+    providerErrorCode: v.optional(v.number()),
+    providerErrorMessage: v.optional(v.string()),
+    providerResultUrl: v.optional(v.string()),
+    providerState: v.optional(v.string()),
+    providerTraceId: v.optional(v.string()),
+    providerSubmittedAt: v.optional(v.number()),
+    providerLastCheckedAt: v.optional(v.number()),
+    providerCallbackVerifiedAt: v.optional(v.number()),
+    priorityQuotaBucket: v.optional(v.union(v.literal("priority_expected"), v.literal("standard_possible"), v.literal("unknown"))),
+    sourceStorageId: v.optional(v.id("_storage")),
+    sourceFileName: v.optional(v.string()),
+    sourceMimeType: v.optional(v.string()),
     createdAt: v.number(),
     updatedAt: v.number()
-  }).index("by_document", ["documentId"]),
+  })
+    .index("by_document", ["documentId"])
+    .index("by_provider_batch_id", ["providerBatchId"]),
   documentAssets: defineTable({
     documentId: v.id("documents"),
     ingestionJobId: v.id("ingestionJobs"),

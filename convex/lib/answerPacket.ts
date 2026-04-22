@@ -92,6 +92,8 @@ export function buildGroundedPacket(
   answerSteps: string[],
   evidence: Evidence[]
 ): AnswerPacket {
+  // v1 keeps evidence page-based: citations open the source PDF page instead of
+  // rendering extracted MinerU image assets inline in the answer packet.
   const citations = uniqueBy(evidence, (item) => `${item.pageNumber}:${item.assetId ?? "none"}`).map((item) => ({
     ...(item.assetId === undefined ? {} : { assetId: item.assetId }),
     citationLabel: item.citationLabel,

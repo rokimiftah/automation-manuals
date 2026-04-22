@@ -20,7 +20,7 @@ export default function EvidenceViewer({ asset }: { asset: SupportingAsset | nul
         <div className="space-y-2">
           <p className="text-xs font-semibold uppercase tracking-[0.4em] text-cyan-300">Evidence viewer</p>
           <h2 className="text-2xl font-semibold text-white">Loading evidence</h2>
-          <p className="text-sm leading-6 text-slate-400">Fetching the document asset and source page.</p>
+          <p className="text-sm leading-6 text-slate-400">Fetching the cited source PDF page for the supporting text, table, or diagram evidence.</p>
         </div>
         <div className="h-[34rem] rounded-2xl border border-slate-800 bg-slate-950/60 animate-pulse" />
       </section>

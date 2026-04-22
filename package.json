@@ -14,13 +14,13 @@
     "lint": "biome check --write --unsafe . && tsc --noEmit && tsc --noEmit -p convex"
   },
   "dependencies": {
+    "@astrojs/react": "^5.0.3",
     "@auth/core": "^0.41.2",
     "@convex-dev/auth": "^0.0.91",
-    "@llamaindex/llama-cloud": "^2.1.0",
     "@mistralai/mistralai": "^2.2.0",
-    "@astrojs/react": "^5.0.3",
     "astro": "^6.1.8",
     "convex": "^1.35.1",
+    "fflate": "^0.8.2",
     "react": "^19.2.5",
     "react-dom": "^19.2.5"
   },

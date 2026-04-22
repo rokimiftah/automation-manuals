@@ -4,6 +4,10 @@ export type IngestionJob = {
   _id: Id<"ingestionJobs">
   documentId: Id<"documents">
   errorMessage?: string
+  providerErrorCode?: number
+  providerErrorMessage?: string
+  providerLastCheckedAt?: number
+  providerState?: string
   status: string
 }
 
@@ -22,6 +26,22 @@ function statusClasses(status: string) {
   }
 
   return "border-slate-700 bg-slate-950 text-slate-300"
+}
+
+function statusLabel(status: string) {
+  if (status === "waiting_provider") {
+    return "Waiting on MinerU queue"
+  }
+
+  if (status === "processing_provider") {
+    return "MinerU is processing"
+  }
+
+  if (status === "downloading_result") {
+    return "Importing MinerU result"
+  }
+
+  return status
 }
 
 export default function IngestionJobList({ jobs, onRetry }: IngestionJobListProps) {
@@ -49,10 +69,14 @@ export default function IngestionJobList({ jobs, onRetry }: IngestionJobListProp
                 <div className="flex flex-wrap items-center gap-3">
                   <p className="text-sm font-medium text-white">Document <span className="font-mono">{job.documentId}</span></p>
                   <span className={`rounded-full border px-3 py-1 text-[11px] font-semibold uppercase tracking-[0.3em] ${statusClasses(job.status)}`}>
-                    {job.status}
+                    {statusLabel(job.status)}
                   </span>
                 </div>
                 {job.errorMessage ? <p className="text-sm leading-6 text-rose-200">{job.errorMessage}</p> : null}
+                {job.providerState ? <p className="text-xs uppercase tracking-[0.25em] text-slate-500">Provider: {job.providerState}</p> : null}
+                {job.providerErrorMessage ? <p className="text-sm leading-6 text-amber-200">{job.providerErrorMessage}</p> : null}
+                {job.providerErrorCode !== undefined ? <p className="text-xs text-slate-500">Provider error code: {job.providerErrorCode}</p> : null}
+                {job.providerLastCheckedAt !== undefined ? <p className="text-xs text-slate-500">Last checked: {new Date(job.providerLastCheckedAt).toLocaleString()}</p> : null}
               </div>
 
               <button

@@ -1,7 +1,10 @@
 export type IngestionStatus =
   | "queued"
   | "downloading"
-  | "parsing"
+  | "submitting"
+  | "waiting_provider"
+  | "processing_provider"
+  | "downloading_result"
   | "normalizing"
   | "embedding"
   | "ready"
@@ -9,8 +12,11 @@ export type IngestionStatus =
 
 const ALLOWED_NEXT: Record<IngestionStatus, IngestionStatus[]> = {
   queued: ["downloading", "failed"],
-  downloading: ["parsing", "failed"],
-  parsing: ["normalizing", "failed"],
+  downloading: ["submitting", "failed"],
+  submitting: ["waiting_provider", "processing_provider", "failed"],
+  waiting_provider: ["processing_provider", "downloading_result", "failed"],
+  processing_provider: ["downloading_result", "failed"],
+  downloading_result: ["normalizing", "failed"],
   normalizing: ["embedding", "failed"],
   embedding: ["ready", "failed"],
   ready: [],

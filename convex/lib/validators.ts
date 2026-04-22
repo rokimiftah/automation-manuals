@@ -11,7 +11,10 @@ export const documentStatusValidator = v.union(
 export const ingestionStatusValidator = v.union(
   v.literal("queued"),
   v.literal("downloading"),
-  v.literal("parsing"),
+  v.literal("submitting"),
+  v.literal("waiting_provider"),
+  v.literal("processing_provider"),
+  v.literal("downloading_result"),
   v.literal("normalizing"),
   v.literal("embedding"),
   v.literal("ready"),

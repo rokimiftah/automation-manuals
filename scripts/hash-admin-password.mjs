@@ -1,4 +1,4 @@
-import argon2 from "argon2"
+import { argon2id } from "hash-wasm"
 
 const password = process.argv[2]?.trim()
 
@@ -7,11 +7,14 @@ if (!password) {
   process.exit(1)
 }
 
-const hash = await argon2.hash(password, {
-  type: argon2.argon2id,
-  memoryCost: 19_456,
-  timeCost: 2,
+const hash = await argon2id({
+  password: new TextEncoder().encode(password),
+  salt: new Uint8Array(16),
+  iterations: 2,
+  memorySize: 19_456,
   parallelism: 1,
+  hashLength: 32,
+  outputType: "encoded",
 })
 
 console.log(hash)

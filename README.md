@@ -312,6 +312,38 @@ Copy `.env.local.example` to `.env.local` and fill in your values:
 
 ---
 
+## Password Hash Generation
+
+This project uses **hash-wasm** for password hashing instead of argon2. This is required for Convex runtime compatibility.
+
+### Why hash-wasm?
+
+- **Convex Runtime Compatibility**: hash-wasm works in Convex's runtime environment, while argon2 does not
+- **WebAssembly Performance**: Provides fast, secure password hashing via WebAssembly
+- **Browser & Node Support**: Works in both browser and Node.js environments
+
+### Generating Password Hashes
+
+To generate a password hash for the `ADMIN_PASSWORD_HASH` environment variable:
+
+```bash
+node scripts/hash-admin-password.mjs "your-strong-password"
+```
+
+This will output an encoded Argon2id hash that you can use in your environment variables.
+
+**Important:** Existing argon2 hashes will not work with hash-wasm. You must regenerate all password hashes using the updated script.
+
+### Migration from argon2
+
+If you previously used argon2 for password hashing:
+
+1. Regenerate all password hashes using the new script
+2. Update your environment variables with the new hashes
+3. Remove the `argon2` dependency if it was installed
+
+---
+
 ## Scripts
 
 | Script          | Command                                          | Description                 |

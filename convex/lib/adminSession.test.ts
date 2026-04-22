@@ -28,6 +28,22 @@ describe("getAdminAuthEnv", () => {
       "ADMIN_PASSWORD_HASH is required"
     )
   })
+
+  it("throws when ADMIN_USERNAME is missing", () => {
+    expect(() =>
+      getAdminAuthEnv({ ADMIN_PASSWORD_HASH: "hash", ADMIN_SESSION_TTL_MS: "1800000" })
+    ).toThrow("ADMIN_USERNAME is required")
+  })
+
+  it("throws when ADMIN_SESSION_TTL_MS is invalid", () => {
+    expect(() =>
+      getAdminAuthEnv({
+        ADMIN_PASSWORD_HASH: "hash",
+        ADMIN_USERNAME: "admin",
+        ADMIN_SESSION_TTL_MS: "-100"
+      })
+    ).toThrow("ADMIN_SESSION_TTL_MS must be a positive integer")
+  })
 })
 
 describe("authenticateAdminLogin", () => {
@@ -91,6 +107,12 @@ describe("getRateLimitState", () => {
 describe("hashSessionToken", () => {
   it("returns a stable sha256 hex digest", async () => {
     await expect(hashSessionToken("session-token")).resolves.toMatch(/^[a-f0-9]{64}$/)
+  })
+
+  it("produces consistent hashes for the same input", async () => {
+    const hash1 = await hashSessionToken("test-token")
+    const hash2 = await hashSessionToken("test-token")
+    expect(hash1).toBe(hash2)
   })
 })
 

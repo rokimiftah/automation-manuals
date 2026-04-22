@@ -66,6 +66,7 @@ export async function authenticateAdminLogin(
 }
 
 export function getRateLimitState(input: {
+  // Assumes failures array is sorted by timestamp (oldest first)
   failures: number[]
   limit: number
   now: number

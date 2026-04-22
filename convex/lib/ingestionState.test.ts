@@ -16,8 +16,6 @@ describe("assertNextIngestionStatus", () => {
   })
 
   it("rejects embedding -> parsing", () => {
-    expect(() => assertNextIngestionStatus("embedding", "submitting")).toThrow(
-      "Invalid ingestion status transition"
-    )
+    expect(() => assertNextIngestionStatus("embedding", "submitting")).toThrow("Invalid ingestion status transition")
   })
 })

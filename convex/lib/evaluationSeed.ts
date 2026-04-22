@@ -1,8 +1,4 @@
-export type EvaluationCategory =
-  | "exact-lookup"
-  | "table-reasoning"
-  | "diagram-reasoning"
-  | "not-found"
+export type EvaluationCategory = "exact-lookup" | "table-reasoning" | "diagram-reasoning" | "not-found"
 
 export type EvaluationSeed = {
   category: EvaluationCategory

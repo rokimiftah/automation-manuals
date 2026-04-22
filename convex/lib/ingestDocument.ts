@@ -1,4 +1,5 @@
 import type { ParsedPage } from "./parsedPage"
+
 import { normalizeParsedPages } from "./normalize"
 
 type LegacyBuildDocumentPayloadArgs = {
@@ -27,14 +28,12 @@ export async function buildDocumentPayload(args: BuildDocumentPayloadArgs) {
     initial.pages.map(async (page) => ({
       pageNumber: page.pageNumber,
       printedPageNumber: page.printedPageNumber,
-      markdown:
-        !hasParsedPages(args) && page.needsOcrFallback ? await args.ocr(args.sourceUrl, page.pageNumber) : page.markdown
+      markdown: !hasParsedPages(args) && page.needsOcrFallback ? await args.ocr(args.sourceUrl, page.pageNumber) : page.markdown
     }))
   )
 
   const normalized = normalizeParsedPages(pages)
-  const embeddings =
-    normalized.chunks.length === 0 ? [] : await args.embed(normalized.chunks.map((chunk) => chunk.content))
+  const embeddings = normalized.chunks.length === 0 ? [] : await args.embed(normalized.chunks.map((chunk) => chunk.content))
 
   if (embeddings.length !== normalized.chunks.length) {
     throw new Error("Embedding count does not match chunk count")

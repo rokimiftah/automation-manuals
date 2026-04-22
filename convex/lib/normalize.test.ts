@@ -1,7 +1,7 @@
 import { describe, expect, it } from "vitest"
 
-import { buildCitationLabel, normalizeParsedPages } from "./normalize"
 import { normalizeMineruDocument } from "./mineruResult"
+import { buildCitationLabel, normalizeParsedPages } from "./normalize"
 
 describe("normalizeParsedPages", () => {
   it("keeps markdown tables as table chunks", () => {
@@ -58,12 +58,19 @@ describe("normalizeMineruDocument", () => {
           para_blocks: [
             {
               bbox: [0, 0, 0, 0],
-              lines: [{ bbox: [0, 0, 0, 0], spans: [{ bbox: [0, 0, 0, 0], content: "Important User Information", type: "text" }] }],
+              lines: [
+                { bbox: [0, 0, 0, 0], spans: [{ bbox: [0, 0, 0, 0], content: "Important User Information", type: "text" }] }
+              ],
               type: "title"
             },
             {
               bbox: [0, 0, 0, 0],
-              lines: [{ bbox: [0, 0, 0, 0], spans: [{ bbox: [0, 0, 0, 0], content: "Read this document before installation.", type: "text" }] }],
+              lines: [
+                {
+                  bbox: [0, 0, 0, 0],
+                  spans: [{ bbox: [0, 0, 0, 0], content: "Read this document before installation.", type: "text" }]
+                }
+              ],
               type: "text"
             },
             {

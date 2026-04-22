@@ -14,10 +14,10 @@ export default function AppShell({ children, title }: { children: ReactNode; tit
       <header className="border-b border-slate-800 bg-slate-900/80 backdrop-blur">
         <div className="mx-auto flex max-w-7xl flex-col gap-4 px-6 py-4 sm:flex-row sm:items-center sm:justify-between">
           <div className="space-y-1">
-            <p className="text-xs font-semibold uppercase tracking-[0.45em] text-cyan-300">Navigineer</p>
+            <p className="text-xs font-semibold tracking-[0.45em] text-cyan-300 uppercase">PLC Manuals</p>
             <div className="flex flex-wrap items-center gap-3">
               <h1 className="text-2xl font-semibold text-white">{title}</h1>
-              <span className="rounded-full border border-slate-700 px-3 py-1 text-xs font-medium uppercase tracking-[0.2em] text-slate-300">
+              <span className="rounded-full border border-slate-700 px-3 py-1 text-xs font-medium tracking-[0.2em] text-slate-300 uppercase">
                 {viewer ? viewer.role : "Loading"}
               </span>
             </div>

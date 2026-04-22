@@ -1,8 +1,8 @@
 import type { ReactNode } from "react"
 
-import { ConvexAuthProvider } from "@convex-dev/auth/react"
 import { ConvexReactClient } from "convex/react"
 
+import { ConvexAuthProvider } from "@convex-dev/auth/react"
 import { CONVEX_SITE_URL, CONVEX_URL } from "astro:env/client"
 
 import { getPublicAppEnv } from "@shared/config/env"
@@ -15,7 +15,7 @@ export { client }
 
 export function ConvexProviderWrapper({ children }: { children: ReactNode }) {
   return (
-    <ConvexAuthProvider client={client} storageNamespace="navigineer">
+    <ConvexAuthProvider client={client} storageNamespace="plc-manuals">
       {children}
     </ConvexAuthProvider>
   )

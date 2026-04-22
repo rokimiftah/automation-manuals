@@ -1,6 +1,7 @@
 import type { ReactNode } from "react"
 
 import { ConvexProviderWrapper } from "@app/providers/ConvexProvider"
+
 import { AuthGate, RoleGate } from "@features/auth/ui"
 
 import AppShell from "./ui/AppShell"

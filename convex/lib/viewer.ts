@@ -1,9 +1,11 @@
-import { getAuthUserId } from "@convex-dev/auth/server"
-import { ConvexError } from "convex/values"
+import type { ActionCtx, MutationCtx, QueryCtx } from "../_generated/server"
 import type { GenericId } from "convex/values"
-import { v } from "convex/values"
 
-import { internalQuery, type ActionCtx, type MutationCtx, type QueryCtx } from "../_generated/server"
+import { ConvexError, v } from "convex/values"
+
+import { getAuthUserId } from "@convex-dev/auth/server"
+
+import { internalQuery } from "../_generated/server"
 import { computeViewerAccess } from "./roles"
 
 export type CurrentViewer = {

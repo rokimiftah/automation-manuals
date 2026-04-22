@@ -1,8 +1,11 @@
-import { ConvexError, v, type GenericId } from "convex/values"
+import type { AnswerPacket } from "./lib/answerPacket"
+import type { GenericId } from "convex/values"
+
+import { ConvexError, v } from "convex/values"
 
 import { api, internal } from "./_generated/api"
 import { action, internalMutation, internalQuery } from "./_generated/server"
-import { answerPacketValidator, buildGroundedPacket, buildRefusalPacket, type AnswerPacket } from "./lib/answerPacket"
+import { answerPacketValidator, buildGroundedPacket, buildRefusalPacket } from "./lib/answerPacket"
 import { embedTexts, generateGroundedAnswer } from "./lib/mistral"
 import { requireAllowedViewer } from "./lib/viewer"
 
@@ -206,7 +209,16 @@ export const ask = action({
                   score: item.score
                 }
           })
-          .filter((item): item is { assetId?: GenericId<"documentAssets">; chunkId: GenericId<"chunks">; pageNumber: number; score: number } => item !== null),
+          .filter(
+            (
+              item
+            ): item is {
+              assetId?: GenericId<"documentAssets">
+              chunkId: GenericId<"chunks">
+              pageNumber: number
+              score: number
+            } => item !== null
+          ),
         messageId: assistantMessageId
       })
     }

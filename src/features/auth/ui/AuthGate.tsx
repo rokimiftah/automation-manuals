@@ -1,6 +1,6 @@
 import type { ReactNode } from "react"
 
-import { AuthLoading, Authenticated, Unauthenticated, useQuery } from "convex/react"
+import { Authenticated, AuthLoading, Unauthenticated, useQuery } from "convex/react"
 
 import { api } from "@convex/_generated/api"
 

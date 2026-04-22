@@ -2,36 +2,49 @@
 import Layout from "@/layouts/Layout.astro"
 ---
 
-<Layout title="Navigineer | Grounded answers">
+<Layout title="PLC Manuals | Grounded answers">
   <main class="mx-auto flex min-h-screen max-w-6xl flex-col justify-center gap-12 px-6 py-16 lg:py-24">
     <section class="grid gap-10 lg:grid-cols-[minmax(0,1.25fr)_minmax(320px,0.75fr)] lg:items-center">
       <div class="space-y-6">
-        <p class="text-xs font-semibold uppercase tracking-[0.45em] text-cyan-300">Navigineer</p>
+        <p class="text-xs font-semibold tracking-[0.45em] text-cyan-300 uppercase">PLC Manuals</p>
         <h1 class="max-w-4xl text-5xl leading-[1.05] font-semibold text-white md:text-7xl">
           Grounded technical answers from official vendor manuals.
         </h1>
         <p class="max-w-2xl text-lg leading-8 text-slate-300 md:text-xl">
-          Search controlled documentation, verify citations against the source PDF, and keep engineers in a single protected workspace.
+          Search controlled documentation, verify citations against the source PDF, and keep engineers in a single protected
+          workspace.
         </p>
         <div class="flex flex-wrap gap-3">
-          <a class="rounded-full bg-cyan-400 px-6 py-3 text-sm font-semibold text-slate-950 transition hover:bg-cyan-300" href="/auth">
+          <a
+            class="rounded-full bg-cyan-400 px-6 py-3 text-sm font-semibold text-slate-950 transition hover:bg-cyan-300"
+            href="/auth"
+          >
             Open workspace
           </a>
-          <a class="rounded-full border border-slate-700 px-6 py-3 text-sm font-semibold text-slate-200 transition hover:border-slate-500 hover:text-white" href="/app">
+          <a
+            class="rounded-full border border-slate-700 px-6 py-3 text-sm font-semibold text-slate-200 transition hover:border-slate-500 hover:text-white"
+            href="/app"
+          >
             Engineer shell
           </a>
         </div>
       </div>
 
-      <aside class="space-y-4 rounded-3xl border border-slate-800 bg-slate-900/70 p-6 shadow-2xl shadow-slate-950/40 backdrop-blur">
+      <aside
+        class="space-y-4 rounded-3xl border border-slate-800 bg-slate-900/70 p-6 shadow-2xl shadow-slate-950/40 backdrop-blur"
+      >
         <div class="space-y-2">
-          <p class="text-xs uppercase tracking-[0.35em] text-slate-400">Workflow</p>
+          <p class="text-xs tracking-[0.35em] text-slate-400 uppercase">Workflow</p>
           <h2 class="text-2xl font-semibold text-white">Verify before you trust</h2>
         </div>
         <ul class="space-y-3 text-sm leading-6 text-slate-300">
           <li class="rounded-2xl border border-slate-800 bg-slate-950/50 p-4">Admin-curated official manuals only</li>
-          <li class="rounded-2xl border border-slate-800 bg-slate-950/50 p-4">Evidence-backed retrieval with page-level citations</li>
-          <li class="rounded-2xl border border-slate-800 bg-slate-950/50 p-4">Split-screen verification for engineers in the field</li>
+          <li class="rounded-2xl border border-slate-800 bg-slate-950/50 p-4">
+            Evidence-backed retrieval with page-level citations
+          </li>
+          <li class="rounded-2xl border border-slate-800 bg-slate-950/50 p-4">
+            Split-screen verification for engineers in the field
+          </li>
         </ul>
       </aside>
     </section>

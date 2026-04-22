@@ -1,4 +1,6 @@
-import { normalizeParsedPages, type NormalizedDocument } from "./normalize"
+import type { NormalizedDocument } from "./normalize"
+
+import { normalizeParsedPages } from "./normalize"
 
 type MineruSpan = {
   bbox?: number[]

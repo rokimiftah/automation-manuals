@@ -1,8 +1,8 @@
-# Navigineer SP1 Platform Core Implementation Plan
+# PLC Manuals SP1 Platform Core Implementation Plan
 
 > **For agentic workers:** REQUIRED SUB-SKILL: Use superpowers:subagent-driven-development (recommended) or superpowers:executing-plans to implement this plan task-by-task. Steps use checkbox (`- [ ]`) syntax for tracking.
 
-**Goal:** Build the first end-to-end slice of Navigineer: auth, admin-curated document intake, ingestion, grounded retrieval, citations, and an engineer split-screen viewer.
+**Goal:** Build the first end-to-end slice of PLC Manuals: auth, admin-curated document intake, ingestion, grounded retrieval, citations, and an engineer split-screen viewer.
 
 **Architecture:** Astro serves route shells in hybrid mode while React islands power auth, admin, and engineer interactions. Convex stores operational state, file references, chunks, embeddings, sessions, and evaluation seeds; external parsing, OCR, embeddings, and answer generation run in Convex actions through provider adapters.
 
@@ -147,9 +147,9 @@ Expected: Bun updates `package.json` and `bun.lock` without peer dependency fail
 
 ```ts
 // vitest.config.ts
-import path from "node:path";
+import path from "node:path"
 
-import { defineConfig } from "vitest/config";
+import { defineConfig } from "vitest/config"
 
 export default defineConfig({
   resolve: {
@@ -160,47 +160,47 @@ export default defineConfig({
       "@widgets": path.resolve(__dirname, "./src/widgets"),
       "@entities": path.resolve(__dirname, "./src/entities"),
       "@shared": path.resolve(__dirname, "./src/shared"),
-      "@convex": path.resolve(__dirname, "./convex"),
-    },
+      "@convex": path.resolve(__dirname, "./convex")
+    }
   },
   test: {
     environment: "jsdom",
     setupFiles: ["./src/test/setup.ts"],
-    include: ["src/**/*.test.ts", "src/**/*.test.tsx", "convex/**/*.test.ts"],
-  },
-});
+    include: ["src/**/*.test.ts", "src/**/*.test.tsx", "convex/**/*.test.ts"]
+  }
+})
 ```
 
 ```ts
 // src/test/setup.ts
-import "@testing-library/jest-dom/vitest";
+import "@testing-library/jest-dom/vitest"
 ```
 
 ```ts
 // src/shared/config/env.test.ts
-import { describe, expect, it } from "vitest";
+import { describe, expect, it } from "vitest"
 
-import { getPublicAppEnv } from "./env";
+import { getPublicAppEnv } from "./env"
 
 describe("getPublicAppEnv", () => {
   it("returns normalized public Convex URLs", () => {
     expect(
       getPublicAppEnv({
         CONVEX_URL: "https://demo.convex.cloud",
-        CONVEX_SITE_URL: "https://demo.convex.site",
-      }),
+        CONVEX_SITE_URL: "https://demo.convex.site"
+      })
     ).toEqual({
       convexUrl: "https://demo.convex.cloud",
-      convexSiteUrl: "https://demo.convex.site",
-    });
-  });
+      convexSiteUrl: "https://demo.convex.site"
+    })
+  })
 
   it("throws when CONVEX_URL is missing", () => {
     expect(() => getPublicAppEnv({ CONVEX_URL: "", CONVEX_SITE_URL: "https://demo.convex.site" })).toThrow(
-      "CONVEX_URL is required",
-    );
-  });
-});
+      "CONVEX_URL is required"
+    )
+  })
+})
 ```
 
 - [ ] **Step 3: Run the focused test to verify it fails**
@@ -214,22 +214,22 @@ Expected: FAIL with `Cannot find module './env'` or `getPublicAppEnv is not expo
 ```ts
 // src/shared/config/env.ts
 type PublicEnvInput = {
-  CONVEX_URL?: string;
-  CONVEX_SITE_URL?: string;
-};
+  CONVEX_URL?: string
+  CONVEX_SITE_URL?: string
+}
 
 function requireValue(name: keyof PublicEnvInput, value?: string) {
   if (!value?.trim()) {
-    throw new Error(`${name} is required`);
+    throw new Error(`${name} is required`)
   }
-  return value.trim();
+  return value.trim()
 }
 
 export function getPublicAppEnv(input: PublicEnvInput) {
   return {
     convexUrl: requireValue("CONVEX_URL", input.CONVEX_URL),
-    convexSiteUrl: requireValue("CONVEX_SITE_URL", input.CONVEX_SITE_URL),
-  };
+    convexSiteUrl: requireValue("CONVEX_SITE_URL", input.CONVEX_SITE_URL)
+  }
 }
 ```
 
@@ -315,9 +315,9 @@ git commit -m "chore(sp1): add auth and test foundation"
 
 ```ts
 // convex/lib/roles.test.ts
-import { describe, expect, it } from "vitest";
+import { describe, expect, it } from "vitest"
 
-import { canManageDocuments, computeViewerAccess } from "./roles";
+import { canManageDocuments, computeViewerAccess } from "./roles"
 
 describe("computeViewerAccess", () => {
   it("marks listed admins as admins", () => {
@@ -325,32 +325,32 @@ describe("computeViewerAccess", () => {
       computeViewerAccess("lead@example.com", {
         adminEmails: ["lead@example.com"],
         allowedEmails: [],
-        allowedDomains: [],
-      }),
-    ).toEqual({ role: "admin", isAllowed: true, canManageDocuments: true });
-  });
+        allowedDomains: []
+      })
+    ).toEqual({ role: "admin", isAllowed: true, canManageDocuments: true })
+  })
 
   it("blocks users outside the allowlist", () => {
     expect(
       computeViewerAccess("outsider@example.com", {
         adminEmails: [],
         allowedEmails: ["engineer@example.com"],
-        allowedDomains: [],
-      }),
-    ).toEqual({ role: "engineer", isAllowed: false, canManageDocuments: false });
-  });
+        allowedDomains: []
+      })
+    ).toEqual({ role: "engineer", isAllowed: false, canManageDocuments: false })
+  })
 
   it("allows engineers from an approved domain", () => {
-    expect(canManageDocuments("engineer")).toBe(false);
+    expect(canManageDocuments("engineer")).toBe(false)
     expect(
-      computeViewerAccess("tech@navigineer.internal", {
+      computeViewerAccess("tech@plc-manuals.internal", {
         adminEmails: [],
         allowedEmails: [],
-        allowedDomains: ["navigineer.internal"],
-      }),
-    ).toEqual({ role: "engineer", isAllowed: true, canManageDocuments: false });
-  });
-});
+        allowedDomains: ["plc-manuals.internal"]
+      })
+    ).toEqual({ role: "engineer", isAllowed: true, canManageDocuments: false })
+  })
+})
 ```
 
 - [ ] **Step 2: Run the focused test to verify it fails**
@@ -367,156 +367,158 @@ export default {
   providers: [
     {
       domain: process.env.CONVEX_SITE_URL,
-      applicationID: "convex",
-    },
-  ],
-};
+      applicationID: "convex"
+    }
+  ]
+}
 ```
 
 ```ts
 // convex/auth.ts
-import Resend from "@auth/core/providers/resend";
-import { Password } from "@convex-dev/auth/providers/Password";
-import { convexAuth } from "@convex-dev/auth/server";
+import Resend from "@auth/core/providers/resend"
+import { Password } from "@convex-dev/auth/providers/Password"
+import { convexAuth } from "@convex-dev/auth/server"
 
 const resendMagicLink = Resend({
   id: "resend-magic-link",
   apiKey: process.env.AUTH_RESEND_KEY,
-  from: process.env.AUTH_EMAIL_FROM,
-});
+  from: process.env.AUTH_EMAIL_FROM
+})
 
 const resendPasswordReset = Resend({
   id: "resend-password-reset",
   apiKey: process.env.AUTH_RESEND_KEY,
-  from: process.env.AUTH_EMAIL_FROM,
-});
+  from: process.env.AUTH_EMAIL_FROM
+})
 
 export const { auth, signIn, signOut, store, isAuthenticated } = convexAuth({
-  providers: [Password({ reset: resendPasswordReset }), resendMagicLink],
-});
+  providers: [Password({ reset: resendPasswordReset }), resendMagicLink]
+})
 ```
 
 ```ts
 // convex/http.ts
-import { httpRouter } from "convex/server";
+import { httpRouter } from "convex/server"
 
-import { auth } from "./auth";
+import { auth } from "./auth"
 
-const http = httpRouter();
+const http = httpRouter()
 
-auth.addHttpRoutes(http);
+auth.addHttpRoutes(http)
 
-export default http;
+export default http
 ```
 
 ```ts
 // convex/lib/roles.ts
-export type AppRole = "admin" | "engineer";
+export type AppRole = "admin" | "engineer"
 
 type AccessConfig = {
-  adminEmails: string[];
-  allowedEmails: string[];
-  allowedDomains: string[];
-};
+  adminEmails: string[]
+  allowedEmails: string[]
+  allowedDomains: string[]
+}
 
 function normalizeEmail(value: string) {
-  return value.trim().toLowerCase();
+  return value.trim().toLowerCase()
 }
 
 function splitCsv(value?: string) {
   return (value ?? "")
     .split(",")
     .map((entry) => entry.trim().toLowerCase())
-    .filter(Boolean);
+    .filter(Boolean)
 }
 
 function readAccessConfig(): AccessConfig {
   return {
     adminEmails: splitCsv(process.env.ADMIN_EMAILS),
     allowedEmails: splitCsv(process.env.ALLOWED_EMAILS),
-    allowedDomains: splitCsv(process.env.ALLOWED_EMAIL_DOMAINS),
-  };
+    allowedDomains: splitCsv(process.env.ALLOWED_EMAIL_DOMAINS)
+  }
 }
 
 export function canManageDocuments(role: AppRole) {
-  return role === "admin";
+  return role === "admin"
 }
 
 export function computeViewerAccess(email: string, config = readAccessConfig()) {
-  const normalized = normalizeEmail(email);
-  const role: AppRole = config.adminEmails.includes(normalized) ? "admin" : "engineer";
-  const domain = normalized.split("@")[1] ?? "";
-  const allowAll = config.allowedEmails.length === 0 && config.allowedDomains.length === 0;
+  const normalized = normalizeEmail(email)
+  const role: AppRole = config.adminEmails.includes(normalized) ? "admin" : "engineer"
+  const domain = normalized.split("@")[1] ?? ""
+  const allowAll = config.allowedEmails.length === 0 && config.allowedDomains.length === 0
   const isAllowed =
     allowAll ||
     config.adminEmails.includes(normalized) ||
     config.allowedEmails.includes(normalized) ||
-    config.allowedDomains.includes(domain);
+    config.allowedDomains.includes(domain)
 
   return {
     role,
     isAllowed,
-    canManageDocuments: canManageDocuments(role) && isAllowed,
-  };
+    canManageDocuments: canManageDocuments(role) && isAllowed
+  }
 }
 ```
 
 ```ts
 // convex/lib/viewer.ts
-import { getAuthUserId } from "@convex-dev/auth/server";
-import { ConvexError } from "convex/values";
+import type { ActionCtx, MutationCtx, QueryCtx } from "../_generated/server"
 
-import type { ActionCtx, MutationCtx, QueryCtx } from "../_generated/server";
-import { computeViewerAccess } from "./roles";
+import { ConvexError } from "convex/values"
 
-type ViewerCtx = QueryCtx | MutationCtx | ActionCtx;
+import { getAuthUserId } from "@convex-dev/auth/server"
+
+import { computeViewerAccess } from "./roles"
+
+type ViewerCtx = QueryCtx | MutationCtx | ActionCtx
 
 export async function getViewer(ctx: ViewerCtx) {
-  const userId = await getAuthUserId(ctx);
+  const userId = await getAuthUserId(ctx)
   if (!userId) {
-    return null;
+    return null
   }
-  const user = await ctx.db.get(userId);
+  const user = await ctx.db.get(userId)
   if (!user?.email) {
-    return null;
+    return null
   }
-  const access = computeViewerAccess(user.email);
+  const access = computeViewerAccess(user.email)
   return {
     userId,
     email: user.email,
     name: user.name ?? user.email,
     role: access.role,
     isAllowed: access.isAllowed,
-    canManageDocuments: access.canManageDocuments,
-  };
+    canManageDocuments: access.canManageDocuments
+  }
 }
 
 export async function requireAllowedViewer(ctx: ViewerCtx) {
-  const viewer = await getViewer(ctx);
+  const viewer = await getViewer(ctx)
   if (!viewer) {
-    throw new ConvexError("Authentication required");
+    throw new ConvexError("Authentication required")
   }
   if (!viewer.isAllowed) {
-    throw new ConvexError("Your account is not allowed to use this workspace");
+    throw new ConvexError("Your account is not allowed to use this workspace")
   }
-  return viewer;
+  return viewer
 }
 
 export async function requireAdminViewer(ctx: ViewerCtx) {
-  const viewer = await requireAllowedViewer(ctx);
+  const viewer = await requireAllowedViewer(ctx)
   if (!viewer.canManageDocuments) {
-    throw new ConvexError("Admin access required");
+    throw new ConvexError("Admin access required")
   }
-  return viewer;
+  return viewer
 }
 ```
 
 ```ts
 // convex/users.ts
-import { v } from "convex/values";
+import { v } from "convex/values"
 
-import { query } from "./_generated/server";
-import { getViewer } from "./lib/viewer";
+import { query } from "./_generated/server"
+import { getViewer } from "./lib/viewer"
 
 export const current = query({
   args: {},
@@ -528,64 +530,65 @@ export const current = query({
       name: v.string(),
       role: v.union(v.literal("admin"), v.literal("engineer")),
       isAllowed: v.boolean(),
-      canManageDocuments: v.boolean(),
-    }),
+      canManageDocuments: v.boolean()
+    })
   ),
   handler: async (ctx) => {
-    const viewer = await getViewer(ctx);
+    const viewer = await getViewer(ctx)
     if (!viewer) {
-      return null;
+      return null
     }
-    return viewer;
-  },
-});
+    return viewer
+  }
+})
 ```
 
 ```ts
 // convex/schema.ts
-import { authTables } from "@convex-dev/auth/server";
-import { defineSchema } from "convex/server";
+import { defineSchema } from "convex/server"
+
+import { authTables } from "@convex-dev/auth/server"
 
 export default defineSchema({
-  ...authTables,
-});
+  ...authTables
+})
 ```
 
 ```tsx
 // src/app/providers/ConvexProvider.tsx
-import type { ReactNode } from "react";
+import type { ReactNode } from "react"
 
-import { ConvexAuthProvider } from "@convex-dev/auth/react";
-import { ConvexReactClient } from "convex/react";
+import { ConvexReactClient } from "convex/react"
 
-import { CONVEX_SITE_URL, CONVEX_URL } from "astro:env/client";
+import { ConvexAuthProvider } from "@convex-dev/auth/react"
+import { CONVEX_SITE_URL, CONVEX_URL } from "astro:env/client"
 
-import { getPublicAppEnv } from "@shared/config/env";
+import { getPublicAppEnv } from "@shared/config/env"
 
-const { convexUrl } = getPublicAppEnv({ CONVEX_URL, CONVEX_SITE_URL });
-const client = new ConvexReactClient(convexUrl);
+const { convexUrl } = getPublicAppEnv({ CONVEX_URL, CONVEX_SITE_URL })
+const client = new ConvexReactClient(convexUrl)
 
 export function ConvexProviderWrapper({ children }: { children: ReactNode }) {
   return (
-    <ConvexAuthProvider client={client} storageNamespace="navigineer">
+    <ConvexAuthProvider client={client} storageNamespace="plc-manuals">
       {children}
     </ConvexAuthProvider>
-  );
+  )
 }
 ```
 
 ```ts
 // src/entities/auth/model/types.ts
-export type AppRole = "admin" | "engineer";
+export type AppRole = "admin" | "engineer"
 
 export type CurrentViewer = {
-  userId: string;
-  email: string;
-  name: string;
-  role: AppRole;
-  isAllowed: boolean;
-  canManageDocuments: boolean;
-};
+  userId: string
+  email: string
+  name: string
+  role: AppRole
+  isAllowed: boolean
+  canManageDocuments: boolean
+}
 ```
 
 - [ ] **Step 4: Run the focused auth test and repo verification**
@@ -622,21 +625,19 @@ git commit -m "feat(auth): wire Convex Auth and viewer access"
 
 ```ts
 // convex/lib/ingestionState.test.ts
-import { describe, expect, it } from "vitest";
+import { describe, expect, it } from "vitest"
 
-import { assertNextIngestionStatus } from "./ingestionState";
+import { assertNextIngestionStatus } from "./ingestionState"
 
 describe("assertNextIngestionStatus", () => {
   it("allows queued -> downloading", () => {
-    expect(() => assertNextIngestionStatus("queued", "downloading")).not.toThrow();
-  });
+    expect(() => assertNextIngestionStatus("queued", "downloading")).not.toThrow()
+  })
 
   it("rejects embedding -> parsing", () => {
-    expect(() => assertNextIngestionStatus("embedding", "parsing")).toThrow(
-      "Invalid ingestion status transition",
-    );
-  });
-});
+    expect(() => assertNextIngestionStatus("embedding", "parsing")).toThrow("Invalid ingestion status transition")
+  })
+})
 ```
 
 - [ ] **Step 2: Run the focused test to verify it fails**
@@ -649,15 +650,15 @@ Expected: FAIL with `Cannot find module './ingestionState'`.
 
 ```ts
 // convex/lib/validators.ts
-import { v } from "convex/values";
+import { v } from "convex/values"
 
 export const documentStatusValidator = v.union(
   v.literal("draft"),
   v.literal("processing"),
   v.literal("ready"),
   v.literal("failed"),
-  v.literal("inactive"),
-);
+  v.literal("inactive")
+)
 
 export const ingestionStatusValidator = v.union(
   v.literal("queued"),
@@ -666,25 +667,25 @@ export const ingestionStatusValidator = v.union(
   v.literal("normalizing"),
   v.literal("embedding"),
   v.literal("ready"),
-  v.literal("failed"),
-);
+  v.literal("failed")
+)
 
 export const chunkTypeValidator = v.union(
   v.literal("text"),
   v.literal("table"),
   v.literal("diagram_description"),
   v.literal("warning"),
-  v.literal("spec"),
-);
+  v.literal("spec")
+)
 
-export const messageRoleValidator = v.union(v.literal("user"), v.literal("assistant"));
-export const answerabilityStatusValidator = v.union(v.literal("grounded"), v.literal("insufficient_evidence"));
-export const severityValidator = v.union(v.literal("informational"), v.literal("operational"), v.literal("safety-critical"));
+export const messageRoleValidator = v.union(v.literal("user"), v.literal("assistant"))
+export const answerabilityStatusValidator = v.union(v.literal("grounded"), v.literal("insufficient_evidence"))
+export const severityValidator = v.union(v.literal("informational"), v.literal("operational"), v.literal("safety-critical"))
 ```
 
 ```ts
 // convex/lib/ingestionState.ts
-export type IngestionStatus = "queued" | "downloading" | "parsing" | "normalizing" | "embedding" | "ready" | "failed";
+export type IngestionStatus = "queued" | "downloading" | "parsing" | "normalizing" | "embedding" | "ready" | "failed"
 
 const ALLOWED_NEXT: Record<IngestionStatus, IngestionStatus[]> = {
   queued: ["downloading", "failed"],
@@ -693,21 +694,22 @@ const ALLOWED_NEXT: Record<IngestionStatus, IngestionStatus[]> = {
   normalizing: ["embedding", "failed"],
   embedding: ["ready", "failed"],
   ready: [],
-  failed: ["queued"],
-};
+  failed: ["queued"]
+}
 
 export function assertNextIngestionStatus(current: IngestionStatus, next: IngestionStatus) {
   if (!ALLOWED_NEXT[current].includes(next)) {
-    throw new Error(`Invalid ingestion status transition: ${current} -> ${next}`);
+    throw new Error(`Invalid ingestion status transition: ${current} -> ${next}`)
   }
 }
 ```
 
 ```ts
 // convex/schema.ts
-import { authTables } from "@convex-dev/auth/server";
-import { defineSchema, defineTable } from "convex/server";
-import { v } from "convex/values";
+import { defineSchema, defineTable } from "convex/server"
+import { v } from "convex/values"
+
+import { authTables } from "@convex-dev/auth/server"
 
 import {
   answerabilityStatusValidator,
@@ -715,21 +717,21 @@ import {
   documentStatusValidator,
   ingestionStatusValidator,
   messageRoleValidator,
-  severityValidator,
-} from "./lib/validators";
+  severityValidator
+} from "./lib/validators"
 
 export default defineSchema({
   ...authTables,
   vendors: defineTable({
     slug: v.string(),
     name: v.string(),
-    createdAt: v.number(),
+    createdAt: v.number()
   }).index("by_slug", ["slug"]),
   products: defineTable({
     vendorId: v.id("vendors"),
     slug: v.string(),
     name: v.string(),
-    createdAt: v.number(),
+    createdAt: v.number()
   }).index("by_vendor_and_slug", ["vendorId", "slug"]),
   documents: defineTable({
     vendorId: v.id("vendors"),
@@ -745,7 +747,7 @@ export default defineSchema({
     isActive: v.boolean(),
     createdAt: v.number(),
     updatedAt: v.number(),
-    createdBy: v.id("users"),
+    createdBy: v.id("users")
   })
     .index("by_product", ["productId"])
     .index("by_product_and_active", ["productId", "isActive"]),
@@ -755,7 +757,7 @@ export default defineSchema({
     status: ingestionStatusValidator,
     errorMessage: v.optional(v.string()),
     createdAt: v.number(),
-    updatedAt: v.number(),
+    updatedAt: v.number()
   }).index("by_document", ["documentId"]),
   documentAssets: defineTable({
     documentId: v.id("documents"),
@@ -766,7 +768,7 @@ export default defineSchema({
     mimeType: v.string(),
     pageNumber: v.optional(v.number()),
     isCurrent: v.boolean(),
-    createdAt: v.number(),
+    createdAt: v.number()
   }).index("by_document_and_current", ["documentId", "isCurrent"]),
   documentPages: defineTable({
     documentId: v.id("documents"),
@@ -775,7 +777,7 @@ export default defineSchema({
     printedPageNumber: v.optional(v.string()),
     markdown: v.string(),
     needsOcrFallback: v.boolean(),
-    isCurrent: v.boolean(),
+    isCurrent: v.boolean()
   }).index("by_document_and_current", ["documentId", "isCurrent"]),
   chunks: defineTable({
     documentId: v.id("documents"),
@@ -784,7 +786,7 @@ export default defineSchema({
     chunkType: chunkTypeValidator,
     content: v.string(),
     citationLabel: v.string(),
-    isCurrent: v.boolean(),
+    isCurrent: v.boolean()
   })
     .index("by_document_and_current", ["documentId", "isCurrent"])
     .index("by_document_and_page", ["documentId", "pageNumber"]),
@@ -795,19 +797,19 @@ export default defineSchema({
     productSlug: v.string(),
     chunkType: chunkTypeValidator,
     isCurrent: v.boolean(),
-    embedding: v.array(v.float64()),
+    embedding: v.array(v.float64())
   })
     .index("by_chunk", ["chunkId"])
     .vectorIndex("by_embedding", {
       vectorField: "embedding",
       dimensions: 1024,
-      filterFields: ["documentId", "vendorSlug", "productSlug", "chunkType", "isCurrent"],
+      filterFields: ["documentId", "vendorSlug", "productSlug", "chunkType", "isCurrent"]
     }),
   chatSessions: defineTable({
     userId: v.id("users"),
     title: v.string(),
     createdAt: v.number(),
-    updatedAt: v.number(),
+    updatedAt: v.number()
   }).index("by_user", ["userId"]),
   chatMessages: defineTable({
     sessionId: v.id("chatSessions"),
@@ -815,14 +817,14 @@ export default defineSchema({
     role: messageRoleValidator,
     content: v.string(),
     answerabilityStatus: v.optional(answerabilityStatusValidator),
-    createdAt: v.number(),
+    createdAt: v.number()
   }).index("by_session", ["sessionId"]),
   answerEvidence: defineTable({
     messageId: v.id("chatMessages"),
     chunkId: v.id("chunks"),
     assetId: v.optional(v.id("documentAssets")),
     pageNumber: v.number(),
-    score: v.number(),
+    score: v.number()
   }).index("by_message", ["messageId"]),
   evaluationCases: defineTable({
     slug: v.string(),
@@ -831,7 +833,7 @@ export default defineSchema({
     severity: severityValidator,
     expectedDocumentTitle: v.string(),
     expectedPageNumbers: v.array(v.number()),
-    expectedRefusal: v.boolean(),
+    expectedRefusal: v.boolean()
   }).index("by_slug", ["slug"]),
   auditEvents: defineTable({
     actorUserId: v.id("users"),
@@ -839,49 +841,67 @@ export default defineSchema({
     targetTable: v.string(),
     targetId: v.string(),
     summary: v.string(),
-    createdAt: v.number(),
-  }).index("by_actor", ["actorUserId"]),
-});
+    createdAt: v.number()
+  }).index("by_actor", ["actorUserId"])
+})
 ```
 
 ```ts
 // convex/documents.ts
-import { v } from "convex/values";
+import type { MutationCtx } from "./_generated/server"
 
-import type { MutationCtx } from "./_generated/server";
-import { internalMutation, internalQuery, mutation, query } from "./_generated/server";
-import { documentStatusValidator } from "./lib/validators";
-import { requireAdminViewer } from "./lib/viewer";
+import { v } from "convex/values"
+
+import { internalMutation, internalQuery, mutation, query } from "./_generated/server"
+import { documentStatusValidator } from "./lib/validators"
+import { requireAdminViewer } from "./lib/viewer"
 
 function toSlug(value: string) {
-  return value.trim().toLowerCase().replace(/[^a-z0-9]+/g, "-").replace(/(^-|-$)/g, "");
+  return value
+    .trim()
+    .toLowerCase()
+    .replace(/[^a-z0-9]+/g, "-")
+    .replace(/(^-|-$)/g, "")
 }
 
 async function upsertVendor(ctx: MutationCtx, name: string) {
-  const slug = toSlug(name);
-  const existing = await ctx.db.query("vendors").withIndex("by_slug", (q) => q.eq("slug", slug)).unique();
-  if (existing) return existing._id;
-  return await ctx.db.insert("vendors", { slug, name: name.trim(), createdAt: Date.now() });
+  const slug = toSlug(name)
+  const existing = await ctx.db
+    .query("vendors")
+    .withIndex("by_slug", (q) => q.eq("slug", slug))
+    .unique()
+  if (existing) return existing._id
+  return await ctx.db.insert("vendors", { slug, name: name.trim(), createdAt: Date.now() })
 }
 
 async function upsertProduct(ctx: MutationCtx, vendorId: string, name: string) {
-  const slug = toSlug(name);
+  const slug = toSlug(name)
   const existing = await ctx.db
     .query("products")
     .withIndex("by_vendor_and_slug", (q) => q.eq("vendorId", vendorId).eq("slug", slug))
-    .unique();
-  if (existing) return existing._id;
-  return await ctx.db.insert("products", { vendorId, slug, name: name.trim(), createdAt: Date.now() });
+    .unique()
+  if (existing) return existing._id
+  return await ctx.db.insert("products", { vendorId, slug, name: name.trim(), createdAt: Date.now() })
 }
 
 export const listAdmin = query({
   args: {},
-  returns: v.array(v.object({ _id: v.id("documents"), title: v.string(), version: v.string(), vendorSlug: v.string(), productSlug: v.string(), status: documentStatusValidator, isActive: v.boolean() })),
+  returns: v.array(
+    v.object({
+      _id: v.id("documents"),
+      title: v.string(),
+      version: v.string(),
+      vendorSlug: v.string(),
+      productSlug: v.string(),
+      status: documentStatusValidator,
+      isActive: v.boolean()
+    })
+  ),
   handler: async (ctx) => {
-    await requireAdminViewer(ctx);
-    return await ctx.db.query("documents").collect();
-  },
-});
+    await requireAdminViewer(ctx)
+    return await ctx.db.query("documents").collect()
+  }
+})
 
 export const create = mutation({
   args: {
@@ -890,14 +910,14 @@ export const create = mutation({
     title: v.string(),
     version: v.string(),
     language: v.string(),
-    sourceUrl: v.string(),
+    sourceUrl: v.string()
   },
   returns: v.id("documents"),
   handler: async (ctx, args) => {
-    const viewer = await requireAdminViewer(ctx);
-    const vendorId = await upsertVendor(ctx, args.vendorName);
-    const productId = await upsertProduct(ctx, vendorId, args.productName);
-    const now = Date.now();
+    const viewer = await requireAdminViewer(ctx)
+    const vendorId = await upsertVendor(ctx, args.vendorName)
+    const productId = await upsertProduct(ctx, vendorId, args.productName)
+    const now = Date.now()
     const documentId = await ctx.db.insert("documents", {
       vendorId,
       productId,
@@ -911,103 +931,110 @@ export const create = mutation({
       isActive: false,
       createdAt: now,
       updatedAt: now,
-      createdBy: viewer.userId,
-    });
+      createdBy: viewer.userId
+    })
     await ctx.db.insert("auditEvents", {
       actorUserId: viewer.userId,
       action: "document.create",
       targetTable: "documents",
       targetId: documentId,
       summary: `Created ${args.title.trim()} ${args.version.trim()}`,
-      createdAt: now,
-    });
-    return documentId;
-  },
-});
+      createdAt: now
+    })
+    return documentId
+  }
+})
 ```
 
 ```ts
 // convex/ingestion.ts
-import { v } from "convex/values";
+import { v } from "convex/values"
 
-import { internalMutation, mutation, query } from "./_generated/server";
-import { assertNextIngestionStatus } from "./lib/ingestionState";
-import { ingestionStatusValidator } from "./lib/validators";
-import { requireAdminViewer } from "./lib/viewer";
+import { internalMutation, mutation, query } from "./_generated/server"
+import { assertNextIngestionStatus } from "./lib/ingestionState"
+import { ingestionStatusValidator } from "./lib/validators"
+import { requireAdminViewer } from "./lib/viewer"
 
 export const listJobs = query({
   args: {},
-  returns: v.array(v.object({ _id: v.id("ingestionJobs"), documentId: v.id("documents"), status: ingestionStatusValidator, errorMessage: v.optional(v.string()) })),
+  returns: v.array(
+    v.object({
+      _id: v.id("ingestionJobs"),
+      documentId: v.id("documents"),
+      status: ingestionStatusValidator,
+      errorMessage: v.optional(v.string())
+    })
+  ),
   handler: async (ctx) => {
-    await requireAdminViewer(ctx);
-    return await ctx.db.query("ingestionJobs").collect();
-  },
-});
+    await requireAdminViewer(ctx)
+    return await ctx.db.query("ingestionJobs").collect()
+  }
+})
 
 export const enqueue = mutation({
   args: { documentId: v.id("documents") },
   returns: v.id("ingestionJobs"),
   handler: async (ctx, args) => {
-    const viewer = await requireAdminViewer(ctx);
-    const now = Date.now();
+    const viewer = await requireAdminViewer(ctx)
+    const now = Date.now()
     const jobId = await ctx.db.insert("ingestionJobs", {
       documentId: args.documentId,
       requestedBy: viewer.userId,
       status: "queued",
       createdAt: now,
-      updatedAt: now,
-    });
-    return jobId;
-  },
-});
+      updatedAt: now
+    })
+    return jobId
+  }
+})
 
 export const retry = mutation({
   args: { jobId: v.id("ingestionJobs") },
   returns: v.id("ingestionJobs"),
   handler: async (ctx, args) => {
-    const viewer = await requireAdminViewer(ctx);
-    const existing = await ctx.db.get(args.jobId);
+    const viewer = await requireAdminViewer(ctx)
+    const existing = await ctx.db.get(args.jobId)
     if (!existing) {
-      throw new Error("Ingestion job not found");
+      throw new Error("Ingestion job not found")
     }
-    const now = Date.now();
+    const now = Date.now()
     const retryJobId = await ctx.db.insert("ingestionJobs", {
       documentId: existing.documentId,
       requestedBy: viewer.userId,
       status: "queued",
       createdAt: now,
-      updatedAt: now,
-    });
+      updatedAt: now
+    })
     await ctx.scheduler.runAfter(0, internal.ingestion.runDocumentJob, {
       documentId: existing.documentId,
-      jobId: retryJobId,
-    });
-    return retryJobId;
-  },
-});
+      jobId: retryJobId
+    })
+    return retryJobId
+  }
+})
 
 export const updateJobStatus = internalMutation({
   args: { jobId: v.id("ingestionJobs"), status: ingestionStatusValidator, errorMessage: v.optional(v.string()) },
   returns: v.null(),
   handler: async (ctx, args) => {
-    const job = await ctx.db.get(args.jobId);
-    if (!job) return null;
-    assertNextIngestionStatus(job.status, args.status);
+    const job = await ctx.db.get(args.jobId)
+    if (!job) return null
+    assertNextIngestionStatus(job.status, args.status)
     await ctx.db.patch(args.jobId, {
       status: args.status,
       errorMessage: args.errorMessage,
-      updatedAt: Date.now(),
-    });
-    return null;
-  },
-});
+      updatedAt: Date.now()
+    })
+    return null
+  }
+})
 ```
 
 ```ts
 // convex/assets.ts
-import { v } from "convex/values";
+import { v } from "convex/values"
 
-import { query } from "./_generated/server";
+import { query } from "./_generated/server"
 
 export const resolveViewerAsset = query({
   args: { assetId: v.id("documentAssets") },
@@ -1017,17 +1044,17 @@ export const resolveViewerAsset = query({
       _id: v.id("documentAssets"),
       kind: v.literal("source_pdf"),
       url: v.string(),
-      pageNumber: v.optional(v.number()),
-    }),
+      pageNumber: v.optional(v.number())
+    })
   ),
   handler: async (ctx, args) => {
-    const asset = await ctx.db.get(args.assetId);
-    if (!asset) return null;
-    const url = await ctx.storage.getUrl(asset.storageId);
-    if (!url) return null;
-    return { _id: asset._id, kind: "source_pdf", url, pageNumber: asset.pageNumber };
-  },
-});
+    const asset = await ctx.db.get(args.assetId)
+    if (!asset) return null
+    const url = await ctx.storage.getUrl(asset.storageId)
+    if (!url) return null
+    return { _id: asset._id, kind: "source_pdf", url, pageNumber: asset.pageNumber }
+  }
+})
 ```
 
 - [ ] **Step 4: Run the state test and repo verification**
@@ -1062,9 +1089,9 @@ git commit -m "feat(documents): add SP1 domain schema"
 
 ```ts
 // convex/lib/normalize.test.ts
-import { describe, expect, it } from "vitest";
+import { describe, expect, it } from "vitest"
 
-import { normalizeParsedPages } from "./normalize";
+import { normalizeParsedPages } from "./normalize"
 
 describe("normalizeParsedPages", () => {
   it("keeps markdown tables as table chunks", () => {
@@ -1072,25 +1099,25 @@ describe("normalizeParsedPages", () => {
       {
         pageNumber: 45,
         printedPageNumber: "45",
-        markdown: "## LED status\n\n| LED | Meaning |\n| --- | --- |\n| OK red | Hardware fault |",
-      },
-    ]);
+        markdown: "## LED status\n\n| LED | Meaning |\n| --- | --- |\n| OK red | Hardware fault |"
+      }
+    ])
 
-    expect(result.chunks.map((chunk) => chunk.chunkType)).toEqual(["text", "table"]);
-  });
+    expect(result.chunks.map((chunk) => chunk.chunkType)).toEqual(["text", "table"])
+  })
 
   it("flags image-placeholder pages for OCR fallback", () => {
     const result = normalizeParsedPages([
       {
         pageNumber: 9,
         printedPageNumber: "9",
-        markdown: "![img-0.jpeg](img-0.jpeg)",
-      },
-    ]);
+        markdown: "![img-0.jpeg](img-0.jpeg)"
+      }
+    ])
 
-    expect(result.pages[0]?.needsOcrFallback).toBe(true);
-  });
-});
+    expect(result.pages[0]?.needsOcrFallback).toBe(true)
+  })
+})
 ```
 
 - [ ] **Step 2: Run the focused test to verify it fails**
@@ -1104,11 +1131,11 @@ Expected: FAIL with `Cannot find module './normalize'`.
 ```ts
 // convex/lib/env.ts
 function requireEnv(name: string) {
-  const value = process.env[name];
+  const value = process.env[name]
   if (!value?.trim()) {
-    throw new Error(`${name} must be configured`);
+    throw new Error(`${name} must be configured`)
   }
-  return value.trim();
+  return value.trim()
 }
 
 export function getServerEnv() {
@@ -1116,25 +1143,25 @@ export function getServerEnv() {
     llamaCloudApiKey: requireEnv("LLAMA_CLOUD_API_KEY"),
     mistralApiKey: requireEnv("MISTRAL_API_KEY"),
     mistralChatModel: process.env.MISTRAL_CHAT_MODEL?.trim() || "mistral-small-latest",
-    mistralEmbedModel: process.env.MISTRAL_EMBED_MODEL?.trim() || "mistral-embed",
-  };
+    mistralEmbedModel: process.env.MISTRAL_EMBED_MODEL?.trim() || "mistral-embed"
+  }
 }
 ```
 
 ```ts
 // convex/lib/llamaCloud.ts
-import LlamaCloud from "@llamaindex/llama-cloud";
+import LlamaCloud from "@llamaindex/llama-cloud"
 
-import { getServerEnv } from "./env";
+import { getServerEnv } from "./env"
 
 export type ParsedPage = {
-  pageNumber: number;
-  printedPageNumber?: string;
-  markdown: string;
-};
+  pageNumber: number
+  printedPageNumber?: string
+  markdown: string
+}
 
 export async function parseDocumentMarkdown(sourceUrl: string): Promise<ParsedPage[]> {
-  const client = new LlamaCloud({ apiKey: getServerEnv().llamaCloudApiKey });
+  const client = new LlamaCloud({ apiKey: getServerEnv().llamaCloudApiKey })
   const result = await client.parsing.parse({
     source_url: sourceUrl,
     tier: "agentic",
@@ -1143,55 +1170,55 @@ export async function parseDocumentMarkdown(sourceUrl: string): Promise<ParsedPa
       extract_printed_page_number: true,
       markdown: {
         output_tables_as_markdown: true,
-        merge_continued_tables: true,
-      },
+        merge_continued_tables: true
+      }
     },
-    expand: ["markdown"],
-  });
+    expand: ["markdown"]
+  })
 
   return (result.markdown?.pages ?? []).map((page) => ({
     pageNumber: page.page_number,
     printedPageNumber: page.printed_page_number ?? undefined,
-    markdown: page.md,
-  }));
+    markdown: page.md
+  }))
 }
 ```
 
 ```ts
 // convex/lib/mistral.ts
-import { Mistral } from "@mistralai/mistralai";
+import { Mistral } from "@mistralai/mistralai"
 
-import { getServerEnv } from "./env";
+import { getServerEnv } from "./env"
 
 function getClient() {
-  return new Mistral({ apiKey: getServerEnv().mistralApiKey });
+  return new Mistral({ apiKey: getServerEnv().mistralApiKey })
 }
 
 export async function embedTexts(inputs: string[]) {
-  const client = getClient();
+  const client = getClient()
   const result = await client.embeddings.create({
     model: getServerEnv().mistralEmbedModel,
-    inputs,
-  });
-  return result.data.map((item) => item.embedding);
+    inputs
+  })
+  return result.data.map((item) => item.embedding)
 }
 
 export async function ocrPdfPage(sourceUrl: string, pageNumber: number) {
-  const client = getClient();
+  const client = getClient()
   const result = await client.ocr.process({
     model: "mistral-ocr-latest",
     document: {
       type: "document_url",
-      documentUrl: sourceUrl,
+      documentUrl: sourceUrl
     },
     pages: [pageNumber - 1],
-    tableFormat: "markdown",
-  });
-  return result.pages[0]?.markdown ?? "";
+    tableFormat: "markdown"
+  })
+  return result.pages[0]?.markdown ?? ""
 }
 
 export async function generateGroundedAnswer(question: string, context: string) {
-  const client = getClient();
+  const client = getClient()
   const response = await client.chat.complete({
     model: getServerEnv().mistralChatModel,
     responseFormat: { type: "json_object" },
@@ -1199,43 +1226,43 @@ export async function generateGroundedAnswer(question: string, context: string) 
       {
         role: "system",
         content:
-          "Return strict JSON with keys answerSummary and answerSteps. Use only the provided context. If context is insufficient, say so in answerSummary and return an empty answerSteps array.",
+          "Return strict JSON with keys answerSummary and answerSteps. Use only the provided context. If context is insufficient, say so in answerSummary and return an empty answerSteps array."
       },
       {
         role: "user",
-        content: `Question: ${question}\n\nContext:\n${context}`,
-      },
-    ],
-  });
+        content: `Question: ${question}\n\nContext:\n${context}`
+      }
+    ]
+  })
 
-  const content = response.choices[0]?.message?.content;
-  const jsonText = typeof content === "string" ? content : "{}";
-  return JSON.parse(jsonText) as { answerSummary: string; answerSteps: string[] };
+  const content = response.choices[0]?.message?.content
+  const jsonText = typeof content === "string" ? content : "{}"
+  return JSON.parse(jsonText) as { answerSummary: string; answerSteps: string[] }
 }
 ```
 
 ```ts
 // convex/lib/normalize.ts
-import type { ParsedPage } from "./llamaCloud";
+import type { ParsedPage } from "./llamaCloud"
 
 function splitBlocks(markdown: string) {
   return markdown
     .split(/\n{2,}/)
     .map((block) => block.trim())
-    .filter(Boolean);
+    .filter(Boolean)
 }
 
 function classifyBlock(block: string) {
-  if (/^\|.+\|$/m.test(block)) return "table" as const;
-  if (/warning|danger|caution/i.test(block)) return "warning" as const;
-  if (/wiring|slot|backplane|chassis|diagram/i.test(block)) return "diagram_description" as const;
-  if (/catalog|module|specification|terminal|connector/i.test(block)) return "spec" as const;
-  return "text" as const;
+  if (/^\|.+\|$/m.test(block)) return "table" as const
+  if (/warning|danger|caution/i.test(block)) return "warning" as const
+  if (/wiring|slot|backplane|chassis|diagram/i.test(block)) return "diagram_description" as const
+  if (/catalog|module|specification|terminal|connector/i.test(block)) return "spec" as const
+  return "text" as const
 }
 
 function shouldUseOcrFallback(markdown: string) {
-  const trimmed = markdown.trim();
-  return trimmed.startsWith("![") || trimmed.length < 80;
+  const trimmed = markdown.trim()
+  return trimmed.startsWith("![") || trimmed.length < 80
 }
 
 export function normalizeParsedPages(pages: ParsedPage[]) {
@@ -1243,19 +1270,19 @@ export function normalizeParsedPages(pages: ParsedPage[]) {
     pageNumber: page.pageNumber,
     printedPageNumber: page.printedPageNumber,
     markdown: page.markdown,
-    needsOcrFallback: shouldUseOcrFallback(page.markdown),
-  }));
+    needsOcrFallback: shouldUseOcrFallback(page.markdown)
+  }))
 
   const chunks = pages.flatMap((page) =>
     splitBlocks(page.markdown).map((block) => ({
       pageNumber: page.pageNumber,
       chunkType: classifyBlock(block),
       content: block,
-      citationLabel: `Page ${page.pageNumber}`,
-    })),
-  );
+      citationLabel: `Page ${page.pageNumber}`
+    }))
+  )
 
-  return { pages: normalizedPages, chunks };
+  return { pages: normalizedPages, chunks }
 }
 ```
 
@@ -1290,26 +1317,29 @@ git commit -m "feat(ingestion): add provider adapters and normalization"
 
 ```ts
 // convex/lib/ingestDocument.test.ts
-import { describe, expect, it, vi } from "vitest";
+import { describe, expect, it, vi } from "vitest"
 
-import { buildDocumentPayload } from "./ingestDocument";
+import { buildDocumentPayload } from "./ingestDocument"
 
 describe("buildDocumentPayload", () => {
   it("reruns OCR only for flagged pages and aligns embeddings with chunks", async () => {
     const parse = vi.fn().mockResolvedValue([
       { pageNumber: 1, printedPageNumber: "1", markdown: "Normal paragraph about controller wiring." },
-      { pageNumber: 2, printedPageNumber: "2", markdown: "![img-0.jpeg](img-0.jpeg)" },
-    ]);
-    const ocr = vi.fn().mockResolvedValue("Partner module must be installed to the right of the primary controller.");
-    const embed = vi.fn().mockResolvedValue([[0.1, 0.2], [0.3, 0.4]]);
+      { pageNumber: 2, printedPageNumber: "2", markdown: "![img-0.jpeg](img-0.jpeg)" }
+    ])
+    const ocr = vi.fn().mockResolvedValue("Partner module must be installed to the right of the primary controller.")
+    const embed = vi.fn().mockResolvedValue([
+      [0.1, 0.2],
+      [0.3, 0.4]
+    ])
 
-    const payload = await buildDocumentPayload({ parse, ocr, embed, sourceUrl: "https://vendor/manual.pdf" });
+    const payload = await buildDocumentPayload({ parse, ocr, embed, sourceUrl: "https://vendor/manual.pdf" })
 
-    expect(ocr).toHaveBeenCalledTimes(1);
-    expect(payload.chunks).toHaveLength(2);
-    expect(payload.embeddings).toHaveLength(2);
-  });
-});
+    expect(ocr).toHaveBeenCalledTimes(1)
+    expect(payload.chunks).toHaveLength(2)
+    expect(payload.embeddings).toHaveLength(2)
+  })
+})
 ```
 
 - [ ] **Step 2: Run the focused test to verify it fails**
@@ -1322,98 +1352,98 @@ Expected: FAIL with `Cannot find module './ingestDocument'`.
 
 ```ts
 // convex/lib/ingestDocument.ts
-import { normalizeParsedPages } from "./normalize";
+import { normalizeParsedPages } from "./normalize"
 
 type BuildDocumentPayloadArgs = {
-  sourceUrl: string;
-  parse: () => Promise<Array<{ pageNumber: number; printedPageNumber?: string; markdown: string }>>;
-  ocr: (sourceUrl: string, pageNumber: number) => Promise<string>;
-  embed: (inputs: string[]) => Promise<number[][]>;
-};
+  sourceUrl: string
+  parse: () => Promise<Array<{ pageNumber: number; printedPageNumber?: string; markdown: string }>>
+  ocr: (sourceUrl: string, pageNumber: number) => Promise<string>
+  embed: (inputs: string[]) => Promise<number[][]>
+}
 
 export async function buildDocumentPayload(args: BuildDocumentPayloadArgs) {
-  const initialPages = await args.parse();
-  const firstPass = normalizeParsedPages(initialPages);
+  const initialPages = await args.parse()
+  const firstPass = normalizeParsedPages(initialPages)
 
   const repairedPages = await Promise.all(
     firstPass.pages.map(async (page) => {
-      if (!page.needsOcrFallback) return page;
-      const markdown = await args.ocr(args.sourceUrl, page.pageNumber);
+      if (!page.needsOcrFallback) return page
+      const markdown = await args.ocr(args.sourceUrl, page.pageNumber)
       return {
         pageNumber: page.pageNumber,
         printedPageNumber: page.printedPageNumber,
-        markdown,
-      };
-    }),
-  );
+        markdown
+      }
+    })
+  )
 
-  const finalPass = normalizeParsedPages(repairedPages);
-  const embeddings = finalPass.chunks.length === 0 ? [] : await args.embed(finalPass.chunks.map((chunk) => chunk.content));
+  const finalPass = normalizeParsedPages(repairedPages)
+  const embeddings = finalPass.chunks.length === 0 ? [] : await args.embed(finalPass.chunks.map((chunk) => chunk.content))
 
   return {
     pages: finalPass.pages,
     chunks: finalPass.chunks,
-    embeddings,
-  };
+    embeddings
+  }
 }
 ```
 
 ```ts
 // convex/ingestion.ts (replace enqueue and add action excerpt)
-"use node";
+"use node"
 
-import { v } from "convex/values";
+import { v } from "convex/values"
 
-import { internal } from "./_generated/api";
-import { internalAction, internalMutation, mutation, query } from "./_generated/server";
-import { buildDocumentPayload } from "./lib/ingestDocument";
-import { assertNextIngestionStatus } from "./lib/ingestionState";
-import { parseDocumentMarkdown } from "./lib/llamaCloud";
-import { embedTexts, ocrPdfPage } from "./lib/mistral";
-import { requireAdminViewer } from "./lib/viewer";
+import { internal } from "./_generated/api"
+import { internalAction, internalMutation, mutation, query } from "./_generated/server"
+import { buildDocumentPayload } from "./lib/ingestDocument"
+import { assertNextIngestionStatus } from "./lib/ingestionState"
+import { parseDocumentMarkdown } from "./lib/llamaCloud"
+import { embedTexts, ocrPdfPage } from "./lib/mistral"
+import { requireAdminViewer } from "./lib/viewer"
 
 export const enqueue = mutation({
   args: { documentId: v.id("documents") },
   returns: v.id("ingestionJobs"),
   handler: async (ctx, args) => {
-    const viewer = await requireAdminViewer(ctx);
-    const now = Date.now();
+    const viewer = await requireAdminViewer(ctx)
+    const now = Date.now()
     const jobId = await ctx.db.insert("ingestionJobs", {
       documentId: args.documentId,
       requestedBy: viewer.userId,
       status: "queued",
       createdAt: now,
-      updatedAt: now,
-    });
-    await ctx.scheduler.runAfter(0, internal.ingestion.runDocumentJob, { documentId: args.documentId, jobId });
-    return jobId;
-  },
-});
+      updatedAt: now
+    })
+    await ctx.scheduler.runAfter(0, internal.ingestion.runDocumentJob, { documentId: args.documentId, jobId })
+    return jobId
+  }
+})
 
 export const runDocumentJob = internalAction({
   args: { documentId: v.id("documents"), jobId: v.id("ingestionJobs") },
   returns: v.null(),
   handler: async (ctx, args) => {
-    const document = await ctx.runQuery(internal.documents.getById, { documentId: args.documentId });
-    if (!document) return null;
+    const document = await ctx.runQuery(internal.documents.getById, { documentId: args.documentId })
+    if (!document) return null
 
     try {
-      await ctx.runMutation(internal.ingestion.updateJobStatus, { jobId: args.jobId, status: "downloading" });
+      await ctx.runMutation(internal.ingestion.updateJobStatus, { jobId: args.jobId, status: "downloading" })
 
-      const pdfResponse = await fetch(document.sourceUrl);
+      const pdfResponse = await fetch(document.sourceUrl)
       const pdfBlob = new Blob([await pdfResponse.arrayBuffer()], {
-        type: pdfResponse.headers.get("content-type") ?? "application/pdf",
-      });
-      const storageId = await ctx.storage.store(pdfBlob);
+        type: pdfResponse.headers.get("content-type") ?? "application/pdf"
+      })
+      const storageId = await ctx.storage.store(pdfBlob)
 
-      await ctx.runMutation(internal.ingestion.updateJobStatus, { jobId: args.jobId, status: "parsing" });
+      await ctx.runMutation(internal.ingestion.updateJobStatus, { jobId: args.jobId, status: "parsing" })
 
       const payload = await buildDocumentPayload({
         sourceUrl: document.sourceUrl,
         parse: () => parseDocumentMarkdown(document.sourceUrl),
         ocr: ocrPdfPage,
-        embed: embedTexts,
-      });
+        embed: embedTexts
+      })
 
       await ctx.runMutation(internal.documents.replaceParsedContent, {
         documentId: args.documentId,
@@ -1422,53 +1452,63 @@ export const runDocumentJob = internalAction({
         fileName: `${document.productSlug}-${document.version}.pdf`,
         pages: payload.pages,
         chunks: payload.chunks,
-        embeddings: payload.embeddings,
-      });
+        embeddings: payload.embeddings
+      })
 
-      await ctx.runMutation(internal.documents.markReady, { documentId: args.documentId });
-      await ctx.runMutation(internal.ingestion.updateJobStatus, { jobId: args.jobId, status: "ready" });
-      return null;
+      await ctx.runMutation(internal.documents.markReady, { documentId: args.documentId })
+      await ctx.runMutation(internal.ingestion.updateJobStatus, { jobId: args.jobId, status: "ready" })
+      return null
     } catch (error) {
       await ctx.runMutation(internal.documents.markFailed, {
         documentId: args.documentId,
-        errorMessage: error instanceof Error ? error.message : "Unknown ingestion error",
-      });
+        errorMessage: error instanceof Error ? error.message : "Unknown ingestion error"
+      })
       await ctx.runMutation(internal.ingestion.updateJobStatus, {
         jobId: args.jobId,
         status: "failed",
-        errorMessage: error instanceof Error ? error.message : "Unknown ingestion error",
-      });
-      return null;
+        errorMessage: error instanceof Error ? error.message : "Unknown ingestion error"
+      })
+      return null
     }
-  },
-});
+  }
+})
 ```
 
 ```ts
 // convex/documents.ts (internal mutation excerpt)
 export const getById = internalQuery({
   args: { documentId: v.id("documents") },
-  returns: v.union(v.null(), v.object({ _id: v.id("documents"), sourceUrl: v.string(), vendorSlug: v.string(), productSlug: v.string(), title: v.string(), version: v.string() })),
-  handler: async (ctx, args) => await ctx.db.get(args.documentId),
-});
+  returns: v.union(
+    v.null(),
+    v.object({
+      _id: v.id("documents"),
+      sourceUrl: v.string(),
+      vendorSlug: v.string(),
+      productSlug: v.string(),
+      title: v.string(),
+      version: v.string()
+    })
+  ),
+  handler: async (ctx, args) => await ctx.db.get(args.documentId)
+})
 
 export const markReady = internalMutation({
   args: { documentId: v.id("documents") },
   returns: v.null(),
   handler: async (ctx, args) => {
-    await ctx.db.patch(args.documentId, { status: "ready", updatedAt: Date.now() });
-    return null;
-  },
-});
+    await ctx.db.patch(args.documentId, { status: "ready", updatedAt: Date.now() })
+    return null
+  }
+})
 
 export const markFailed = internalMutation({
   args: { documentId: v.id("documents"), errorMessage: v.string() },
   returns: v.null(),
   handler: async (ctx, args) => {
-    await ctx.db.patch(args.documentId, { status: "failed", updatedAt: Date.now() });
-    return null;
-  },
-});
+    await ctx.db.patch(args.documentId, { status: "failed", updatedAt: Date.now() })
+    return null
+  }
+})
 ```
 
 - [ ] **Step 4: Run the ingestion payload test and repo verification**
@@ -1502,9 +1542,9 @@ git commit -m "feat(ingestion): run document pipeline"
 
 ```ts
 // convex/lib/answerPacket.test.ts
-import { describe, expect, it } from "vitest";
+import { describe, expect, it } from "vitest"
 
-import { buildGroundedPacket, buildRefusalPacket } from "./answerPacket";
+import { buildGroundedPacket, buildRefusalPacket } from "./answerPacket"
 
 describe("buildRefusalPacket", () => {
   it("returns an empty evidence set for insufficient context", () => {
@@ -1513,10 +1553,10 @@ describe("buildRefusalPacket", () => {
       answerSummary: "I could not find enough evidence in the official documentation to answer that safely.",
       answerSteps: [],
       citations: [],
-      supportingAssets: [],
-    });
-  });
-});
+      supportingAssets: []
+    })
+  })
+})
 
 describe("buildGroundedPacket", () => {
   it("deduplicates citations by page and asset", () => {
@@ -1525,14 +1565,14 @@ describe("buildGroundedPacket", () => {
       answerSteps: ["Verify the partner module is adjacent to the primary controller."],
       evidence: [
         { chunkId: "chunk-1", pageNumber: 9, score: 0.91, citationLabel: "Page 9", assetId: "asset-1" },
-        { chunkId: "chunk-2", pageNumber: 9, score: 0.88, citationLabel: "Page 9", assetId: "asset-1" },
-      ],
-    });
+        { chunkId: "chunk-2", pageNumber: 9, score: 0.88, citationLabel: "Page 9", assetId: "asset-1" }
+      ]
+    })
 
-    expect(packet.citations).toHaveLength(1);
-    expect(packet.supportingAssets).toHaveLength(1);
-  });
-});
+    expect(packet.citations).toHaveLength(1)
+    expect(packet.supportingAssets).toHaveLength(1)
+  })
+})
 ```
 
 - [ ] **Step 2: Run the focused test to verify it fails**
@@ -1551,26 +1591,31 @@ export function buildRefusalPacket(_question: string) {
     answerSummary: "I could not find enough evidence in the official documentation to answer that safely.",
     answerSteps: [] as string[],
     citations: [] as Array<{ chunkId: string; pageNumber: number; citationLabel: string; assetId?: string }>,
-    supportingAssets: [] as Array<{ assetId: string; pageNumber: number; label: string }>,
-  };
+    supportingAssets: [] as Array<{ assetId: string; pageNumber: number; label: string }>
+  }
 }
 
 export function buildGroundedPacket(args: {
-  answerSummary: string;
-  answerSteps: string[];
-  evidence: Array<{ chunkId: string; pageNumber: number; score: number; citationLabel: string; assetId?: string }>;
+  answerSummary: string
+  answerSteps: string[]
+  evidence: Array<{ chunkId: string; pageNumber: number; score: number; citationLabel: string; assetId?: string }>
 }) {
-  const seen = new Set<string>();
-  const citations = [];
-  const supportingAssets = [];
+  const seen = new Set<string>()
+  const citations = []
+  const supportingAssets = []
 
   for (const item of args.evidence) {
-    const key = `${item.pageNumber}:${item.assetId ?? "none"}`;
-    if (seen.has(key)) continue;
-    seen.add(key);
-    citations.push({ chunkId: item.chunkId, pageNumber: item.pageNumber, citationLabel: item.citationLabel, assetId: item.assetId });
+    const key = `${item.pageNumber}:${item.assetId ?? "none"}`
+    if (seen.has(key)) continue
+    seen.add(key)
+    citations.push({
+      chunkId: item.chunkId,
+      pageNumber: item.pageNumber,
+      citationLabel: item.citationLabel,
+      assetId: item.assetId
+    })
     if (item.assetId) {
-      supportingAssets.push({ assetId: item.assetId, pageNumber: item.pageNumber, label: item.citationLabel });
+      supportingAssets.push({ assetId: item.assetId, pageNumber: item.pageNumber, label: item.citationLabel })
     }
   }
 
@@ -1579,38 +1624,41 @@ export function buildGroundedPacket(args: {
     answerSummary: args.answerSummary,
     answerSteps: args.answerSteps,
     citations,
-    supportingAssets,
-  };
+    supportingAssets
+  }
 }
 ```
 
 ```ts
 // convex/chats.ts
-import { v } from "convex/values";
+import { v } from "convex/values"
 
-import { internalMutation, query } from "./_generated/server";
-import { answerabilityStatusValidator, messageRoleValidator } from "./lib/validators";
-import { requireAllowedViewer } from "./lib/viewer";
+import { internalMutation, query } from "./_generated/server"
+import { answerabilityStatusValidator, messageRoleValidator } from "./lib/validators"
+import { requireAllowedViewer } from "./lib/viewer"
 
 export const listMessages = query({
   args: { sessionId: v.id("chatSessions") },
   returns: v.array(v.object({ _id: v.id("chatMessages"), role: messageRoleValidator, content: v.string() })),
   handler: async (ctx, args) => {
-    const viewer = await requireAllowedViewer(ctx);
-    const session = await ctx.db.get(args.sessionId);
-    if (!session || session.userId !== viewer.userId) return [];
-    return await ctx.db.query("chatMessages").withIndex("by_session", (q) => q.eq("sessionId", args.sessionId)).collect();
-  },
-});
+    const viewer = await requireAllowedViewer(ctx)
+    const session = await ctx.db.get(args.sessionId)
+    if (!session || session.userId !== viewer.userId) return []
+    return await ctx.db
+      .query("chatMessages")
+      .withIndex("by_session", (q) => q.eq("sessionId", args.sessionId))
+      .collect()
+  }
+})
 
 export const ensureSession = internalMutation({
   args: { userId: v.id("users"), title: v.string() },
   returns: v.id("chatSessions"),
   handler: async (ctx, args) => {
-    const now = Date.now();
-    return await ctx.db.insert("chatSessions", { userId: args.userId, title: args.title, createdAt: now, updatedAt: now });
-  },
-});
+    const now = Date.now()
+    return await ctx.db.insert("chatSessions", { userId: args.userId, title: args.title, createdAt: now, updatedAt: now })
+  }
+})
 
 export const appendMessage = internalMutation({
   args: {
@@ -1618,136 +1666,171 @@ export const appendMessage = internalMutation({
     userId: v.id("users"),
     role: messageRoleValidator,
     content: v.string(),
-    answerabilityStatus: v.optional(answerabilityStatusValidator),
+    answerabilityStatus: v.optional(answerabilityStatusValidator)
   },
   returns: v.id("chatMessages"),
   handler: async (ctx, args) => {
-    await ctx.db.patch(args.sessionId, { updatedAt: Date.now() });
-    return await ctx.db.insert("chatMessages", { ...args, createdAt: Date.now() });
-  },
-});
+    await ctx.db.patch(args.sessionId, { updatedAt: Date.now() })
+    return await ctx.db.insert("chatMessages", { ...args, createdAt: Date.now() })
+  }
+})
 ```
 
 ```ts
 // convex/search.ts
-"use node";
+"use node"
 
-import { v } from "convex/values";
+import { v } from "convex/values"
 
-import { api, internal } from "./_generated/api";
-import { action, internalMutation, internalQuery } from "./_generated/server";
-import { buildGroundedPacket, buildRefusalPacket } from "./lib/answerPacket";
-import { embedTexts, generateGroundedAnswer } from "./lib/mistral";
-import { answerabilityStatusValidator } from "./lib/validators";
-import { requireAllowedViewer } from "./lib/viewer";
+import { api, internal } from "./_generated/api"
+import { action, internalMutation, internalQuery } from "./_generated/server"
+import { buildGroundedPacket, buildRefusalPacket } from "./lib/answerPacket"
+import { embedTexts, generateGroundedAnswer } from "./lib/mistral"
+import { answerabilityStatusValidator } from "./lib/validators"
+import { requireAllowedViewer } from "./lib/viewer"
 
 const PACKET_VALIDATOR = v.object({
   sessionId: v.id("chatSessions"),
   answerabilityStatus: answerabilityStatusValidator,
   answerSummary: v.string(),
   answerSteps: v.array(v.string()),
-  citations: v.array(v.object({ chunkId: v.id("chunks"), pageNumber: v.number(), citationLabel: v.string(), assetId: v.optional(v.id("documentAssets")) })),
-  supportingAssets: v.array(v.object({ assetId: v.id("documentAssets"), pageNumber: v.number(), label: v.string() })),
-});
+  citations: v.array(
+    v.object({
+      chunkId: v.id("chunks"),
+      pageNumber: v.number(),
+      citationLabel: v.string(),
+      assetId: v.optional(v.id("documentAssets"))
+    })
+  ),
+  supportingAssets: v.array(v.object({ assetId: v.id("documentAssets"), pageNumber: v.number(), label: v.string() }))
+})
 
 export const hydrateResults = internalQuery({
   args: { embeddingIds: v.array(v.id("chunkEmbeddings")) },
-  returns: v.array(v.object({ chunkId: v.id("chunks"), content: v.string(), pageNumber: v.number(), citationLabel: v.string(), assetId: v.optional(v.id("documentAssets")) })),
+  returns: v.array(
+    v.object({
+      chunkId: v.id("chunks"),
+      content: v.string(),
+      pageNumber: v.number(),
+      citationLabel: v.string(),
+      assetId: v.optional(v.id("documentAssets"))
+    })
+  ),
   handler: async (ctx, args) => {
-    const rows = [];
+    const rows = []
     for (const embeddingId of args.embeddingIds) {
-      const embedding = await ctx.db.get(embeddingId);
-      if (!embedding) continue;
-      if (!embedding.isCurrent) continue;
-      const chunk = await ctx.db.get(embedding.chunkId);
-      if (!chunk) continue;
-      if (!chunk.isCurrent) continue;
-      const asset = await ctx.db.query("documentAssets").withIndex("by_document_and_current", (q) => q.eq("documentId", chunk.documentId).eq("isCurrent", true)).first();
-      rows.push({ chunkId: chunk._id, content: chunk.content, pageNumber: chunk.pageNumber, citationLabel: chunk.citationLabel, assetId: asset?._id });
+      const embedding = await ctx.db.get(embeddingId)
+      if (!embedding) continue
+      if (!embedding.isCurrent) continue
+      const chunk = await ctx.db.get(embedding.chunkId)
+      if (!chunk) continue
+      if (!chunk.isCurrent) continue
+      const asset = await ctx.db
+        .query("documentAssets")
+        .withIndex("by_document_and_current", (q) => q.eq("documentId", chunk.documentId).eq("isCurrent", true))
+        .first()
+      rows.push({
+        chunkId: chunk._id,
+        content: chunk.content,
+        pageNumber: chunk.pageNumber,
+        citationLabel: chunk.citationLabel,
+        assetId: asset?._id
+      })
     }
-    return rows;
-  },
-});
+    return rows
+  }
+})
 
 export const ask = action({
   args: {
     question: v.string(),
     sessionId: v.optional(v.id("chatSessions")),
-    documentId: v.optional(v.id("documents")),
+    documentId: v.optional(v.id("documents"))
   },
   returns: PACKET_VALIDATOR,
   handler: async (ctx, args) => {
-    const viewer = await requireAllowedViewer(ctx);
-    const [questionEmbedding] = await embedTexts([args.question]);
+    const viewer = await requireAllowedViewer(ctx)
+    const [questionEmbedding] = await embedTexts([args.question])
     const vectorSearchArgs = args.documentId
-      ? { vector: questionEmbedding, limit: 6, filter: (q: { eq: (field: string, value: unknown) => unknown }) => q.eq("documentId", args.documentId) }
-      : { vector: questionEmbedding, limit: 6 };
-    const hits = await ctx.vectorSearch("chunkEmbeddings", "by_embedding", vectorSearchArgs);
-    const evidence = await ctx.runQuery(internal.search.hydrateResults, { embeddingIds: hits.map((hit) => hit._id) });
+      ? {
+          vector: questionEmbedding,
+          limit: 6,
+          filter: (q: { eq: (field: string, value: unknown) => unknown }) => q.eq("documentId", args.documentId)
+        }
+      : { vector: questionEmbedding, limit: 6 }
+    const hits = await ctx.vectorSearch("chunkEmbeddings", "by_embedding", vectorSearchArgs)
+    const evidence = await ctx.runQuery(internal.search.hydrateResults, { embeddingIds: hits.map((hit) => hit._id) })
 
     const sessionId =
-      args.sessionId ?? (await ctx.runMutation(internal.chats.ensureSession, { userId: viewer.userId, title: args.question.slice(0, 80) }));
+      args.sessionId ??
+      (await ctx.runMutation(internal.chats.ensureSession, { userId: viewer.userId, title: args.question.slice(0, 80) }))
     await ctx.runMutation(internal.chats.appendMessage, {
       sessionId,
       userId: viewer.userId,
       role: "user",
-      content: args.question,
-    });
+      content: args.question
+    })
 
     if (evidence.length === 0 || (hits[0]?._score ?? 0) < 0.55) {
-      const refusal = buildRefusalPacket(args.question);
+      const refusal = buildRefusalPacket(args.question)
       await ctx.runMutation(internal.chats.appendMessage, {
         sessionId,
         userId: viewer.userId,
         role: "assistant",
         content: refusal.answerSummary,
-        answerabilityStatus: refusal.answerabilityStatus,
-      });
-      return { sessionId, ...refusal };
+        answerabilityStatus: refusal.answerabilityStatus
+      })
+      return { sessionId, ...refusal }
     }
 
     const grounded = await generateGroundedAnswer(
       args.question,
-      evidence.map((item) => `[${item.citationLabel}] ${item.content}`).join("\n\n"),
-    );
-    const scoredEvidence = evidence.map((item, index) => ({ ...item, score: hits[index]?._score ?? 0 }));
+      evidence.map((item) => `[${item.citationLabel}] ${item.content}`).join("\n\n")
+    )
+    const scoredEvidence = evidence.map((item, index) => ({ ...item, score: hits[index]?._score ?? 0 }))
     const packet = buildGroundedPacket({
       answerSummary: grounded.answerSummary,
       answerSteps: grounded.answerSteps,
-      evidence: scoredEvidence,
-    });
+      evidence: scoredEvidence
+    })
 
     const messageId = await ctx.runMutation(internal.chats.appendMessage, {
       sessionId,
       userId: viewer.userId,
       role: "assistant",
       content: packet.answerSummary,
-      answerabilityStatus: packet.answerabilityStatus,
-    });
+      answerabilityStatus: packet.answerabilityStatus
+    })
 
     for (const citation of packet.citations) {
-      const evidenceRow = scoredEvidence.find((item) => item.chunkId === citation.chunkId);
+      const evidenceRow = scoredEvidence.find((item) => item.chunkId === citation.chunkId)
       await ctx.runMutation(internal.search.recordEvidence, {
         messageId,
         chunkId: citation.chunkId,
         assetId: citation.assetId,
         pageNumber: citation.pageNumber,
-        score: evidenceRow?.score ?? 0,
-      });
+        score: evidenceRow?.score ?? 0
+      })
     }
 
-    return { sessionId, ...packet };
-  },
-});
+    return { sessionId, ...packet }
+  }
+})
 
 export const recordEvidence = internalMutation({
-  args: { messageId: v.id("chatMessages"), chunkId: v.id("chunks"), assetId: v.optional(v.id("documentAssets")), pageNumber: v.number(), score: v.number() },
+  args: {
+    messageId: v.id("chatMessages"),
+    chunkId: v.id("chunks"),
+    assetId: v.optional(v.id("documentAssets")),
+    pageNumber: v.number(),
+    score: v.number()
+  },
   returns: v.null(),
   handler: async (ctx, args) => {
-    await ctx.db.insert("answerEvidence", args);
-    return null;
-  },
-});
+    await ctx.db.insert("answerEvidence", args)
+    return null
+  }
+})
 ```
 
 - [ ] **Step 4: Run the answer-packet test and repo verification**
@@ -1791,26 +1874,29 @@ git commit -m "feat(search): add grounded answer pipeline"
 
 ```tsx
 // src/features/auth/ui/AuthScreen.test.tsx
-import { fireEvent, render, screen } from "@testing-library/react";
-import { vi } from "vitest";
+import { fireEvent, render, screen } from "@testing-library/react"
+import { vi } from "vitest"
 
-import AuthScreen from "./AuthScreen";
+import AuthScreen from "./AuthScreen"
 
-const signIn = vi.fn();
+const signIn = vi.fn()
 
 vi.mock("@convex-dev/auth/react", () => ({
-  useAuthActions: () => ({ signIn, signOut: vi.fn() }),
-}));
+  useAuthActions: () => ({ signIn, signOut: vi.fn() })
+}))
 
 describe("AuthScreen", () => {
   it("submits password sign-in by default", () => {
-    render(<AuthScreen />);
-    fireEvent.change(screen.getByLabelText(/email/i), { target: { value: "tech@example.com" } });
-    fireEvent.change(screen.getByLabelText(/password/i), { target: { value: "Secret123" } });
-    fireEvent.click(screen.getByRole("button", { name: /sign in/i }));
-    expect(signIn).toHaveBeenCalledWith("password", expect.objectContaining({ email: "tech@example.com", password: "Secret123", flow: "signIn" }));
-  });
-});
+    render(<AuthScreen />)
+    fireEvent.change(screen.getByLabelText(/email/i), { target: { value: "tech@example.com" } })
+    fireEvent.change(screen.getByLabelText(/password/i), { target: { value: "Secret123" } })
+    fireEvent.click(screen.getByRole("button", { name: /sign in/i }))
+    expect(signIn).toHaveBeenCalledWith(
+      "password",
+      expect.objectContaining({ email: "tech@example.com", password: "Secret123", flow: "signIn" })
+    )
+  })
+})
 ```
 
 - [ ] **Step 2: Run the focused test to verify it fails**
@@ -1830,7 +1916,7 @@ interface Props {
   title?: string
 }
 
-const { title = "Navigineer" } = Astro.props
+const { title = "PLC Manuals" } = Astro.props
 ---
 
 <!doctype html>
@@ -1853,9 +1939,9 @@ const { title = "Navigineer" } = Astro.props
 import Layout from "@/layouts/Layout.astro"
 ---
 
-<Layout title="Navigineer">
+<Layout title="PLC Manuals">
   <main class="mx-auto flex min-h-screen max-w-5xl flex-col justify-center gap-6 px-6 py-16">
-    <p class="text-sm tracking-[0.3em] text-cyan-300 uppercase">Navigineer</p>
+    <p class="text-sm tracking-[0.3em] text-cyan-300 uppercase">PLC Manuals</p>
     <h1 class="max-w-3xl text-5xl font-semibold text-white">Grounded technical answers from official vendor manuals.</h1>
     <p class="max-w-2xl text-lg text-slate-300">
       Use one controlled workspace for document ingestion, evidence-bounded retrieval, and split-screen verification.
@@ -1867,53 +1953,66 @@ import Layout from "@/layouts/Layout.astro"
 
 ```tsx
 // src/features/auth/ui/AuthScreen.tsx
-import { useState } from "react";
+import { useState } from "react"
 
-import { useAuthActions } from "@convex-dev/auth/react";
+import { useAuthActions } from "@convex-dev/auth/react"
 
 export default function AuthScreen() {
-  const { signIn } = useAuthActions();
-  const [mode, setMode] = useState<"signIn" | "signUp" | "magicLink" | "resetRequest" | "resetConfirm">("signIn");
-  const [email, setEmail] = useState("");
-  const [password, setPassword] = useState("");
-  const resetCode = typeof window === "undefined" ? "" : new URLSearchParams(window.location.search).get("code") ?? "";
+  const { signIn } = useAuthActions()
+  const [mode, setMode] = useState<"signIn" | "signUp" | "magicLink" | "resetRequest" | "resetConfirm">("signIn")
+  const [email, setEmail] = useState("")
+  const [password, setPassword] = useState("")
+  const resetCode = typeof window === "undefined" ? "" : (new URLSearchParams(window.location.search).get("code") ?? "")
 
   return (
     <section className="mx-auto flex min-h-screen w-full max-w-xl items-center px-6 py-16">
       <div className="w-full space-y-6 rounded-2xl border border-slate-800 bg-slate-900 p-8">
         <div className="flex gap-2">
-          <button type="button" onClick={() => setMode("signIn")}>Password</button>
-          <button type="button" onClick={() => setMode("magicLink")}>Magic link</button>
+          <button type="button" onClick={() => setMode("signIn")}>
+            Password
+          </button>
+          <button type="button" onClick={() => setMode("magicLink")}>
+            Magic link
+          </button>
         </div>
 
         <form
           className="space-y-4"
           onSubmit={(event) => {
-            event.preventDefault();
+            event.preventDefault()
             if (mode === "magicLink") {
-              void signIn("resend-magic-link", { email, redirectTo: "/auth" });
-              return;
+              void signIn("resend-magic-link", { email, redirectTo: "/auth" })
+              return
             }
             if (mode === "resetRequest") {
-              void signIn("password", { email, flow: "reset" }).then(() => setMode("resetConfirm"));
-              return;
+              void signIn("password", { email, flow: "reset" }).then(() => setMode("resetConfirm"))
+              return
             }
             if (mode === "resetConfirm") {
-              void signIn("password", { email, code: resetCode, newPassword: password, flow: "reset-verification" });
-              return;
+              void signIn("password", { email, code: resetCode, newPassword: password, flow: "reset-verification" })
+              return
             }
-            void signIn("password", { email, password, flow: mode });
+            void signIn("password", { email, password, flow: mode })
           }}
         >
           <label className="block text-sm">
             Email
-            <input className="mt-1 w-full rounded-md border border-slate-700 bg-slate-950 px-3 py-2" value={email} onChange={(event) => setEmail(event.target.value)} />
+            <input
+              className="mt-1 w-full rounded-md border border-slate-700 bg-slate-950 px-3 py-2"
+              value={email}
+              onChange={(event) => setEmail(event.target.value)}
+            />
           </label>
 
           {mode !== "magicLink" && mode !== "resetRequest" && (
             <label className="block text-sm">
               {mode === "resetConfirm" ? "New password" : "Password"}
-              <input className="mt-1 w-full rounded-md border border-slate-700 bg-slate-950 px-3 py-2" type="password" value={password} onChange={(event) => setPassword(event.target.value)} />
+              <input
+                className="mt-1 w-full rounded-md border border-slate-700 bg-slate-950 px-3 py-2"
+                type="password"
+                value={password}
+                onChange={(event) => setPassword(event.target.value)}
+              />
             </label>
           )}
 
@@ -1931,30 +2030,33 @@ export default function AuthScreen() {
         </form>
 
         {mode !== "magicLink" && mode !== "resetConfirm" && (
-          <button type="button" onClick={() => setMode(mode === "signIn" ? "signUp" : "signIn")}>Use {mode === "signIn" ? "sign up" : "sign in"} instead</button>
+          <button type="button" onClick={() => setMode(mode === "signIn" ? "signUp" : "signIn")}>
+            Use {mode === "signIn" ? "sign up" : "sign in"} instead
+          </button>
         )}
         {mode === "signIn" && (
-          <button type="button" onClick={() => setMode("resetRequest")}>Forgot password?</button>
+          <button type="button" onClick={() => setMode("resetRequest")}>
+            Forgot password?
+          </button>
         )}
       </div>
     </section>
-  );
+  )
 }
 ```
 
 ```tsx
 // src/features/auth/ui/AuthGate.tsx
-import type { ReactNode } from "react";
+import type { ReactNode } from "react"
 
-import { AuthLoading, Authenticated, Unauthenticated } from "convex/react";
-import { useQuery } from "convex/react";
+import { Authenticated, AuthLoading, Unauthenticated, useQuery } from "convex/react"
 
-import { api } from "@convex/_generated/api";
+import { api } from "@convex/_generated/api"
 
-import AuthScreen from "./AuthScreen";
+import AuthScreen from "./AuthScreen"
 
 export function AuthGate({ children }: { children: ReactNode }) {
-  const viewer = useQuery(api.users.current, {});
+  const viewer = useQuery(api.users.current, {})
 
   return (
     <>
@@ -1974,81 +2076,83 @@ export function AuthGate({ children }: { children: ReactNode }) {
         )}
       </Authenticated>
     </>
-  );
+  )
 }
 ```
 
 ```tsx
 // src/features/auth/ui/RoleGate.tsx
-import type { ReactNode } from "react";
+import type { ReactNode } from "react"
 
-import { useQuery } from "convex/react";
+import { useQuery } from "convex/react"
 
-import { api } from "@convex/_generated/api";
+import { api } from "@convex/_generated/api"
 
 export function RoleGate({ role, children }: { role: "admin" | "engineer"; children: ReactNode }) {
-  const viewer = useQuery(api.users.current, {});
-  if (viewer === undefined) return <div className="p-6 text-sm text-slate-400">Loading permissions...</div>;
-  if (!viewer || viewer.role !== role) return <div className="p-6 text-sm text-rose-300">You do not have access to this page.</div>;
-  return <>{children}</>;
+  const viewer = useQuery(api.users.current, {})
+  if (viewer === undefined) return <div className="p-6 text-sm text-slate-400">Loading permissions...</div>
+  if (!viewer || viewer.role !== role)
+    return <div className="p-6 text-sm text-rose-300">You do not have access to this page.</div>
+  return <>{children}</>
 }
 ```
 
 ```tsx
 // src/features/auth/ui/SignOutButton.tsx
-import { useAuthActions } from "@convex-dev/auth/react";
+import { useAuthActions } from "@convex-dev/auth/react"
 
 export function SignOutButton() {
-  const { signOut } = useAuthActions();
+  const { signOut } = useAuthActions()
   return (
     <button className="rounded-md border border-slate-700 px-3 py-2 text-sm" onClick={() => void signOut()} type="button">
       Sign out
     </button>
-  );
+  )
 }
 ```
 
 ```ts
 // src/features/auth/ui/index.ts
-export { AuthGate } from "./AuthGate";
-export { RoleGate } from "./RoleGate";
-export { SignOutButton } from "./SignOutButton";
-export { default as AuthScreen } from "./AuthScreen";
+export { AuthGate } from "./AuthGate"
+export { RoleGate } from "./RoleGate"
+export { SignOutButton } from "./SignOutButton"
+export { default as AuthScreen } from "./AuthScreen"
 ```
 
 ```tsx
 // src/features/auth/island.tsx
-import { ConvexProviderWrapper } from "@app/providers/ConvexProvider";
+import { ConvexProviderWrapper } from "@app/providers/ConvexProvider"
 
-import AuthScreen from "./ui/AuthScreen";
+import AuthScreen from "./ui/AuthScreen"
 
 export default function AuthIsland() {
   return (
     <ConvexProviderWrapper>
       <AuthScreen />
     </ConvexProviderWrapper>
-  );
+  )
 }
 ```
 
 ```tsx
 // src/widgets/app-shell/ui/AppShell.tsx
-import type { ReactNode } from "react";
+import type { ReactNode } from "react"
 
-import { useQuery } from "convex/react";
+import { useQuery } from "convex/react"
 
-import { api } from "@convex/_generated/api";
-import { SignOutButton } from "@features/auth/ui";
+import { api } from "@convex/_generated/api"
+
+import { SignOutButton } from "@features/auth/ui"
 
 export default function AppShell({ title, children }: { title: string; children: ReactNode }) {
-  const viewer = useQuery(api.users.current, {});
+  const viewer = useQuery(api.users.current, {})
 
   return (
     <main className="min-h-screen bg-slate-950 text-slate-100">
       <header className="border-b border-slate-800 bg-slate-900/80 px-6 py-4">
         <div className="mx-auto flex max-w-7xl items-center justify-between">
           <div>
-            <p className="text-xs uppercase tracking-[0.3em] text-cyan-300">Navigineer</p>
+            <p className="text-xs tracking-[0.3em] text-cyan-300 uppercase">PLC Manuals</p>
             <h1 className="text-xl font-semibold text-white">{title}</h1>
           </div>
           <div className="flex items-center gap-3 text-sm text-slate-300">
@@ -2059,13 +2163,13 @@ export default function AppShell({ title, children }: { title: string; children:
       </header>
       <div className="mx-auto max-w-7xl px-6 py-6">{children}</div>
     </main>
-  );
+  )
 }
 ```
 
 ```ts
 // src/widgets/app-shell/index.ts
-export { default } from "./ui/AppShell";
+export { default } from "./ui/AppShell"
 ```
 
 ```astro
@@ -2076,7 +2180,7 @@ import Layout from "@/layouts/Layout.astro"
 import AuthIsland from "@features/auth/island"
 ---
 
-<Layout title="Sign in | Navigineer">
+<Layout title="Sign in | PLC Manuals">
   <AuthIsland client:load />
 </Layout>
 ```
@@ -2089,7 +2193,7 @@ import Layout from "@/layouts/Layout.astro"
 import EngineerWorkspaceIsland from "@widgets/engineer-workspace"
 ---
 
-<Layout title="Engineer Workspace | Navigineer">
+<Layout title="Engineer Workspace | PLC Manuals">
   <EngineerWorkspaceIsland client:load />
 </Layout>
 ```
@@ -2102,7 +2206,7 @@ import Layout from "@/layouts/Layout.astro"
 import AdminConsoleIsland from "@widgets/admin-console"
 ---
 
-<Layout title="Admin Console | Navigineer">
+<Layout title="Admin Console | PLC Manuals">
   <AdminConsoleIsland client:load />
 </Layout>
 ```
@@ -2152,32 +2256,32 @@ git commit -m "feat(app): add auth routes and protected shell"
 
 ```tsx
 // src/features/admin-ingestion/ui/DocumentRegistrationForm.test.tsx
-import { fireEvent, render, screen } from "@testing-library/react";
-import { vi } from "vitest";
+import { fireEvent, render, screen } from "@testing-library/react"
+import { vi } from "vitest"
 
-import DocumentRegistrationForm from "./DocumentRegistrationForm";
+import DocumentRegistrationForm from "./DocumentRegistrationForm"
 
-const onSubmit = vi.fn();
+const onSubmit = vi.fn()
 
 describe("DocumentRegistrationForm", () => {
   it("requires source URL and title before submit", () => {
-    render(<DocumentRegistrationForm onSubmit={onSubmit} />);
-    fireEvent.click(screen.getByRole("button", { name: /queue document/i }));
-    expect(onSubmit).not.toHaveBeenCalled();
-  });
-});
+    render(<DocumentRegistrationForm onSubmit={onSubmit} />)
+    fireEvent.click(screen.getByRole("button", { name: /queue document/i }))
+    expect(onSubmit).not.toHaveBeenCalled()
+  })
+})
 ```
 
 ```tsx
 // src/features/ask-assistant/ui/AnswerPacketView.test.tsx
-import { fireEvent, render, screen } from "@testing-library/react";
-import { vi } from "vitest";
+import { fireEvent, render, screen } from "@testing-library/react"
+import { vi } from "vitest"
 
-import AnswerPacketView from "./AnswerPacketView";
+import AnswerPacketView from "./AnswerPacketView"
 
 describe("AnswerPacketView", () => {
   it("emits citation selection", () => {
-    const onSelect = vi.fn();
+    const onSelect = vi.fn()
     render(
       <AnswerPacketView
         packet={{
@@ -2185,16 +2289,16 @@ describe("AnswerPacketView", () => {
           answerSummary: "Partner goes to the right.",
           answerSteps: ["Check the right-adjacent slot."],
           citations: [{ chunkId: "chunk-1", pageNumber: 9, citationLabel: "Page 9", assetId: "asset-1" }],
-          supportingAssets: [{ assetId: "asset-1", pageNumber: 9, label: "Page 9" }],
+          supportingAssets: [{ assetId: "asset-1", pageNumber: 9, label: "Page 9" }]
         }}
         onSelectCitation={onSelect}
-      />,
-    );
+      />
+    )
 
-    fireEvent.click(screen.getByRole("button", { name: /page 9/i }));
-    expect(onSelect).toHaveBeenCalledWith({ assetId: "asset-1", pageNumber: 9, label: "Page 9" });
-  });
-});
+    fireEvent.click(screen.getByRole("button", { name: /page 9/i }))
+    expect(onSelect).toHaveBeenCalledWith({ assetId: "asset-1", pageNumber: 9, label: "Page 9" })
+  })
+})
 ```
 
 - [ ] **Step 2: Run the focused tests to verify they fail**
@@ -2212,16 +2316,16 @@ Expected: both tests FAIL because the components do not exist yet.
 
 ```tsx
 // src/features/admin-ingestion/ui/DocumentRegistrationForm.tsx
-import { useState, useTransition } from "react";
+import { useState, useTransition } from "react"
 
 type DocumentFormValues = {
-  vendorName: string;
-  productName: string;
-  title: string;
-  version: string;
-  language: string;
-  sourceUrl: string;
-};
+  vendorName: string
+  productName: string
+  title: string
+  version: string
+  language: string
+  sourceUrl: string
+}
 
 const initialValues: DocumentFormValues = {
   vendorName: "",
@@ -2229,45 +2333,57 @@ const initialValues: DocumentFormValues = {
   title: "",
   version: "",
   language: "English",
-  sourceUrl: "",
-};
+  sourceUrl: ""
+}
 
 export default function DocumentRegistrationForm({ onSubmit }: { onSubmit: (values: DocumentFormValues) => Promise<void> }) {
-  const [values, setValues] = useState(initialValues);
-  const [error, setError] = useState<string>();
-  const [isPending, startTransition] = useTransition();
+  const [values, setValues] = useState(initialValues)
+  const [error, setError] = useState<string>()
+  const [isPending, startTransition] = useTransition()
 
   return (
     <form
       className="grid gap-4 rounded-xl border border-slate-800 bg-slate-900 p-5"
       onSubmit={(event) => {
-        event.preventDefault();
+        event.preventDefault()
         if (!values.title.trim() || !values.sourceUrl.trim()) {
-          setError("Title and source URL are required.");
-          return;
+          setError("Title and source URL are required.")
+          return
         }
-        setError(undefined);
+        setError(undefined)
         startTransition(() => {
-          void onSubmit(values).then(() => setValues(initialValues));
-        });
+          void onSubmit(values).then(() => setValues(initialValues))
+        })
       }}
     >
       {Object.entries(values).map(([key, value]) => (
         <label className="text-sm" key={key}>
           {key}
-          <input className="mt-1 w-full rounded-md border border-slate-700 bg-slate-950 px-3 py-2" value={value} onChange={(event) => setValues((current) => ({ ...current, [key]: event.target.value }))} />
+          <input
+            className="mt-1 w-full rounded-md border border-slate-700 bg-slate-950 px-3 py-2"
+            value={value}
+            onChange={(event) => setValues((current) => ({ ...current, [key]: event.target.value }))}
+          />
         </label>
       ))}
       {error && <p className="text-sm text-rose-300">{error}</p>}
-      <button className="rounded-md bg-cyan-400 px-4 py-2 font-medium text-slate-950" disabled={isPending} type="submit">Queue document</button>
+      <button className="rounded-md bg-cyan-400 px-4 py-2 font-medium text-slate-950" disabled={isPending} type="submit">
+        Queue document
+      </button>
     </form>
-  );
+  )
 }
 ```
 
 ```tsx
 // src/features/admin-ingestion/ui/IngestionJobList.tsx
-export default function IngestionJobList({ jobs, onRetry }: { jobs: Array<{ _id: string; status: string; errorMessage?: string }>; onRetry: (jobId: string) => void }) {
+export default function IngestionJobList({
+  jobs,
+  onRetry
+}: {
+  jobs: Array<{ _id: string; status: string; errorMessage?: string }>
+  onRetry: (jobId: string) => void
+}) {
   return (
     <div className="space-y-3 rounded-xl border border-slate-800 bg-slate-900 p-5">
       {jobs.map((job) => (
@@ -2276,35 +2392,39 @@ export default function IngestionJobList({ jobs, onRetry }: { jobs: Array<{ _id:
             <p className="font-medium text-white">{job.status}</p>
             {job.errorMessage && <p className="text-sm text-rose-300">{job.errorMessage}</p>}
           </div>
-          <button className="rounded-md border border-slate-700 px-3 py-2 text-sm" onClick={() => onRetry(job._id)} type="button">Retry</button>
+          <button className="rounded-md border border-slate-700 px-3 py-2 text-sm" onClick={() => onRetry(job._id)} type="button">
+            Retry
+          </button>
         </article>
       ))}
     </div>
-  );
+  )
 }
 ```
 
 ```ts
 // src/features/admin-ingestion/ui/index.ts
-export { default as DocumentRegistrationForm } from "./DocumentRegistrationForm";
-export { default as IngestionJobList } from "./IngestionJobList";
+export { default as DocumentRegistrationForm } from "./DocumentRegistrationForm"
+export { default as IngestionJobList } from "./IngestionJobList"
 ```
 
 ```tsx
 // src/widgets/admin-console/ui/AdminConsole.tsx
-import { useMutation, useQuery } from "convex/react";
+import { useMutation, useQuery } from "convex/react"
 
-import { api } from "@convex/_generated/api";
-import { AuthGate, RoleGate } from "@features/auth/ui";
-import { DocumentRegistrationForm, IngestionJobList } from "@features/admin-ingestion/ui";
-import AppShell from "@widgets/app-shell/ui/AppShell";
+import { api } from "@convex/_generated/api"
+
+import AppShell from "@widgets/app-shell/ui/AppShell"
+
+import { DocumentRegistrationForm, IngestionJobList } from "@features/admin-ingestion/ui"
+import { AuthGate, RoleGate } from "@features/auth/ui"
 
 export default function AdminConsole() {
-  const documents = useQuery(api.documents.listAdmin, {}) ?? [];
-  const jobs = useQuery(api.ingestion.listJobs, {}) ?? [];
-  const createDocument = useMutation(api.documents.create);
-  const enqueue = useMutation(api.ingestion.enqueue);
-  const retryJob = useMutation(api.ingestion.retry);
+  const documents = useQuery(api.documents.listAdmin, {}) ?? []
+  const jobs = useQuery(api.ingestion.listJobs, {}) ?? []
+  const createDocument = useMutation(api.documents.create)
+  const enqueue = useMutation(api.ingestion.enqueue)
+  const retryJob = useMutation(api.ingestion.retry)
 
   return (
     <AuthGate>
@@ -2313,8 +2433,8 @@ export default function AdminConsole() {
           <div className="grid gap-6 lg:grid-cols-[minmax(0,1fr)_minmax(0,1fr)]">
             <DocumentRegistrationForm
               onSubmit={async (values) => {
-                const documentId = await createDocument(values);
-                await enqueue({ documentId });
+                const documentId = await createDocument(values)
+                await enqueue({ documentId })
               }}
             />
             <div className="space-y-4">
@@ -2327,82 +2447,101 @@ export default function AdminConsole() {
         </AppShell>
       </RoleGate>
     </AuthGate>
-  );
+  )
 }
 ```
 
 ```tsx
 // src/widgets/admin-console/island.tsx
-import { ConvexProviderWrapper } from "@app/providers/ConvexProvider";
+import { ConvexProviderWrapper } from "@app/providers/ConvexProvider"
 
-import AdminConsole from "./ui/AdminConsole";
+import AdminConsole from "./ui/AdminConsole"
 
 export default function AdminConsoleIsland() {
   return (
     <ConvexProviderWrapper>
       <AdminConsole />
     </ConvexProviderWrapper>
-  );
+  )
 }
 ```
 
 ```ts
 // src/widgets/admin-console/index.ts
-export { default } from "./island";
+export { default } from "./island"
 ```
 
 ```ts
 // src/entities/chat/model/types.ts
-export type AnswerabilityStatus = "grounded" | "insufficient_evidence";
+export type AnswerabilityStatus = "grounded" | "insufficient_evidence"
 ```
 
 ```ts
 // src/entities/knowledge/model/types.ts
-import type { Id } from "@convex/_generated/dataModel";
+import type { Id } from "@convex/_generated/dataModel"
 
 export type Citation = {
-  chunkId: string;
-  pageNumber: number;
-  citationLabel: string;
-  assetId?: Id<"documentAssets">;
-};
+  chunkId: string
+  pageNumber: number
+  citationLabel: string
+  assetId?: Id<"documentAssets">
+}
 
 export type SupportingAsset = {
-  assetId: Id<"documentAssets">;
-  pageNumber: number;
-  label: string;
-};
+  assetId: Id<"documentAssets">
+  pageNumber: number
+  label: string
+}
 ```
 
 ```tsx
 // src/features/ask-assistant/ui/QuestionComposer.tsx
-import { useState } from "react";
+import { useState } from "react"
 
 export default function QuestionComposer({ onSubmit, disabled }: { onSubmit: (value: string) => void; disabled?: boolean }) {
-  const [value, setValue] = useState("");
+  const [value, setValue] = useState("")
   return (
     <form
       className="space-y-3"
       onSubmit={(event) => {
-        event.preventDefault();
-        if (!value.trim()) return;
-        onSubmit(value.trim());
-        setValue("");
+        event.preventDefault()
+        if (!value.trim()) return
+        onSubmit(value.trim())
+        setValue("")
       }}
     >
-      <textarea className="min-h-32 w-full rounded-xl border border-slate-800 bg-slate-900 px-4 py-3" placeholder="Describe the hardware issue or ask about a connection rule..." value={value} onChange={(event) => setValue(event.target.value)} />
-      <button className="rounded-md bg-cyan-400 px-4 py-2 font-medium text-slate-950" disabled={disabled} type="submit">Ask assistant</button>
+      <textarea
+        className="min-h-32 w-full rounded-xl border border-slate-800 bg-slate-900 px-4 py-3"
+        placeholder="Describe the hardware issue or ask about a connection rule..."
+        value={value}
+        onChange={(event) => setValue(event.target.value)}
+      />
+      <button className="rounded-md bg-cyan-400 px-4 py-2 font-medium text-slate-950" disabled={disabled} type="submit">
+        Ask assistant
+      </button>
     </form>
-  );
+  )
 }
 ```
 
 ```tsx
 // src/features/ask-assistant/ui/AnswerPacketView.tsx
-export default function AnswerPacketView({ packet, onSelectCitation }: { packet: { answerSummary: string; answerSteps: string[]; citations: Array<{ chunkId: string; pageNumber: number; citationLabel: string; assetId?: string }>; supportingAssets: Array<{ assetId: string; pageNumber: number; label: string }>; answerabilityStatus: string }; onSelectCitation: (asset: { assetId: string; pageNumber: number; label: string }) => void }) {
+export default function AnswerPacketView({
+  packet,
+  onSelectCitation
+}: {
+  packet: {
+    answerSummary: string
+    answerSteps: string[]
+    citations: Array<{ chunkId: string; pageNumber: number; citationLabel: string; assetId?: string }>
+    supportingAssets: Array<{ assetId: string; pageNumber: number; label: string }>
+    answerabilityStatus: string
+  }
+  onSelectCitation: (asset: { assetId: string; pageNumber: number; label: string }) => void
+}) {
   return (
     <section className="space-y-4 rounded-xl border border-slate-800 bg-slate-900 p-5">
-      <p className="text-sm uppercase tracking-[0.3em] text-cyan-300">{packet.answerabilityStatus}</p>
+      <p className="text-sm tracking-[0.3em] text-cyan-300 uppercase">{packet.answerabilityStatus}</p>
       <p className="text-base text-slate-100">{packet.answerSummary}</p>
       <ul className="space-y-2 text-sm text-slate-300">
         {packet.answerSteps.map((step) => (
@@ -2411,78 +2550,102 @@ export default function AnswerPacketView({ packet, onSelectCitation }: { packet:
       </ul>
       <div className="flex flex-wrap gap-2">
         {packet.supportingAssets.map((asset) => (
-          <button className="rounded-md border border-slate-700 px-3 py-2 text-sm" key={`${asset.assetId}:${asset.pageNumber}`} onClick={() => onSelectCitation(asset)} type="button">
+          <button
+            className="rounded-md border border-slate-700 px-3 py-2 text-sm"
+            key={`${asset.assetId}:${asset.pageNumber}`}
+            onClick={() => onSelectCitation(asset)}
+            type="button"
+          >
             {asset.label}
           </button>
         ))}
       </div>
     </section>
-  );
+  )
 }
 ```
 
 ```ts
 // src/features/ask-assistant/ui/index.ts
-export { default as QuestionComposer } from "./QuestionComposer";
-export { default as AnswerPacketView } from "./AnswerPacketView";
+export { default as QuestionComposer } from "./QuestionComposer"
+export { default as AnswerPacketView } from "./AnswerPacketView"
 ```
 
 ```tsx
 // src/features/view-evidence/ui/EvidenceViewer.tsx
-import type { Id } from "@convex/_generated/dataModel";
+import type { Id } from "@convex/_generated/dataModel"
 
-import { useQuery } from "convex/react";
+import { useQuery } from "convex/react"
 
-import { api } from "@convex/_generated/api";
+import { api } from "@convex/_generated/api"
 
-export default function EvidenceViewer({ asset }: { asset: { assetId: Id<"documentAssets">; pageNumber: number; label: string } | null }) {
-  const viewerAsset = useQuery(api.assets.resolveViewerAsset, asset ? { assetId: asset.assetId } : "skip");
+export default function EvidenceViewer({
+  asset
+}: {
+  asset: { assetId: Id<"documentAssets">; pageNumber: number; label: string } | null
+}) {
+  const viewerAsset = useQuery(api.assets.resolveViewerAsset, asset ? { assetId: asset.assetId } : "skip")
 
-  if (!asset) return <div className="flex min-h-120 items-center justify-center rounded-xl border border-slate-800 bg-slate-900 text-sm text-slate-400">Select a citation to open the official manual.</div>;
-  if (viewerAsset === undefined) return <div className="rounded-xl border border-slate-800 bg-slate-900 p-5 text-sm text-slate-400">Loading evidence...</div>;
-  if (!viewerAsset) return <div className="rounded-xl border border-slate-800 bg-slate-900 p-5 text-sm text-rose-300">The supporting asset is unavailable.</div>;
+  if (!asset)
+    return (
+      <div className="flex min-h-120 items-center justify-center rounded-xl border border-slate-800 bg-slate-900 text-sm text-slate-400">
+        Select a citation to open the official manual.
+      </div>
+    )
+  if (viewerAsset === undefined)
+    return <div className="rounded-xl border border-slate-800 bg-slate-900 p-5 text-sm text-slate-400">Loading evidence...</div>
+  if (!viewerAsset)
+    return (
+      <div className="rounded-xl border border-slate-800 bg-slate-900 p-5 text-sm text-rose-300">
+        The supporting asset is unavailable.
+      </div>
+    )
 
   return (
     <div className="overflow-hidden rounded-xl border border-slate-800 bg-slate-900">
       <div className="border-b border-slate-800 px-4 py-3 text-sm text-slate-300">{asset.label}</div>
       <iframe className="h-180 w-full bg-white" src={`${viewerAsset.url}#page=${asset.pageNumber}`} title={asset.label} />
     </div>
-  );
+  )
 }
 ```
 
 ```ts
 // src/features/view-evidence/ui/index.ts
-export { default } from "./EvidenceViewer";
+export { default } from "./EvidenceViewer"
 ```
 
 ```tsx
 // src/widgets/engineer-workspace/ui/EngineerWorkspace.tsx
-import type { Id } from "@convex/_generated/dataModel";
+import type { Id } from "@convex/_generated/dataModel"
 
-import { startTransition, useState } from "react";
+import { startTransition, useState } from "react"
 
-import { useAction } from "convex/react";
+import { useAction } from "convex/react"
 
-import { api } from "@convex/_generated/api";
-import { AuthGate } from "@features/auth/ui";
-import { AnswerPacketView, QuestionComposer } from "@features/ask-assistant/ui";
-import EvidenceViewer from "@features/view-evidence/ui/EvidenceViewer";
-import AppShell from "@widgets/app-shell/ui/AppShell";
+import { api } from "@convex/_generated/api"
+
+import AppShell from "@widgets/app-shell/ui/AppShell"
+
+import { AnswerPacketView, QuestionComposer } from "@features/ask-assistant/ui"
+import { AuthGate } from "@features/auth/ui"
+import EvidenceViewer from "@features/view-evidence/ui/EvidenceViewer"
 
 export default function EngineerWorkspace() {
-  const ask = useAction(api.search.ask);
-  const [sessionId, setSessionId] = useState<Id<"chatSessions"> | null>(null);
+  const ask = useAction(api.search.ask)
+  const [sessionId, setSessionId] = useState<Id<"chatSessions"> | null>(null)
   const [packet, setPacket] = useState<null | {
-    sessionId: Id<"chatSessions">;
-    answerabilityStatus: "grounded" | "insufficient_evidence";
-    answerSummary: string;
-    answerSteps: string[];
-    citations: Array<{ chunkId: Id<"chunks">; pageNumber: number; citationLabel: string; assetId?: Id<"documentAssets"> }>;
-    supportingAssets: Array<{ assetId: Id<"documentAssets">; pageNumber: number; label: string }>;
-  }>(null);
-  const [activeAsset, setActiveAsset] = useState<{ assetId: Id<"documentAssets">; pageNumber: number; label: string } | null>(null);
-  const [isSubmitting, setIsSubmitting] = useState(false);
+    sessionId: Id<"chatSessions">
+    answerabilityStatus: "grounded" | "insufficient_evidence"
+    answerSummary: string
+    answerSteps: string[]
+    citations: Array<{ chunkId: Id<"chunks">; pageNumber: number; citationLabel: string; assetId?: Id<"documentAssets"> }>
+    supportingAssets: Array<{ assetId: Id<"documentAssets">; pageNumber: number; label: string }>
+  }>(null)
+  const [activeAsset, setActiveAsset] = useState<{ assetId: Id<"documentAssets">; pageNumber: number; label: string } | null>(
+    null
+  )
+  const [isSubmitting, setIsSubmitting] = useState(false)
 
   return (
     <AuthGate>
@@ -2492,15 +2655,15 @@ export default function EngineerWorkspace() {
             <QuestionComposer
               disabled={isSubmitting}
               onSubmit={(question) => {
-                setIsSubmitting(true);
+                setIsSubmitting(true)
                 void ask({ question, sessionId: sessionId ?? undefined }).then((result) => {
                   startTransition(() => {
-                    setSessionId(result.sessionId);
-                    setPacket(result);
-                    setActiveAsset(result.supportingAssets[0] ?? null);
-                  });
-                  setIsSubmitting(false);
-                });
+                    setSessionId(result.sessionId)
+                    setPacket(result)
+                    setActiveAsset(result.supportingAssets[0] ?? null)
+                  })
+                  setIsSubmitting(false)
+                })
               }}
             />
             {packet && <AnswerPacketView packet={packet} onSelectCitation={setActiveAsset} />}
@@ -2509,28 +2672,28 @@ export default function EngineerWorkspace() {
         </div>
       </AppShell>
     </AuthGate>
-  );
+  )
 }
 ```
 
 ```tsx
 // src/widgets/engineer-workspace/island.tsx
-import { ConvexProviderWrapper } from "@app/providers/ConvexProvider";
+import { ConvexProviderWrapper } from "@app/providers/ConvexProvider"
 
-import EngineerWorkspace from "./ui/EngineerWorkspace";
+import EngineerWorkspace from "./ui/EngineerWorkspace"
 
 export default function EngineerWorkspaceIsland() {
   return (
     <ConvexProviderWrapper>
       <EngineerWorkspace />
     </ConvexProviderWrapper>
-  );
+  )
 }
 ```
 
 ```ts
 // src/widgets/engineer-workspace/index.ts
-export { default } from "./island";
+export { default } from "./island"
 ```
 
 - [ ] **Step 4: Run the UI tests and repo verification**
@@ -2565,17 +2728,17 @@ git commit -m "feat(ui): add admin and engineer workspaces"
 
 ```ts
 // convex/lib/evaluationSeed.test.ts
-import { describe, expect, it } from "vitest";
+import { describe, expect, it } from "vitest"
 
-import { defaultEvaluationCases } from "./evaluationSeed";
+import { defaultEvaluationCases } from "./evaluationSeed"
 
 describe("defaultEvaluationCases", () => {
   it("covers the required SP1 categories", () => {
     expect(defaultEvaluationCases.map((item) => item.category)).toEqual(
-      expect.arrayContaining(["exact-lookup", "table-reasoning", "diagram-reasoning", "not-found"]),
-    );
-  });
-});
+      expect.arrayContaining(["exact-lookup", "table-reasoning", "diagram-reasoning", "not-found"])
+    )
+  })
+})
 ```
 
 - [ ] **Step 2: Run the focused test to verify it fails**
@@ -2596,7 +2759,7 @@ export const defaultEvaluationCases = [
     severity: "safety-critical",
     expectedDocumentTitle: "GuardLogix 5570 Controllers User Manual",
     expectedPageNumbers: [9],
-    expectedRefusal: false,
+    expectedRefusal: false
   },
   {
     slug: "guardlogix-led-solid-red",
@@ -2605,7 +2768,7 @@ export const defaultEvaluationCases = [
     severity: "operational",
     expectedDocumentTitle: "GuardLogix 5570 Controllers User Manual",
     expectedPageNumbers: [45],
-    expectedRefusal: false,
+    expectedRefusal: false
   },
   {
     slug: "guardlogix-missing-evidence",
@@ -2614,7 +2777,7 @@ export const defaultEvaluationCases = [
     severity: "informational",
     expectedDocumentTitle: "GuardLogix 5570 Controllers User Manual",
     expectedPageNumbers: [],
-    expectedRefusal: true,
+    expectedRefusal: true
   },
   {
     slug: "guardlogix-catalog-number",
@@ -2623,40 +2786,43 @@ export const defaultEvaluationCases = [
     severity: "informational",
     expectedDocumentTitle: "GuardLogix 5570 Controllers User Manual",
     expectedPageNumbers: [9],
-    expectedRefusal: false,
-  },
-];
+    expectedRefusal: false
+  }
+]
 ```
 
 ```ts
 // convex/evaluations.ts
-import { v } from "convex/values";
+import { v } from "convex/values"
 
-import { mutation, query } from "./_generated/server";
-import { defaultEvaluationCases } from "./lib/evaluationSeed";
-import { requireAdminViewer } from "./lib/viewer";
+import { mutation, query } from "./_generated/server"
+import { defaultEvaluationCases } from "./lib/evaluationSeed"
+import { requireAdminViewer } from "./lib/viewer"
 
 export const list = query({
   args: {},
   returns: v.array(v.object({ slug: v.string(), question: v.string(), category: v.string(), expectedRefusal: v.boolean() })),
-  handler: async (ctx) => await ctx.db.query("evaluationCases").collect(),
-});
+  handler: async (ctx) => await ctx.db.query("evaluationCases").collect()
+})
 
 export const seedDefaults = mutation({
   args: {},
   returns: v.number(),
   handler: async (ctx) => {
-    await requireAdminViewer(ctx);
-    let inserted = 0;
+    await requireAdminViewer(ctx)
+    let inserted = 0
     for (const item of defaultEvaluationCases) {
-      const existing = await ctx.db.query("evaluationCases").withIndex("by_slug", (q) => q.eq("slug", item.slug)).unique();
-      if (existing) continue;
-      await ctx.db.insert("evaluationCases", item);
-      inserted += 1;
+      const existing = await ctx.db
+        .query("evaluationCases")
+        .withIndex("by_slug", (q) => q.eq("slug", item.slug))
+        .unique()
+      if (existing) continue
+      await ctx.db.insert("evaluationCases", item)
+      inserted += 1
     }
-    return inserted;
-  },
-});
+    return inserted
+  }
+})
 ```
 
 ```md

@@ -239,12 +239,7 @@ Expected: FAIL because the adapter files do not exist.
 - [ ] **Step 3: Add typed MinerU submit and status helpers**
 
 ```ts
-export async function submitMineruBatch(args: {
-  fetch?: typeof fetch
-  file: Blob
-  fileName: string
-  token: string
-}) {
+export async function submitMineruBatch(args: { fetch?: typeof fetch; file: Blob; fileName: string; token: string }) {
   const request = args.fetch ?? fetch
   const applyUploadUrl = await request("https://mineru.net/api/v4/file-urls/batch", {
     method: "POST",
@@ -275,11 +270,7 @@ export async function submitMineruBatch(args: {
 - [ ] **Step 4: Add a batch result helper for reconciliation**
 
 ```ts
-export async function getMineruBatchResult(args: {
-  batchId: string
-  fetch?: typeof fetch
-  token: string
-}) {
+export async function getMineruBatchResult(args: { batchId: string; fetch?: typeof fetch; token: string }) {
   const request = args.fetch ?? fetch
   const response = await request(`https://mineru.net/api/v4/extract-results/batch/${args.batchId}`, {
     headers: {
@@ -310,6 +301,7 @@ Expected: PASS
 
 ```ts
 import { createHash } from "node:crypto"
+
 import { describe, expect, it } from "vitest"
 
 import { verifyMineruChecksum } from "./mineruCallback"
@@ -336,12 +328,7 @@ Expected: FAIL because the verifier does not exist.
 ```ts
 import { createHash } from "node:crypto"
 
-export function verifyMineruChecksum(args: {
-  checksum: string
-  content: string
-  seed: string
-  uid: string
-}) {
+export function verifyMineruChecksum(args: { checksum: string; content: string; seed: string; uid: string }) {
   const expected = createHash("sha256").update(`${args.uid}${args.seed}${args.content}`).digest("hex")
   return expected === args.checksum
 }
@@ -415,16 +402,25 @@ describe("normalizeMineruDocument", () => {
             {
               type: "title",
               bbox: [0, 0, 0, 0],
-              lines: [{ bbox: [0, 0, 0, 0], spans: [{ type: "text", content: "Important User Information", bbox: [0, 0, 0, 0] }] }]
+              lines: [
+                { bbox: [0, 0, 0, 0], spans: [{ type: "text", content: "Important User Information", bbox: [0, 0, 0, 0] }] }
+              ]
             },
             {
               type: "table",
               bbox: [0, 0, 0, 0],
-              blocks: [{
-                bbox: [0, 0, 0, 0],
-                type: "table_body",
-                lines: [{ bbox: [0, 0, 0, 0], spans: [{ type: "table", html: "<table><tr><td>IMPORTANT</td></tr></table>", bbox: [0, 0, 0, 0] }] }]
-              }]
+              blocks: [
+                {
+                  bbox: [0, 0, 0, 0],
+                  type: "table_body",
+                  lines: [
+                    {
+                      bbox: [0, 0, 0, 0],
+                      spans: [{ type: "table", html: "<table><tr><td>IMPORTANT</td></tr></table>", bbox: [0, 0, 0, 0] }]
+                    }
+                  ]
+                }
+              ]
             }
           ]
         }
@@ -610,15 +606,20 @@ import { buildGroundedPacket } from "./answerPacket"
 
 describe("buildGroundedPacket", () => {
   it("keeps supporting assets page-based so the PDF viewer remains the primary evidence surface", () => {
-    const packet = buildGroundedPacket("chatSessions_1" as never, "summary", ["step"], [
-      {
-        assetId: "documentAssets_1" as never,
-        citationLabel: "Page 15",
-        chunkId: "chunks_1" as never,
-        pageNumber: 15,
-        score: 0.9
-      }
-    ])
+    const packet = buildGroundedPacket(
+      "chatSessions_1" as never,
+      "summary",
+      ["step"],
+      [
+        {
+          assetId: "documentAssets_1" as never,
+          citationLabel: "Page 15",
+          chunkId: "chunks_1" as never,
+          pageNumber: 15,
+          score: 0.9
+        }
+      ]
+    )
 
     expect(packet.supportingAssets).toEqual([{ assetId: "documentAssets_1", label: "Page 15", pageNumber: 15 }])
   })

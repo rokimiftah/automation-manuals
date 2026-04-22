@@ -36,7 +36,7 @@ export default function DocumentRegistrationForm({ onSubmit }: DocumentRegistrat
   return (
     <section className="space-y-5 rounded-3xl border border-slate-800 bg-slate-900/80 p-6 shadow-xl shadow-slate-950/30">
       <div className="space-y-2">
-        <p className="text-xs font-semibold uppercase tracking-[0.4em] text-cyan-300">Document intake</p>
+        <p className="text-xs font-semibold tracking-[0.4em] text-cyan-300 uppercase">Document intake</p>
         <h2 className="text-2xl font-semibold text-white">Queue an official manual</h2>
         <p className="text-sm leading-6 text-slate-400">
           Register the vendor, product, and source PDF before ingestion turns the document into grounded evidence.

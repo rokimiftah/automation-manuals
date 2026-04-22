@@ -1,8 +1,11 @@
-import { ConvexError, v, type GenericId } from "convex/values"
+import type { MutationCtx, QueryCtx } from "./_generated/server"
+import type { GenericId } from "convex/values"
 
-import { internalMutation, query, type MutationCtx, type QueryCtx } from "./_generated/server"
-import { requireAllowedViewer } from "./lib/viewer"
+import { ConvexError, v } from "convex/values"
+
+import { internalMutation, query } from "./_generated/server"
 import { messageRoleValidator } from "./lib/validators"
+import { requireAllowedViewer } from "./lib/viewer"
 
 const chatSessionValidator = v.object({
   _id: v.id("chatSessions"),
@@ -61,7 +64,10 @@ export const listMessages = query({
       return []
     }
 
-    const messages = await ctx.db.query("chatMessages").withIndex("by_session", (q) => q.eq("sessionId", args.sessionId)).collect()
+    const messages = await ctx.db
+      .query("chatMessages")
+      .withIndex("by_session", (q) => q.eq("sessionId", args.sessionId))
+      .collect()
 
     return messages
       .slice()

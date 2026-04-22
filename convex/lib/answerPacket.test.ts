@@ -4,9 +4,7 @@ import { buildGroundedPacket, buildRefusalPacket } from "./answerPacket"
 
 describe("buildRefusalPacket", () => {
   it("returns an empty citation packet for insufficient evidence", () => {
-    expect(
-      buildRefusalPacket("chatSessions_1" as never)
-    ).toEqual({
+    expect(buildRefusalPacket("chatSessions_1" as never)).toEqual({
       answerSteps: [],
       answerSummary: "I could not find enough evidence in the official documentation to answer that safely.",
       answerabilityStatus: "insufficient_evidence",

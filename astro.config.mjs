@@ -20,7 +20,7 @@ export default defineConfig({
   },
   integrations: [react()],
   server: { host: "localhost", port: 3000 },
-  site: "https://navigineer.web.id",
+  site: "https://plc-manuals.web.id",
   trailingSlash: "never",
   vite: {
     plugins: [tailwindcss()],

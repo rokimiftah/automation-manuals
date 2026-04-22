@@ -1,16 +1,16 @@
-# Navigineer Master Blueprint Design
+# PLC Manuals Master Blueprint Design
 
 ## Document Status
 
 - Status: Draft approved in conversation, written for user review
 - Date: 2026-04-22
-- Product: Navigineer
+- Product: PLC Manuals
 - Scope type: Master blueprint with phased thin slices
 - First implementation target: SP1 Platform Core
 
 ## 1. Product Summary
 
-Navigineer is a single-tenant internal AI assistant for field engineers that answers technical troubleshooting and installation questions using only official vendor documentation as the source of truth.
+PLC Manuals is a single-tenant internal AI assistant for field engineers that answers technical troubleshooting and installation questions using only official vendor documentation as the source of truth.
 
 The product exists to reduce the time engineers spend searching long manuals while preserving trust. It is not positioned as an all-knowing expert. It is positioned as a fast, conservative research assistant that returns grounded answers, citations, and visual evidence from the original manual.
 
@@ -36,7 +36,7 @@ Traditional PDF search and basic text-only RAG systems fail on this material bec
 
 ## 3. Product Boundary
 
-Navigineer is designed as a controlled internal tool, not a public knowledge portal.
+PLC Manuals is designed as a controlled internal tool, not a public knowledge portal.
 
 ### In Scope
 

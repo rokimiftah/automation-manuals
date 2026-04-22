@@ -3,12 +3,7 @@ async function sha256Hex(input: string) {
   return Array.from(new Uint8Array(digest), (byte) => byte.toString(16).padStart(2, "0")).join("")
 }
 
-export async function verifyMineruChecksum(args: {
-  checksum: string
-  content: string
-  seed: string
-  uid: string
-}) {
+export async function verifyMineruChecksum(args: { checksum: string; content: string; seed: string; uid: string }) {
   const expected = await sha256Hex(`${args.uid}${args.seed}${args.content}`)
   return expected === args.checksum
 }

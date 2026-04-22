@@ -34,9 +34,9 @@ describe("computeViewerAccess", () => {
 
   it("allows engineers through an allowed domain", () => {
     expect(
-      computeViewerAccess("tech@navigineer.internal", {
+      computeViewerAccess("tech@plc-manuals.internal", {
         adminEmails: [],
-        allowedDomains: ["navigineer.internal"],
+        allowedDomains: ["plc-manuals.internal"],
         allowedEmails: []
       })
     ).toEqual({

@@ -27,7 +27,7 @@ export default function QuestionComposer({ disabled, onSubmit }: QuestionCompose
       }}
     >
       <div className="space-y-2">
-        <p className="text-xs font-semibold uppercase tracking-[0.4em] text-cyan-300">Ask assistant</p>
+        <p className="text-xs font-semibold tracking-[0.4em] text-cyan-300 uppercase">Ask assistant</p>
         <h2 className="text-2xl font-semibold text-white">Query the manual corpus</h2>
         <p className="text-sm leading-6 text-slate-400">
           Ask a concrete question about wiring, alarms, safety placement, or page-specific instructions.

@@ -1,16 +1,18 @@
 import type { Id } from "@convex/_generated/dataModel"
+import type { SupportingAsset } from "@entities/knowledge/model/types"
+import type { AnswerPacketViewPacket } from "@features/ask-assistant/ui"
 
 import { startTransition, useState } from "react"
 
 import { useAction } from "convex/react"
 
 import { api } from "@convex/_generated/api"
-import { AuthGate } from "@features/auth/ui"
-import { AnswerPacketView, QuestionComposer } from "@features/ask-assistant/ui"
-import type { AnswerPacketViewPacket } from "@features/ask-assistant/ui"
-import EvidenceViewer from "@features/view-evidence/ui"
-import type { SupportingAsset } from "@entities/knowledge/model/types"
+
 import AppShell from "@widgets/app-shell/ui/AppShell"
+
+import { AnswerPacketView, QuestionComposer } from "@features/ask-assistant/ui"
+import { AuthGate } from "@features/auth/ui"
+import EvidenceViewer from "@features/view-evidence/ui"
 
 export default function EngineerWorkspace() {
   const ask = useAction(api.search.ask)

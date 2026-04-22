@@ -47,7 +47,7 @@ describe("getProviderEnv", () => {
     })
 
     expect(result).toMatchObject({
-      mineruApiToken: "mineru-token",
+      mineruApiToken: "mineru-token"
     })
     expect(result.mineruCallbackSeed).toBeUndefined()
     expect(result.mineruCallbackUrl).toBeUndefined()

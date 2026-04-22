@@ -45,7 +45,7 @@ export default function AuthScreen() {
       case "resetConfirm":
         return "Finish resetting your password"
       default:
-        return "Sign in to Navigineer"
+        return "Sign in to PLC Manuals"
     }
   }, [mode])
 
@@ -86,7 +86,7 @@ export default function AuthScreen() {
     <section className="flex min-h-screen items-center px-6 py-12">
       <div className="mx-auto w-full max-w-xl space-y-6 rounded-3xl border border-slate-800 bg-slate-900/90 p-8 shadow-2xl shadow-slate-950/40">
         <div className="space-y-3">
-          <p className="text-xs font-semibold uppercase tracking-[0.45em] text-cyan-300">Navigineer access</p>
+          <p className="text-xs font-semibold tracking-[0.45em] text-cyan-300 uppercase">PLC Manuals access</p>
           <h1 className="text-3xl leading-tight font-semibold text-white">{heading}</h1>
           <p className="text-sm leading-6 text-slate-300">{helperText}</p>
         </div>
@@ -189,7 +189,7 @@ export default function AuthScreen() {
             <span>Email</span>
             <input
               autoComplete="email"
-              className="w-full rounded-2xl border border-slate-700 bg-slate-950 px-4 py-3 text-white outline-none transition placeholder:text-slate-500 focus:border-cyan-400"
+              className="w-full rounded-2xl border border-slate-700 bg-slate-950 px-4 py-3 text-white transition outline-none placeholder:text-slate-500 focus:border-cyan-400"
               name="email"
               placeholder="engineer@company.com"
               type="email"
@@ -203,7 +203,7 @@ export default function AuthScreen() {
               <span>{isResetFlow ? "New password" : "Password"}</span>
               <input
                 autoComplete={mode === "signUp" || isResetFlow ? "new-password" : "current-password"}
-                className="w-full rounded-2xl border border-slate-700 bg-slate-950 px-4 py-3 text-white outline-none transition placeholder:text-slate-500 focus:border-cyan-400"
+                className="w-full rounded-2xl border border-slate-700 bg-slate-950 px-4 py-3 text-white transition outline-none placeholder:text-slate-500 focus:border-cyan-400"
                 name="password"
                 placeholder={isResetFlow ? "Choose a new password" : "Enter your password"}
                 type="password"
@@ -217,7 +217,7 @@ export default function AuthScreen() {
             <label className="block space-y-2 text-sm text-slate-200">
               <span>Reset code</span>
               <input
-                className="w-full rounded-2xl border border-slate-700 bg-slate-950 px-4 py-3 text-white outline-none transition placeholder:text-slate-500 focus:border-cyan-400"
+                className="w-full rounded-2xl border border-slate-700 bg-slate-950 px-4 py-3 text-white transition outline-none placeholder:text-slate-500 focus:border-cyan-400"
                 name="code"
                 placeholder="Paste the code from your reset email"
                 type="text"
@@ -228,7 +228,10 @@ export default function AuthScreen() {
           ) : null}
 
           {status ? (
-            <p aria-live="polite" className="rounded-2xl border border-emerald-500/30 bg-emerald-500/10 px-4 py-3 text-sm text-emerald-200">
+            <p
+              aria-live="polite"
+              className="rounded-2xl border border-emerald-500/30 bg-emerald-500/10 px-4 py-3 text-sm text-emerald-200"
+            >
               {status}
             </p>
           ) : null}
@@ -249,8 +252,14 @@ export default function AuthScreen() {
         </form>
 
         <div className="flex flex-wrap items-center gap-3 text-sm text-slate-300">
-          {mode === "magicLink" ? null : (mode === "resetRequest" || mode === "resetConfirm") ? (
-            <button className="font-medium text-cyan-300 transition hover:text-cyan-200" type="button" onClick={() => setMode("signIn")}>Back to sign in</button>
+          {mode === "magicLink" ? null : mode === "resetRequest" || mode === "resetConfirm" ? (
+            <button
+              className="font-medium text-cyan-300 transition hover:text-cyan-200"
+              type="button"
+              onClick={() => setMode("signIn")}
+            >
+              Back to sign in
+            </button>
           ) : (
             <button
               className="font-medium text-cyan-300 transition hover:text-cyan-200"
@@ -262,7 +271,13 @@ export default function AuthScreen() {
           )}
 
           {mode === "signIn" ? (
-            <button className="font-medium text-slate-300 transition hover:text-white" type="button" onClick={() => setMode("resetRequest")}>Forgot password?</button>
+            <button
+              className="font-medium text-slate-300 transition hover:text-white"
+              type="button"
+              onClick={() => setMode("resetRequest")}
+            >
+              Forgot password?
+            </button>
           ) : null}
 
           <a className="ml-auto font-medium text-cyan-300 transition hover:text-cyan-200" href="/app">

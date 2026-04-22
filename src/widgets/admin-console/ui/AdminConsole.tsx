@@ -1,9 +1,11 @@
 import { useMutation, useQuery } from "convex/react"
 
 import { api } from "@convex/_generated/api"
-import { AuthGate, RoleGate } from "@features/auth/ui"
-import { DocumentRegistrationForm, IngestionJobList } from "@features/admin-ingestion/ui"
+
 import AppShell from "@widgets/app-shell/ui/AppShell"
+
+import { DocumentRegistrationForm, IngestionJobList } from "@features/admin-ingestion/ui"
+import { AuthGate, RoleGate } from "@features/auth/ui"
 
 export default function AdminConsole() {
   const documents = useQuery(api.documents.listAdmin, {})
@@ -20,11 +22,11 @@ export default function AdminConsole() {
             <div className="space-y-6">
               <section className="rounded-3xl border border-slate-800 bg-slate-900/80 p-6 shadow-xl shadow-slate-950/30">
                 <div className="space-y-2">
-                  <p className="text-xs font-semibold uppercase tracking-[0.4em] text-cyan-300">Document inventory</p>
+                  <p className="text-xs font-semibold tracking-[0.4em] text-cyan-300 uppercase">Document inventory</p>
                   <h2 className="text-2xl font-semibold text-white">Registered manuals</h2>
                   <p className="text-sm leading-6 text-slate-400">Approved source documents ready for ingestion and retrieval.</p>
                 </div>
-                <p className="mt-5 text-4xl font-semibold tracking-tight text-white font-mono">
+                <p className="mt-5 font-mono text-4xl font-semibold tracking-tight text-white">
                   {documents === undefined ? "—" : documents.length}
                 </p>
                 <p className="mt-2 text-sm leading-6 text-slate-400">
@@ -44,11 +46,11 @@ export default function AdminConsole() {
               {jobs === undefined ? (
                 <section className="space-y-4 rounded-3xl border border-slate-800 bg-slate-900/80 p-6 shadow-xl shadow-slate-950/30">
                   <div className="space-y-2">
-                    <p className="text-xs font-semibold uppercase tracking-[0.4em] text-cyan-300">Ingestion jobs</p>
+                    <p className="text-xs font-semibold tracking-[0.4em] text-cyan-300 uppercase">Ingestion jobs</p>
                     <h2 className="text-2xl font-semibold text-white">Queue status</h2>
                     <p className="text-sm leading-6 text-slate-400">Loading job history...</p>
                   </div>
-                  <div className="h-64 rounded-2xl border border-slate-800 bg-slate-950/60 animate-pulse" />
+                  <div className="h-64 animate-pulse rounded-2xl border border-slate-800 bg-slate-950/60" />
                 </section>
               ) : (
                 <IngestionJobList

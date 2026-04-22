@@ -1,15 +1,19 @@
-import { v } from "convex/values"
-import { ConvexError } from "convex/values"
+import type { MutationCtx } from "./_generated/server"
 import type { GenericId } from "convex/values"
 
-import type { MutationCtx } from "./_generated/server"
+import { ConvexError, v } from "convex/values"
+
 import { internalMutation, internalQuery, mutation, query } from "./_generated/server"
 import { assertNextIngestionStatus } from "./lib/ingestionState"
 import { chunkTypeValidator, documentStatusValidator } from "./lib/validators"
 import { requireAdminViewer } from "./lib/viewer"
 
 function toSlug(value: string) {
-  return value.trim().toLowerCase().replace(/[^a-z0-9]+/g, "-").replace(/(^-|-$)/g, "")
+  return value
+    .trim()
+    .toLowerCase()
+    .replace(/[^a-z0-9]+/g, "-")
+    .replace(/(^-|-$)/g, "")
 }
 
 function requireText(field: string, value: string) {
@@ -39,7 +43,10 @@ function requireHttpUrl(field: string, value: string) {
 
 async function upsertVendor(ctx: MutationCtx, name: string) {
   const slug = toSlug(name)
-  const existing = await ctx.db.query("vendors").withIndex("by_slug", (q) => q.eq("slug", slug)).unique()
+  const existing = await ctx.db
+    .query("vendors")
+    .withIndex("by_slug", (q) => q.eq("slug", slug))
+    .unique()
   if (existing) {
     return existing._id
   }
@@ -49,7 +56,10 @@ async function upsertVendor(ctx: MutationCtx, name: string) {
 
 async function upsertProduct(ctx: MutationCtx, vendorId: GenericId<"vendors">, name: string) {
   const slug = toSlug(name)
-  const existing = await ctx.db.query("products").withIndex("by_vendor_and_slug", (q) => q.eq("vendorId", vendorId).eq("slug", slug)).unique()
+  const existing = await ctx.db
+    .query("products")
+    .withIndex("by_vendor_and_slug", (q) => q.eq("vendorId", vendorId).eq("slug", slug))
+    .unique()
   if (existing) {
     return existing._id
   }
@@ -152,7 +162,10 @@ export const replaceParsedContent = internalMutation({
       .collect()
     for (const chunk of currentChunks) {
       await ctx.db.patch(chunk._id, { isCurrent: false })
-      const currentEmbeddings = await ctx.db.query("chunkEmbeddings").withIndex("by_chunk", (q) => q.eq("chunkId", chunk._id)).collect()
+      const currentEmbeddings = await ctx.db
+        .query("chunkEmbeddings")
+        .withIndex("by_chunk", (q) => q.eq("chunkId", chunk._id))
+        .collect()
       for (const embedding of currentEmbeddings) {
         await ctx.db.patch(embedding._id, { isCurrent: false })
       }

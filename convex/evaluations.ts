@@ -2,8 +2,8 @@ import { v } from "convex/values"
 
 import { mutation, query } from "./_generated/server"
 import { defaultEvaluationCases } from "./lib/evaluationSeed"
-import { requireAdminViewer } from "./lib/viewer"
 import { severityValidator } from "./lib/validators"
+import { requireAdminViewer } from "./lib/viewer"
 
 const evaluationCaseValidator = v.object({
   _creationTime: v.number(),

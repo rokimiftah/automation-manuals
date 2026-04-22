@@ -1,7 +1,7 @@
-import { authTables } from "@convex-dev/auth/server"
-
 import { defineSchema, defineTable } from "convex/server"
 import { v } from "convex/values"
+
+import { authTables } from "@convex-dev/auth/server"
 
 import {
   answerabilityStatusValidator,
@@ -59,7 +59,9 @@ export default defineSchema({
     providerSubmittedAt: v.optional(v.number()),
     providerLastCheckedAt: v.optional(v.number()),
     providerCallbackVerifiedAt: v.optional(v.number()),
-    priorityQuotaBucket: v.optional(v.union(v.literal("priority_expected"), v.literal("standard_possible"), v.literal("unknown"))),
+    priorityQuotaBucket: v.optional(
+      v.union(v.literal("priority_expected"), v.literal("standard_possible"), v.literal("unknown"))
+    ),
     sourceStorageId: v.optional(v.id("_storage")),
     sourceFileName: v.optional(v.string()),
     sourceMimeType: v.optional(v.string()),

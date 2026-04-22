@@ -1,4 +1,6 @@
-import { v, type GenericId } from "convex/values"
+import type { GenericId } from "convex/values"
+
+import { v } from "convex/values"
 
 import { answerabilityStatusValidator } from "./validators"
 

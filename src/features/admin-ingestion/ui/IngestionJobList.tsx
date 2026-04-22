@@ -49,7 +49,7 @@ export default function IngestionJobList({ jobs, onRetry }: IngestionJobListProp
     <section className="space-y-4 rounded-3xl border border-slate-800 bg-slate-900/80 p-6 shadow-xl shadow-slate-950/30">
       <div className="flex items-center justify-between gap-4">
         <div className="space-y-1">
-          <p className="text-xs font-semibold uppercase tracking-[0.4em] text-cyan-300">Ingestion jobs</p>
+          <p className="text-xs font-semibold tracking-[0.4em] text-cyan-300 uppercase">Ingestion jobs</p>
           <h2 className="text-2xl font-semibold text-white">Queue status</h2>
         </div>
         <p className="text-sm text-slate-400">
@@ -64,19 +64,32 @@ export default function IngestionJobList({ jobs, onRetry }: IngestionJobListProp
       ) : (
         <div className="divide-y divide-slate-800 overflow-hidden rounded-2xl border border-slate-800">
           {jobs.map((job) => (
-            <article key={job._id} className="flex flex-col gap-4 bg-slate-950/40 px-4 py-4 md:flex-row md:items-center md:justify-between">
+            <article
+              key={job._id}
+              className="flex flex-col gap-4 bg-slate-950/40 px-4 py-4 md:flex-row md:items-center md:justify-between"
+            >
               <div className="space-y-2">
                 <div className="flex flex-wrap items-center gap-3">
-                  <p className="text-sm font-medium text-white">Document <span className="font-mono">{job.documentId}</span></p>
-                  <span className={`rounded-full border px-3 py-1 text-[11px] font-semibold uppercase tracking-[0.3em] ${statusClasses(job.status)}`}>
+                  <p className="text-sm font-medium text-white">
+                    Document <span className="font-mono">{job.documentId}</span>
+                  </p>
+                  <span
+                    className={`rounded-full border px-3 py-1 text-[11px] font-semibold tracking-[0.3em] uppercase ${statusClasses(job.status)}`}
+                  >
                     {statusLabel(job.status)}
                   </span>
                 </div>
                 {job.errorMessage ? <p className="text-sm leading-6 text-rose-200">{job.errorMessage}</p> : null}
-                {job.providerState ? <p className="text-xs uppercase tracking-[0.25em] text-slate-500">Provider: {job.providerState}</p> : null}
+                {job.providerState ? (
+                  <p className="text-xs tracking-[0.25em] text-slate-500 uppercase">Provider: {job.providerState}</p>
+                ) : null}
                 {job.providerErrorMessage ? <p className="text-sm leading-6 text-amber-200">{job.providerErrorMessage}</p> : null}
-                {job.providerErrorCode !== undefined ? <p className="text-xs text-slate-500">Provider error code: {job.providerErrorCode}</p> : null}
-                {job.providerLastCheckedAt !== undefined ? <p className="text-xs text-slate-500">Last checked: {new Date(job.providerLastCheckedAt).toLocaleString()}</p> : null}
+                {job.providerErrorCode !== undefined ? (
+                  <p className="text-xs text-slate-500">Provider error code: {job.providerErrorCode}</p>
+                ) : null}
+                {job.providerLastCheckedAt !== undefined ? (
+                  <p className="text-xs text-slate-500">Last checked: {new Date(job.providerLastCheckedAt).toLocaleString()}</p>
+                ) : null}
               </div>
 
               <button

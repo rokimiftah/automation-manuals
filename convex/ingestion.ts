@@ -1,17 +1,19 @@
-import { unzipSync } from "fflate"
+import type { Id } from "./_generated/dataModel"
+import type { IngestionStatus } from "./lib/ingestionState"
 
 import { ConvexError, v } from "convex/values"
 
+import { unzipSync } from "fflate"
+
 import { internal } from "./_generated/api"
-import type { Id } from "./_generated/dataModel"
 import { httpAction, internalAction, internalMutation, internalQuery, mutation, query } from "./_generated/server"
-import { buildDocumentPayload } from "./lib/ingestDocument"
-import { assertNextIngestionStatus, type IngestionStatus } from "./lib/ingestionState"
-import { embedTexts } from "./lib/mistral"
 import { getProviderEnv } from "./lib/env"
+import { buildDocumentPayload } from "./lib/ingestDocument"
+import { assertNextIngestionStatus } from "./lib/ingestionState"
 import { getMineruBatchResult, mapMineruBatchState, submitMineruBatch } from "./lib/mineru"
-import { normalizeMineruDocument } from "./lib/mineruResult"
 import { verifyMineruChecksum } from "./lib/mineruCallback"
+import { normalizeMineruDocument } from "./lib/mineruResult"
+import { embedTexts } from "./lib/mistral"
 import { ingestionStatusValidator } from "./lib/validators"
 import { requireAdminViewer } from "./lib/viewer"
 
@@ -34,7 +36,9 @@ const jobByIdValidator = v.union(
     createdAt: v.number(),
     documentId: v.id("documents"),
     errorMessage: v.optional(v.string()),
-    priorityQuotaBucket: v.optional(v.union(v.literal("priority_expected"), v.literal("standard_possible"), v.literal("unknown"))),
+    priorityQuotaBucket: v.optional(
+      v.union(v.literal("priority_expected"), v.literal("standard_possible"), v.literal("unknown"))
+    ),
     provider: v.optional(v.literal("mineru")),
     providerBatchId: v.optional(v.string()),
     providerCallbackVerifiedAt: v.optional(v.number()),

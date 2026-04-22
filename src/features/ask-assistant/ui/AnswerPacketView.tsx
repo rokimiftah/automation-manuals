@@ -26,7 +26,9 @@ export default function AnswerPacketView({ packet, onSelectCitation }: AnswerPac
   return (
     <section className="space-y-5 rounded-3xl border border-slate-800 bg-slate-900/80 p-6 shadow-xl shadow-slate-950/30">
       <div className="space-y-2">
-        <p className={`inline-flex rounded-full border px-3 py-1 text-[11px] font-semibold uppercase tracking-[0.3em] ${statusStyles(packet.answerabilityStatus)}`}>
+        <p
+          className={`inline-flex rounded-full border px-3 py-1 text-[11px] font-semibold tracking-[0.3em] uppercase ${statusStyles(packet.answerabilityStatus)}`}
+        >
           {packet.answerabilityStatus === "grounded" ? "Grounded answer" : "Insufficient evidence"}
         </p>
         <p className="text-base leading-7 text-slate-100">{packet.answerSummary}</p>
@@ -34,7 +36,7 @@ export default function AnswerPacketView({ packet, onSelectCitation }: AnswerPac
 
       {packet.answerSteps.length > 0 ? (
         <div className="space-y-3">
-          <p className="text-xs font-semibold uppercase tracking-[0.35em] text-slate-400">Reasoning steps</p>
+          <p className="text-xs font-semibold tracking-[0.35em] text-slate-400 uppercase">Reasoning steps</p>
           <ol className="space-y-2 text-sm leading-6 text-slate-300">
             {packet.answerSteps.map((step, index) => (
               <li key={step} className="rounded-2xl border border-slate-800 bg-slate-950/60 px-4 py-3">
@@ -48,7 +50,7 @@ export default function AnswerPacketView({ packet, onSelectCitation }: AnswerPac
 
       {packet.citations.length > 0 ? (
         <div className="space-y-3">
-          <p className="text-xs font-semibold uppercase tracking-[0.35em] text-slate-400">Citations</p>
+          <p className="text-xs font-semibold tracking-[0.35em] text-slate-400 uppercase">Citations</p>
           <div className="flex flex-wrap gap-2">
             {packet.citations.map((citation) => (
               <span
@@ -63,7 +65,7 @@ export default function AnswerPacketView({ packet, onSelectCitation }: AnswerPac
       ) : null}
 
       <div className="space-y-3">
-        <p className="text-xs font-semibold uppercase tracking-[0.35em] text-slate-400">Supporting assets</p>
+        <p className="text-xs font-semibold tracking-[0.35em] text-slate-400 uppercase">Supporting assets</p>
         {packet.supportingAssets.length === 0 ? (
           <div className="rounded-2xl border border-dashed border-slate-800 bg-slate-950/50 px-4 py-5 text-sm leading-6 text-slate-400">
             No supporting assets were returned for this answer.

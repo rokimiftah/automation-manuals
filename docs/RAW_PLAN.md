@@ -1,4 +1,4 @@
-# Navigineer: Kombinasi Navigate dan Engineer. Menjadikan aplikasi ini sebagai alat navigasi utama bagi para insinyur lapangan.
+# PLC Manuals
 
 ### Question: jadi saya ingin membuat platform ai pakai rag (vector db, semantic, dll) dengan tujuan ketika engineer mencari problem maka akan diberikan solusi yang didapat dari dokumentasi pdf resmi.
 
@@ -428,94 +428,95 @@ Berikut adalah rancangan struktur komponen dan logika status (state)-nya:
 
 ```tsx
 // app/page.tsx
-"use client";
+"use client"
 
-import { useState } from "react";
-import { useAction } from "convex/react";
-import { api } from "@/convex/_generated/api";
+import { useState } from "react"
+
+import { useAction } from "convex/react"
+
+import { api } from "@/convex/_generated/api"
 
 export default function RAGDashboard() {
-  const [messages, setMessages] = useState([]);
-  const [activeAsset, setActiveAsset] = useState<{ url: string; page: number } | null>(null);
-  const [input, setInput] = useState("");
+  const [messages, setMessages] = useState([])
+  const [activeAsset, setActiveAsset] = useState<{ url: string; page: number } | null>(null)
+  const [input, setInput] = useState("")
 
-  const askAssistant = useAction(api.actions.askEngineerAssistant);
+  const askAssistant = useAction(api.actions.askEngineerAssistant)
 
   const handleSubmit = async (e: React.FormEvent) => {
-    e.preventDefault();
-    if (!input.trim()) return;
+    e.preventDefault()
+    if (!input.trim()) return
 
     // Tambahkan pesan user ke UI
-    const userMsg = { role: "user", text: input };
-    setMessages((prev) => [...prev, userMsg]);
-    setInput("");
+    const userMsg = { role: "user", text: input }
+    setMessages((prev) => [...prev, userMsg])
+    setInput("")
 
     // Panggil backend Convex
-    const response = await askAssistant({ userQuestion: userMsg.text });
+    const response = await askAssistant({ userQuestion: userMsg.text })
 
     // Tambahkan balasan AI ke UI
-    setMessages((prev) => [
-      ...prev,
-      { role: "ai", text: response.answer, images: response.supportingImages },
-    ]);
+    setMessages((prev) => [...prev, { role: "ai", text: response.answer, images: response.supportingImages }])
 
     // Otomatis tampilkan gambar pertama di panel kanan (jika ada)
     if (response.supportingImages && response.supportingImages.length > 0) {
-      setActiveAsset(response.supportingImages[0]);
+      setActiveAsset(response.supportingImages[0])
     }
-  };
+  }
 
   return (
-    <main className="grid h-screen grid-cols-1 md:grid-cols-12 bg-gray-50 overflow-hidden">
-
+    <main className="grid h-screen grid-cols-1 overflow-hidden bg-gray-50 md:grid-cols-12">
       {/* LEFT PANEL: Chat Interface (4/12 width on Desktop) */}
-      <section className="md:col-span-4 flex flex-col border-r border-gray-200 bg-white">
-        <header className="p-4 border-b border-gray-200">
+      <section className="flex flex-col border-r border-gray-200 bg-white md:col-span-4">
+        <header className="border-b border-gray-200 p-4">
           <h1 className="text-lg font-semibold text-gray-800">Field Assistant</h1>
         </header>
 
         {/* Chat History Area */}
-        <div className="flex-1 overflow-y-auto p-4 space-y-6">
+        <div className="flex-1 space-y-6 overflow-y-auto p-4">
           {messages.map((msg, idx) => (
             <div key={idx} className={msg.role === "user" ? "text-right" : "text-left"}>
-              <div className={`inline-block p-3 rounded-lg ${
-                msg.role === "user" ? "bg-blue-600 text-white" : "bg-gray-100 text-gray-800"
-              }`}>
+              <div
+                className={`inline-block rounded-lg p-3 ${
+                  msg.role === "user" ? "bg-blue-600 text-white" : "bg-gray-100 text-gray-800"
+                }`}
+              >
                 <p className="text-sm whitespace-pre-wrap">{msg.text}</p>
 
                 {/* Image Trigger Buttons */}
-                {msg.images && msg.images.map((img, i) => (
-                  <button
-                    key={i}
-                    onClick={() => setActiveAsset(img)}
-                    className="mt-2 text-xs text-blue-600 underline font-medium block"
-                  >
-                    View Reference (Page {img.page})
-                  </button>
-                ))}
+                {msg.images &&
+                  msg.images.map((img, i) => (
+                    <button
+                      key={i}
+                      onClick={() => setActiveAsset(img)}
+                      className="mt-2 block text-xs font-medium text-blue-600 underline"
+                    >
+                      View Reference (Page {img.page})
+                    </button>
+                  ))}
               </div>
             </div>
           ))}
         </div>
 
         {/* Input Area */}
-        <form onSubmit={handleSubmit} className="p-4 border-t border-gray-200">
+        <form onSubmit={handleSubmit} className="border-t border-gray-200 p-4">
           <input
             type="text"
             value={input}
             onChange={(e) => setInput(e.target.value)}
             placeholder="Describe the hardware issue..."
-            className="w-full p-3 border border-gray-300 rounded-md shadow-sm focus:ring-2 focus:ring-blue-500 focus:border-blue-500"
+            className="w-full rounded-md border border-gray-300 p-3 shadow-sm focus:border-blue-500 focus:ring-2 focus:ring-blue-500"
           />
         </form>
       </section>
 
       {/* RIGHT PANEL: Asset Viewer (8/12 width on Desktop) */}
-      <section className="md:col-span-8 bg-gray-100 flex flex-col relative">
+      <section className="relative flex flex-col bg-gray-100 md:col-span-8">
         {activeAsset ? (
-          <div className="w-full h-full p-8 flex items-center justify-center">
+          <div className="flex h-full w-full items-center justify-center p-8">
             {/* Citation Badge */}
-            <div className="absolute top-4 left-4 bg-white px-4 py-2 rounded-md shadow text-sm font-medium text-gray-700">
+            <div className="absolute top-4 left-4 rounded-md bg-white px-4 py-2 text-sm font-medium text-gray-700 shadow">
               Source: GuardLogix Manual, Page {activeAsset.page}
             </div>
 
@@ -523,21 +524,25 @@ export default function RAGDashboard() {
             <img
               src={activeAsset.url}
               alt="Technical Reference"
-              className="max-w-full max-h-full object-contain rounded-lg shadow-sm bg-white"
+              className="max-h-full max-w-full rounded-lg bg-white object-contain shadow-sm"
             />
           </div>
         ) : (
-          <div className="flex-1 flex flex-col items-center justify-center text-gray-400">
-            <svg className="w-16 h-16 mb-4 text-gray-300" fill="none" viewBox="0 0 24 24" stroke="currentColor">
-              <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={1} d="M4 16l4.586-4.586a2 2 0 012.828 0L16 16m-2-2l1.586-1.586a2 2 0 012.828 0L20 14m-6-6h.01M6 20h12a2 2 0 002-2V6a2 2 0 00-2-2H6a2 2 0 00-2 2v12a2 2 0 002 2z" />
+          <div className="flex flex-1 flex-col items-center justify-center text-gray-400">
+            <svg className="mb-4 h-16 w-16 text-gray-300" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+              <path
+                strokeLinecap="round"
+                strokeLinejoin="round"
+                strokeWidth={1}
+                d="M4 16l4.586-4.586a2 2 0 012.828 0L16 16m-2-2l1.586-1.586a2 2 0 012.828 0L20 14m-6-6h.01M6 20h12a2 2 0 002-2V6a2 2 0 00-2-2H6a2 2 0 00-2 2v12a2 2 0 002 2z"
+              />
             </svg>
             <p className="text-sm">Select a reference from the chat to view diagrams.</p>
           </div>
         )}
       </section>
-
     </main>
-  );
+  )
 }
 ```
 

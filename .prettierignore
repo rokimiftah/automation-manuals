@@ -1,0 +1,23 @@
+# ==========================================
+# Generated Files
+# ==========================================
+# Convex auto-generated code (has type warnings we ignore)
+convex/_generated/
+
+# Astro build output
+.astro/
+dist/
+
+# ==========================================
+# Dependencies
+# ==========================================
+node_modules/
+
+# ==========================================
+# Lock Files
+# ==========================================
+# Lock files should not be formatted
+bun.lock
+package-lock.json
+yarn.lock
+pnpm-lock.yaml

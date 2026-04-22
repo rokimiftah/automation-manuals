@@ -1,0 +1,20 @@
+{
+  "compilerOptions": {
+    "jsx": "react-jsx",
+    "jsxImportSource": "react",
+    "paths": {
+      "@/*": ["./src/*"],
+      "@app/*": ["./src/app/*"],
+      "@pages/*": ["./src/pages/*"],
+      "@widgets/*": ["./src/widgets/*"],
+      "@features/*": ["./src/features/*"],
+      "@entities/*": ["./src/entities/*"],
+      "@shared/*": ["./src/shared/*"],
+      "@convex/*": ["./convex/*"],
+      "@x/*": ["./src/*/index.ts"]
+    }
+  },
+  "exclude": ["dist"],
+  "extends": "astro/tsconfigs/strict",
+  "include": [".astro/types.d.ts", "**/*"]
+}

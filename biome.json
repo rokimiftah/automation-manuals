@@ -1,0 +1,15 @@
+{
+  "$schema": "./node_modules/@biomejs/biome/configuration_schema.json",
+  "assist": { "actions": { "source": { "organizeImports": "off" } } },
+  "css": { "parser": { "tailwindDirectives": true } },
+  "files": { "includes": ["**", "!**/.astro", "!**/convex/_generated", "!**/*.lock", "!**/dist", "!**/node_modules"] },
+  "formatter": { "enabled": false },
+  "linter": { "rules": { "recommended": true } },
+  "overrides": [
+    {
+      "assist": { "actions": { "source": { "organizeImports": "off" } } },
+      "includes": ["**/*.astro"],
+      "linter": { "rules": { "correctness": { "noUnusedImports": "off", "noUnusedVariables": "off" }, "recommended": true } }
+    }
+  ]
+}

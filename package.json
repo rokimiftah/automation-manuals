@@ -1,0 +1,34 @@
+{
+  "name": "navigineer",
+  "type": "module",
+  "version": "0.0.1",
+  "scripts": {
+    "dev": "astro dev",
+    "build": "astro build",
+    "preview": "astro preview",
+    "convex:dev": "convex dev",
+    "convex:deploy": "convex deploy",
+    "format": "prettier --write .",
+    "lint": "biome check --write --unsafe . && tsc --noEmit && tsc --noEmit -p convex"
+  },
+  "dependencies": {
+    "@astrojs/react": "^5.0.3",
+    "astro": "^6.1.8",
+    "convex": "^1.35.1",
+    "react": "^19.2.5",
+    "react-dom": "^19.2.5"
+  },
+  "devDependencies": {
+    "@biomejs/biome": "^2.4.12",
+    "@ianvs/prettier-plugin-sort-imports": "^4.7.1",
+    "@tailwindcss/vite": "^4.2.2",
+    "@types/node": "^25.6.0",
+    "@types/react": "^19.2.14",
+    "@types/react-dom": "^19.2.3",
+    "prettier": "^3.8.3",
+    "prettier-plugin-astro": "^0.14.1",
+    "prettier-plugin-tailwindcss": "^0.7.2",
+    "tailwindcss": "^4.2.2",
+    "typescript": "^6.0.3"
+  }
+}

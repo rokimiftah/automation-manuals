@@ -1,11 +1,7 @@
-import type { MutationCtx, QueryCtx } from "./_generated/server"
-import type { GenericId } from "convex/values"
-
 import { ConvexError, v } from "convex/values"
 
 import { internalMutation, query } from "./_generated/server"
 import { messageRoleValidator } from "./lib/validators"
-import { requireAllowedViewer } from "./lib/viewer"
 
 const chatSessionValidator = v.object({
   _id: v.id("chatSessions"),
@@ -20,28 +16,11 @@ const chatMessageValidator = v.object({
   role: messageRoleValidator
 })
 
-type OwnedSessionCtx = QueryCtx | MutationCtx
-
-async function requireOwnedSession(ctx: OwnedSessionCtx, sessionId: GenericId<"chatSessions">) {
-  const viewer = await requireAllowedViewer(ctx)
-  const session = await ctx.db.get(sessionId)
-  if (!session || session.userId !== viewer.userId) {
-    return null
-  }
-
-  return session
-}
-
-function normalizeTitle(title?: string) {
-  const trimmed = title?.trim()
-  return trimmed ? trimmed.slice(0, 120) : "New chat"
-}
-
 export const getSession = query({
   args: { sessionId: v.id("chatSessions") },
   returns: v.union(chatSessionValidator, v.null()),
   handler: async (ctx, args) => {
-    const session = await requireOwnedSession(ctx, args.sessionId)
+    const session = await ctx.db.get(args.sessionId)
     if (!session) {
       return null
     }
@@ -59,7 +38,7 @@ export const listMessages = query({
   args: { sessionId: v.id("chatSessions") },
   returns: v.array(chatMessageValidator),
   handler: async (ctx, args) => {
-    const session = await requireOwnedSession(ctx, args.sessionId)
+    const session = await ctx.db.get(args.sessionId)
     if (!session) {
       return []
     }
@@ -81,21 +60,16 @@ export const listMessages = query({
 })
 
 export const ensureSession = internalMutation({
-  args: {
-    title: v.string(),
-    userId: v.id("users")
-  },
+  args: { title: v.string() },
   returns: v.id("chatSessions"),
   handler: async (ctx, args) => {
     const now = Date.now()
-
     return await ctx.db.insert("chatSessions", {
       createdAt: now,
-      title: normalizeTitle(args.title),
+      title: args.title.slice(0, 120) || "New chat",
       updatedAt: now,
-      userId: args.userId
     })
-  }
+  },
 })
 
 export const appendMessage = internalMutation({
@@ -104,12 +78,11 @@ export const appendMessage = internalMutation({
     content: v.string(),
     role: messageRoleValidator,
     sessionId: v.id("chatSessions"),
-    userId: v.id("users")
   },
   returns: v.id("chatMessages"),
   handler: async (ctx, args) => {
     const session = await ctx.db.get(args.sessionId)
-    if (!session || session.userId !== args.userId) {
+    if (!session) {
       throw new ConvexError("Session not found")
     }
 
@@ -120,13 +93,9 @@ export const appendMessage = internalMutation({
       createdAt: now,
       role: args.role,
       sessionId: args.sessionId,
-      userId: args.userId
     })
 
-    await ctx.db.patch(args.sessionId, {
-      updatedAt: now
-    })
-
+    await ctx.db.patch(args.sessionId, { updatedAt: now })
     return messageId
-  }
+  },
 })

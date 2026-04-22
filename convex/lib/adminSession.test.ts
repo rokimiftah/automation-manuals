@@ -2,6 +2,7 @@ import { describe, expect, it, vi } from "vitest"
 
 import {
   authenticateAdminLogin,
+  buildAdminAuditActor,
   getAdminAuthEnv,
   getRateLimitState,
   hashSessionToken,
@@ -121,5 +122,15 @@ describe("isSessionStateValid", () => {
     expect(isSessionStateValid({ expiresAt: 1_000, now: 1_000, revokedAt: undefined })).toBe(false)
     expect(isSessionStateValid({ expiresAt: 2_000, now: 1_000, revokedAt: 500 })).toBe(false)
     expect(isSessionStateValid({ expiresAt: 2_000, now: 1_000, revokedAt: undefined })).toBe(true)
+  })
+})
+
+describe("buildAdminAuditActor", () => {
+  it("maps an admin session to stable audit metadata", () => {
+    expect(buildAdminAuditActor({ _id: "adminSessions_7" as never, username: "root" })).toEqual({
+      actorLabel: "root",
+      actorType: "admin_session",
+      adminSessionId: "adminSessions_7"
+    })
   })
 })

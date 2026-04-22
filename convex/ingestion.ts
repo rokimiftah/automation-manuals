@@ -10,12 +10,12 @@ import { httpAction, internalAction, internalMutation, internalQuery, mutation, 
 import { getProviderEnv } from "./lib/env"
 import { buildDocumentPayload } from "./lib/ingestDocument"
 import { assertNextIngestionStatus } from "./lib/ingestionState"
+import { requireAdminQuerySession, requireAdminWriteSession } from "./lib/adminSession"
 import { getMineruBatchResult, mapMineruBatchState, submitMineruBatch } from "./lib/mineru"
 import { verifyMineruChecksum } from "./lib/mineruCallback"
 import { normalizeMineruDocument } from "./lib/mineruResult"
 import { embedTexts } from "./lib/mistral"
 import { ingestionStatusValidator } from "./lib/validators"
-import { requireAdminViewer } from "./lib/viewer"
 
 const listJobValidator = v.object({
   _id: v.id("ingestionJobs"),
@@ -50,12 +50,12 @@ const jobByIdValidator = v.union(
     providerState: v.optional(v.string()),
     providerSubmittedAt: v.optional(v.number()),
     providerTraceId: v.optional(v.string()),
-    requestedBy: v.id("users"),
+    requestedByAdmin: v.string(),
     sourceFileName: v.optional(v.string()),
     sourceMimeType: v.optional(v.string()),
     sourceStorageId: v.optional(v.id("_storage")),
     status: ingestionStatusValidator,
-    updatedAt: v.number()
+    updatedAt: v.number(),
   })
 )
 
@@ -110,10 +110,10 @@ function parseCallbackEnvelope(payload: unknown) {
 }
 
 export const listJobs = query({
-  args: {},
+  args: { sessionToken: v.string() },
   returns: v.array(listJobValidator),
-  handler: async (ctx) => {
-    await requireAdminViewer(ctx)
+  handler: async (ctx, args) => {
+    await requireAdminQuerySession(ctx, args.sessionToken)
     const jobs = await ctx.db.query("ingestionJobs").collect()
     return jobs.map((job) => ({
       _id: job._id,
@@ -123,39 +123,39 @@ export const listJobs = query({
       ...(job.providerErrorMessage === undefined ? {} : { providerErrorMessage: job.providerErrorMessage }),
       ...(job.providerLastCheckedAt === undefined ? {} : { providerLastCheckedAt: job.providerLastCheckedAt }),
       ...(job.providerState === undefined ? {} : { providerState: job.providerState }),
-      status: job.status
+      status: job.status,
     }))
-  }
+  },
 })
 
 export const enqueue = mutation({
-  args: { documentId: v.id("documents") },
+  args: { documentId: v.id("documents"), sessionToken: v.string() },
   returns: v.id("ingestionJobs"),
   handler: async (ctx, args) => {
-    const viewer = await requireAdminViewer(ctx)
+    const adminSession = await requireAdminWriteSession(ctx, args.sessionToken)
     const now = Date.now()
     const jobId = await ctx.db.insert("ingestionJobs", {
-      documentId: args.documentId,
-      requestedBy: viewer.userId,
-      status: "queued",
       createdAt: now,
-      updatedAt: now
+      documentId: args.documentId,
+      requestedByAdmin: adminSession.username,
+      status: "queued",
+      updatedAt: now,
     })
 
     await ctx.scheduler.runAfter(0, internal.ingestion.runDocumentJob, {
       documentId: args.documentId,
-      jobId
+      jobId,
     })
 
     return jobId
-  }
+  },
 })
 
 export const retry = mutation({
-  args: { jobId: v.id("ingestionJobs") },
+  args: { jobId: v.id("ingestionJobs"), sessionToken: v.string() },
   returns: v.id("ingestionJobs"),
   handler: async (ctx, args) => {
-    const viewer = await requireAdminViewer(ctx)
+    const adminSession = await requireAdminWriteSession(ctx, args.sessionToken)
     const existing = await ctx.db.get(args.jobId)
     if (!existing) {
       throw new ConvexError("Ingestion job not found")
@@ -164,19 +164,19 @@ export const retry = mutation({
     const now = Date.now()
     const retryJobId = await ctx.db.insert("ingestionJobs", {
       documentId: existing.documentId,
-      requestedBy: viewer.userId,
+      requestedByAdmin: adminSession.username,
       status: "queued",
       createdAt: now,
-      updatedAt: now
+      updatedAt: now,
     })
 
     await ctx.scheduler.runAfter(0, internal.ingestion.runDocumentJob, {
       documentId: existing.documentId,
-      jobId: retryJobId
+      jobId: retryJobId,
     })
 
     return retryJobId
-  }
+  },
 })
 
 export const getJobById = internalQuery({

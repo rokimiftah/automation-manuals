@@ -1,3 +1,7 @@
+import type { MutationCtx, QueryCtx } from "../_generated/server"
+
+import { ConvexError } from "convex/values"
+
 const encoder = new TextEncoder()
 
 export type AdminAuthEnvInput = {
@@ -90,4 +94,40 @@ export function getRateLimitState(input: {
 
 export function isSessionStateValid(input: { expiresAt: number; now: number; revokedAt?: number }) {
   return input.revokedAt === undefined && input.now < input.expiresAt
+}
+
+type AdminReadCtx = QueryCtx | MutationCtx
+
+export async function loadAdminSession(ctx: AdminReadCtx, sessionToken: string) {
+  const tokenHash = await hashSessionToken(sessionToken)
+  return await ctx.db
+    .query("adminSessions")
+    .withIndex("by_token_hash", (q) => q.eq("tokenHash", tokenHash))
+    .unique()
+}
+
+export async function requireAdminQuerySession(ctx: QueryCtx | MutationCtx, sessionToken: string) {
+  const session = await loadAdminSession(ctx, sessionToken)
+  if (!session || session.revokedAt !== undefined) {
+    throw new ConvexError("Admin session required")
+  }
+
+  return session
+}
+
+export async function requireAdminWriteSession(ctx: MutationCtx, sessionToken: string) {
+  const session = await loadAdminSession(ctx, sessionToken)
+  if (!session || !isSessionStateValid({ expiresAt: session.expiresAt, now: Date.now(), revokedAt: session.revokedAt })) {
+    throw new ConvexError("Admin session expired")
+  }
+
+  return session
+}
+
+export function buildAdminAuditActor(session: { _id: string; username: string }) {
+  return {
+    actorLabel: session.username,
+    actorType: "admin_session",
+    adminSessionId: session._id as never,
+  }
 }

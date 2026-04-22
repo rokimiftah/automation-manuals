@@ -5,8 +5,8 @@ import { ConvexError, v } from "convex/values"
 
 import { internalMutation, internalQuery, mutation, query } from "./_generated/server"
 import { assertNextIngestionStatus } from "./lib/ingestionState"
+import { buildAdminAuditActor, requireAdminQuerySession, requireAdminWriteSession } from "./lib/adminSession"
 import { chunkTypeValidator, documentStatusValidator } from "./lib/validators"
-import { requireAdminViewer } from "./lib/viewer"
 
 function toSlug(value: string) {
   return value
@@ -73,7 +73,7 @@ const documentByIdValidator = v.union(
     _creationTime: v.number(),
     _id: v.id("documents"),
     createdAt: v.number(),
-    createdBy: v.id("users"),
+    createdByAdmin: v.string(),
     isActive: v.boolean(),
     language: v.string(),
     productId: v.id("products"),
@@ -85,7 +85,7 @@ const documentByIdValidator = v.union(
     updatedAt: v.number(),
     vendorId: v.id("vendors"),
     vendorSlug: v.string(),
-    version: v.string()
+    version: v.string(),
   })
 )
 
@@ -288,7 +288,7 @@ export const markFailed = internalMutation({
 })
 
 export const listAdmin = query({
-  args: {},
+  args: { sessionToken: v.string() },
   returns: v.array(
     v.object({
       _id: v.id("documents"),
@@ -297,11 +297,11 @@ export const listAdmin = query({
       status: documentStatusValidator,
       title: v.string(),
       vendorSlug: v.string(),
-      version: v.string()
+      version: v.string(),
     })
   ),
-  handler: async (ctx) => {
-    await requireAdminViewer(ctx)
+  handler: async (ctx, args) => {
+    await requireAdminQuerySession(ctx, args.sessionToken)
     const documents = await ctx.db.query("documents").collect()
     return documents.map((doc) => ({
       _id: doc._id,
@@ -310,23 +310,24 @@ export const listAdmin = query({
       status: doc.status,
       title: doc.title,
       vendorSlug: doc.vendorSlug,
-      version: doc.version
+      version: doc.version,
     }))
-  }
+  },
 })
 
 export const create = mutation({
   args: {
-    vendorName: v.string(),
-    productName: v.string(),
-    title: v.string(),
-    version: v.string(),
     language: v.string(),
-    sourceUrl: v.string()
+    productName: v.string(),
+    sessionToken: v.string(),
+    sourceUrl: v.string(),
+    title: v.string(),
+    vendorName: v.string(),
+    version: v.string(),
   },
   returns: v.id("documents"),
   handler: async (ctx, args) => {
-    const viewer = await requireAdminViewer(ctx)
+    const adminSession = await requireAdminWriteSession(ctx, args.sessionToken)
     const vendorName = requireText("vendorName", args.vendorName)
     const productName = requireText("productName", args.productName)
     const title = requireText("title", args.title)
@@ -346,21 +347,21 @@ export const create = mutation({
       language,
       sourceUrl,
       status: "draft",
+      createdByAdmin: adminSession.username,
       isActive: false,
       createdAt: now,
       updatedAt: now,
-      createdBy: viewer.userId
     })
 
     await ctx.db.insert("auditEvents", {
-      actorUserId: viewer.userId,
+      ...buildAdminAuditActor(adminSession),
       action: "document.create",
       targetTable: "documents",
       targetId: documentId,
       summary: `Created ${title} ${version}`,
-      createdAt: now
+      createdAt: now,
     })
 
     return documentId
-  }
+  },
 })

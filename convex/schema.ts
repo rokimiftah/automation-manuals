@@ -1,8 +1,6 @@
 import { defineSchema, defineTable } from "convex/server"
 import { v } from "convex/values"
 
-import { authTables } from "@convex-dev/auth/server"
-
 import {
   answerabilityStatusValidator,
   chunkTypeValidator,
@@ -13,17 +11,28 @@ import {
 } from "./lib/validators"
 
 export default defineSchema({
-  ...authTables,
+  adminSessions: defineTable({
+    createdAt: v.number(),
+    expiresAt: v.number(),
+    revokedAt: v.optional(v.number()),
+    tokenHash: v.string(),
+    username: v.string(),
+  }).index("by_token_hash", ["tokenHash"]),
+  adminLoginAttempts: defineTable({
+    createdAt: v.number(),
+    successful: v.boolean(),
+    username: v.string(),
+  }).index("by_username_and_created_at", ["username", "createdAt"]),
   vendors: defineTable({
     slug: v.string(),
     name: v.string(),
-    createdAt: v.number()
+    createdAt: v.number(),
   }).index("by_slug", ["slug"]),
   products: defineTable({
     vendorId: v.id("vendors"),
     slug: v.string(),
     name: v.string(),
-    createdAt: v.number()
+    createdAt: v.number(),
   }).index("by_vendor_and_slug", ["vendorId", "slug"]),
   documents: defineTable({
     vendorId: v.id("vendors"),
@@ -39,13 +48,13 @@ export default defineSchema({
     isActive: v.boolean(),
     createdAt: v.number(),
     updatedAt: v.number(),
-    createdBy: v.id("users")
+    createdByAdmin: v.string(),
   })
     .index("by_product", ["productId"])
     .index("by_product_and_active", ["productId", "isActive"]),
   ingestionJobs: defineTable({
     documentId: v.id("documents"),
-    requestedBy: v.id("users"),
+    requestedByAdmin: v.string(),
     status: ingestionStatusValidator,
     errorMessage: v.optional(v.string()),
     provider: v.optional(v.literal("mineru")),
@@ -66,7 +75,7 @@ export default defineSchema({
     sourceFileName: v.optional(v.string()),
     sourceMimeType: v.optional(v.string()),
     createdAt: v.number(),
-    updatedAt: v.number()
+    updatedAt: v.number(),
   })
     .index("by_document", ["documentId"])
     .index("by_provider_batch_id", ["providerBatchId"]),
@@ -79,7 +88,7 @@ export default defineSchema({
     mimeType: v.string(),
     pageNumber: v.optional(v.number()),
     isCurrent: v.boolean(),
-    createdAt: v.number()
+    createdAt: v.number(),
   }).index("by_document_and_current", ["documentId", "isCurrent"]),
   documentPages: defineTable({
     documentId: v.id("documents"),
@@ -88,7 +97,7 @@ export default defineSchema({
     printedPageNumber: v.optional(v.string()),
     markdown: v.string(),
     needsOcrFallback: v.boolean(),
-    isCurrent: v.boolean()
+    isCurrent: v.boolean(),
   }).index("by_document_and_current", ["documentId", "isCurrent"]),
   chunks: defineTable({
     documentId: v.id("documents"),
@@ -97,7 +106,7 @@ export default defineSchema({
     chunkType: chunkTypeValidator,
     content: v.string(),
     citationLabel: v.string(),
-    isCurrent: v.boolean()
+    isCurrent: v.boolean(),
   })
     .index("by_document_and_current", ["documentId", "isCurrent"])
     .index("by_document_and_page", ["documentId", "pageNumber"]),
@@ -108,34 +117,32 @@ export default defineSchema({
     productSlug: v.string(),
     chunkType: chunkTypeValidator,
     isCurrent: v.boolean(),
-    embedding: v.array(v.float64())
+    embedding: v.array(v.float64()),
   })
     .index("by_chunk", ["chunkId"])
     .vectorIndex("by_embedding", {
       vectorField: "embedding",
       dimensions: 1024,
-      filterFields: ["documentId", "vendorSlug", "productSlug", "chunkType", "isCurrent"]
+      filterFields: ["documentId", "vendorSlug", "productSlug", "chunkType", "isCurrent"],
     }),
   chatSessions: defineTable({
-    userId: v.id("users"),
     title: v.string(),
     createdAt: v.number(),
-    updatedAt: v.number()
-  }).index("by_user", ["userId"]),
+    updatedAt: v.number(),
+  }),
   chatMessages: defineTable({
     sessionId: v.id("chatSessions"),
-    userId: v.id("users"),
     role: messageRoleValidator,
     content: v.string(),
     answerabilityStatus: v.optional(answerabilityStatusValidator),
-    createdAt: v.number()
+    createdAt: v.number(),
   }).index("by_session", ["sessionId"]),
   answerEvidence: defineTable({
     messageId: v.id("chatMessages"),
     chunkId: v.id("chunks"),
     assetId: v.optional(v.id("documentAssets")),
     pageNumber: v.number(),
-    score: v.number()
+    score: v.number(),
   }).index("by_message", ["messageId"]),
   evaluationCases: defineTable({
     slug: v.string(),
@@ -144,18 +151,20 @@ export default defineSchema({
     severity: severityValidator,
     expectedDocumentTitle: v.string(),
     expectedPageNumbers: v.array(v.number()),
-    expectedRefusal: v.boolean()
+    expectedRefusal: v.boolean(),
   }).index("by_slug", ["slug"]),
   auditEvents: defineTable({
-    actorUserId: v.id("users"),
+    actorLabel: v.string(),
+    actorType: v.string(),
+    adminSessionId: v.optional(v.id("adminSessions")),
     action: v.string(),
     targetTable: v.string(),
     targetId: v.string(),
     summary: v.string(),
-    createdAt: v.number()
-  }).index("by_actor", ["actorUserId"]),
+    createdAt: v.number(),
+  }).index("by_actor_type", ["actorType"]),
   comments: defineTable({
     author: v.string(),
-    content: v.string()
-  })
+    content: v.string(),
+  }),
 })

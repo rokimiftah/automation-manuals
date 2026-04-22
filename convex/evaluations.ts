@@ -1,9 +1,9 @@
 import { v } from "convex/values"
 
 import { mutation, query } from "./_generated/server"
+import { requireAdminWriteSession } from "./lib/adminSession"
 import { defaultEvaluationCases } from "./lib/evaluationSeed"
 import { severityValidator } from "./lib/validators"
-import { requireAdminViewer } from "./lib/viewer"
 
 const evaluationCaseValidator = v.object({
   _creationTime: v.number(),
@@ -26,11 +26,10 @@ export const list = query({
 })
 
 export const seedDefaults = mutation({
-  args: {},
+  args: { sessionToken: v.string() },
   returns: v.number(),
-  handler: async (ctx) => {
-    await requireAdminViewer(ctx)
-
+  handler: async (ctx, args) => {
+    await requireAdminWriteSession(ctx, args.sessionToken)
     let inserted = 0
     for (const item of defaultEvaluationCases) {
       const existing = await ctx.db
@@ -47,5 +46,5 @@ export const seedDefaults = mutation({
     }
 
     return inserted
-  }
+  },
 })

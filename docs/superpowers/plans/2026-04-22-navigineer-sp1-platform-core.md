@@ -1,8 +1,8 @@
-# PLC Manuals SP1 Platform Core Implementation Plan
+# Automation Manuals SP1 Platform Core Implementation Plan
 
 > **For agentic workers:** REQUIRED SUB-SKILL: Use superpowers:subagent-driven-development (recommended) or superpowers:executing-plans to implement this plan task-by-task. Steps use checkbox (`- [ ]`) syntax for tracking.
 
-**Goal:** Build the first end-to-end slice of PLC Manuals: auth, admin-curated document intake, ingestion, grounded retrieval, citations, and an engineer split-screen viewer.
+**Goal:** Build the first end-to-end slice of Automation Manuals: auth, admin-curated document intake, ingestion, grounded retrieval, citations, and an engineer split-screen viewer.
 
 **Architecture:** Astro serves route shells in hybrid mode while React islands power auth, admin, and engineer interactions. Convex stores operational state, file references, chunks, embeddings, sessions, and evaluation seeds; external parsing, OCR, embeddings, and answer generation run in Convex actions through provider adapters.
 
@@ -343,10 +343,10 @@ describe("computeViewerAccess", () => {
   it("allows engineers from an approved domain", () => {
     expect(canManageDocuments("engineer")).toBe(false)
     expect(
-      computeViewerAccess("tech@plc-manuals.internal", {
+      computeViewerAccess("tech@automation-manuals.internal", {
         adminEmails: [],
         allowedEmails: [],
-        allowedDomains: ["plc-manuals.internal"]
+        allowedDomains: ["automation-manuals.internal"]
       })
     ).toEqual({ role: "engineer", isAllowed: true, canManageDocuments: false })
   })
@@ -570,7 +570,7 @@ const client = new ConvexReactClient(convexUrl)
 
 export function ConvexProviderWrapper({ children }: { children: ReactNode }) {
   return (
-    <ConvexAuthProvider client={client} storageNamespace="plc-manuals">
+    <ConvexAuthProvider client={client} storageNamespace="automation-manuals">
       {children}
     </ConvexAuthProvider>
   )
@@ -1916,7 +1916,7 @@ interface Props {
   title?: string
 }
 
-const { title = "PLC Manuals" } = Astro.props
+const { title = "Automation Manuals" } = Astro.props
 ---
 
 <!doctype html>
@@ -1939,9 +1939,9 @@ const { title = "PLC Manuals" } = Astro.props
 import Layout from "@/layouts/Layout.astro"
 ---
 
-<Layout title="PLC Manuals">
+<Layout title="Automation Manuals">
   <main class="mx-auto flex min-h-screen max-w-5xl flex-col justify-center gap-6 px-6 py-16">
-    <p class="text-sm tracking-[0.3em] text-cyan-300 uppercase">PLC Manuals</p>
+    <p class="text-sm tracking-[0.3em] text-cyan-300 uppercase">Automation Manuals</p>
     <h1 class="max-w-3xl text-5xl font-semibold text-white">Grounded technical answers from official vendor manuals.</h1>
     <p class="max-w-2xl text-lg text-slate-300">
       Use one controlled workspace for document ingestion, evidence-bounded retrieval, and split-screen verification.
@@ -2152,7 +2152,7 @@ export default function AppShell({ title, children }: { title: string; children:
       <header className="border-b border-slate-800 bg-slate-900/80 px-6 py-4">
         <div className="mx-auto flex max-w-7xl items-center justify-between">
           <div>
-            <p className="text-xs tracking-[0.3em] text-cyan-300 uppercase">PLC Manuals</p>
+            <p className="text-xs tracking-[0.3em] text-cyan-300 uppercase">Automation Manuals</p>
             <h1 className="text-xl font-semibold text-white">{title}</h1>
           </div>
           <div className="flex items-center gap-3 text-sm text-slate-300">
@@ -2180,7 +2180,7 @@ import Layout from "@/layouts/Layout.astro"
 import AuthIsland from "@features/auth/island"
 ---
 
-<Layout title="Sign in | PLC Manuals">
+<Layout title="Sign in | Automation Manuals">
   <AuthIsland client:load />
 </Layout>
 ```
@@ -2193,7 +2193,7 @@ import Layout from "@/layouts/Layout.astro"
 import EngineerWorkspaceIsland from "@widgets/engineer-workspace"
 ---
 
-<Layout title="Engineer Workspace | PLC Manuals">
+<Layout title="Engineer Workspace | Automation Manuals">
   <EngineerWorkspaceIsland client:load />
 </Layout>
 ```
@@ -2206,7 +2206,7 @@ import Layout from "@/layouts/Layout.astro"
 import AdminConsoleIsland from "@widgets/admin-console"
 ---
 
-<Layout title="Admin Console | PLC Manuals">
+<Layout title="Admin Console | Automation Manuals">
   <AdminConsoleIsland client:load />
 </Layout>
 ```

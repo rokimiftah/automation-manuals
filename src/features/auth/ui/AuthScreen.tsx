@@ -45,7 +45,7 @@ export default function AuthScreen() {
       case "resetConfirm":
         return "Finish resetting your password"
       default:
-        return "Sign in to PLC Manuals"
+        return "Sign in to Automation Manuals"
     }
   }, [mode])
 
@@ -86,7 +86,7 @@ export default function AuthScreen() {
     <section className="flex min-h-screen items-center px-6 py-12">
       <div className="mx-auto w-full max-w-xl space-y-6 rounded-3xl border border-slate-800 bg-slate-900/90 p-8 shadow-2xl shadow-slate-950/40">
         <div className="space-y-3">
-          <p className="text-xs font-semibold tracking-[0.45em] text-cyan-300 uppercase">PLC Manuals access</p>
+          <p className="text-xs font-semibold tracking-[0.45em] text-cyan-300 uppercase">Automation Manuals access</p>
           <h1 className="text-3xl leading-tight font-semibold text-white">{heading}</h1>
           <p className="text-sm leading-6 text-slate-300">{helperText}</p>
         </div>

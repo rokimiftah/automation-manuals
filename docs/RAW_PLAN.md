@@ -1,4 +1,4 @@
-# PLC Manuals
+# Automation Manuals
 
 ### Question: jadi saya ingin membuat platform ai pakai rag (vector db, semantic, dll) dengan tujuan ketika engineer mencari problem maka akan diberikan solusi yang didapat dari dokumentasi pdf resmi.
 

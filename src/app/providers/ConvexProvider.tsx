@@ -15,7 +15,7 @@ export { client }
 
 export function ConvexProviderWrapper({ children }: { children: ReactNode }) {
   return (
-    <ConvexAuthProvider client={client} storageNamespace="plc-manuals">
+    <ConvexAuthProvider client={client} storageNamespace="automation-manuals">
       {children}
     </ConvexAuthProvider>
   )

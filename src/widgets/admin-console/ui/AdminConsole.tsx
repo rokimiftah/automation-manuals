@@ -12,9 +12,7 @@ function isAdminSessionError(error: unknown) {
 
 export default function AdminConsole({
   onSessionInvalid,
-  onSignOut,
-  sessionToken,
-  username
+  sessionToken
 }: {
   onSessionInvalid: (message?: string) => void
   onSignOut: () => Promise<void>
@@ -40,53 +38,49 @@ export default function AdminConsole({
   }
 
   return (
-    <AppShell
-      title="Admin Console"
-      actions={
-        <>
-          <span className="text-sm text-slate-400">Signed in as {username}</span>
-          <button
-            className="inline-flex items-center justify-center rounded-2xl border border-slate-700 px-4 py-2 text-sm font-medium text-slate-200 transition hover:border-slate-500 hover:text-white"
-            type="button"
-            onClick={() => void onSignOut()}
-          >
-            Sign out
-          </button>
-        </>
-      }
-    >
-      <div className="grid gap-6 xl:grid-cols-[minmax(0,1.05fr)_minmax(0,0.95fr)]">
-        <div className="space-y-6">
-          <section className="rounded-3xl border border-slate-800 bg-slate-900/80 p-6 shadow-xl shadow-slate-950/30">
+    <AppShell title="Admin Interface">
+      <div className="grid h-full min-h-0 gap-4 md:gap-6 lg:grid-cols-[minmax(0,1fr)_minmax(0,1.2fr)]">
+        <div className="flex h-full min-h-0 flex-col gap-4 md:gap-6">
+          <section className="wire-border animate-expand relative flex shrink-0 flex-col justify-between gap-8 bg-white p-6 md:p-8">
             <div className="space-y-2">
-              <p className="text-xs font-semibold tracking-[0.4em] text-cyan-300 uppercase">Document inventory</p>
-              <h2 className="text-2xl font-semibold text-white">Registered manuals</h2>
-              <p className="text-sm leading-6 text-slate-400">Approved source documents ready for ingestion and retrieval.</p>
+              <h2 className="text-[20px] font-medium tracking-tight text-[#000000] uppercase md:text-[24px]">Manual Inventory</h2>
             </div>
-            <p className="mt-5 font-mono text-4xl font-semibold tracking-tight text-white">
-              {documents === undefined ? "—" : documents.length}
-            </p>
+            <div className="flex items-end gap-4">
+              <p className="text-6xl leading-none font-medium tracking-tighter text-[#000000] md:text-8xl">
+                {documents === undefined ? "—" : documents.length}
+              </p>
+              <span className="mb-2 font-mono text-[14px] tracking-widest uppercase">Units</span>
+            </div>
           </section>
 
-          <DocumentRegistrationForm
-            onSubmit={async (values) => {
-              await runProtectedMutation(async () => {
-                const documentId = await createDocument({ ...values, sessionToken })
-                await enqueue({ documentId, sessionToken })
-              })
-            }}
-          />
+          <div className="animate-expand flex min-h-0 flex-1 flex-col" style={{ animationDelay: "0.1s" }}>
+            <div className="wire-border h-full min-h-0 overflow-y-auto bg-white">
+              <DocumentRegistrationForm
+                onSubmit={async (values) => {
+                  await runProtectedMutation(async () => {
+                    const documentId = await createDocument({ ...values, sessionToken })
+                    await enqueue({ documentId, sessionToken })
+                  })
+                }}
+              />
+            </div>
+          </div>
         </div>
 
-        <div className="space-y-6">
+        <div className="animate-expand flex min-h-0 flex-col lg:h-full" style={{ animationDelay: "0.2s" }}>
           {jobs === undefined ? (
-            <section className="space-y-4 rounded-3xl border border-slate-800 bg-slate-900/80 p-6 shadow-xl shadow-slate-950/30">
-              <div className="space-y-2">
-                <p className="text-xs font-semibold tracking-[0.4em] text-cyan-300 uppercase">Ingestion jobs</p>
-                <h2 className="text-2xl font-semibold text-white">Queue status</h2>
-                <p className="text-sm leading-6 text-slate-400">Loading job history...</p>
+            <section className="wire-border relative flex h-full flex-col overflow-hidden bg-white">
+              <div className="wire-border-b flex shrink-0 items-center justify-between bg-[#FAFAFA] p-6 md:p-8">
+                <div className="space-y-1">
+                  <h2 className="text-[20px] font-medium tracking-tight text-[#000000] uppercase">Ingestion Flow</h2>
+                </div>
+                <span className="wire-border px-3 py-1 font-mono text-[10px] font-medium tracking-widest text-[#000000] uppercase">
+                  Loading...
+                </span>
               </div>
-              <div className="h-64 animate-pulse rounded-2xl border border-slate-800 bg-slate-950/60" />
+              <div className="min-h-0 flex-1 bg-white p-6 md:p-8">
+                <div className="crosshatch-bg wire-border h-full w-full animate-pulse" />
+              </div>
             </section>
           ) : (
             <IngestionJobList

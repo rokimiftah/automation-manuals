@@ -1,18 +1,10 @@
 import type { ReactNode } from "react"
 
-export default function AppShell({ actions, children, title }: { actions?: ReactNode; children: ReactNode; title: string }) {
+export default function AppShell({ actions, children }: { actions?: ReactNode; children: ReactNode; title: string }) {
   return (
-    <main className="min-h-screen bg-slate-950 text-slate-100">
-      <header className="border-b border-slate-800 bg-slate-900/80 backdrop-blur">
-        <div className="mx-auto flex max-w-7xl flex-col gap-4 px-6 py-4 sm:flex-row sm:items-center sm:justify-between">
-          <div className="space-y-1">
-            <p className="text-xs font-semibold tracking-[0.45em] text-cyan-300 uppercase">Automation Manuals</p>
-            <h1 className="text-2xl font-semibold text-white">{title}</h1>
-          </div>
-          {actions ? <div className="flex items-center gap-3">{actions}</div> : null}
-        </div>
-      </header>
-      <div className="mx-auto max-w-7xl px-6 py-8">{children}</div>
+    <main className="relative box-border flex min-h-dvh w-screen flex-col overflow-x-hidden p-4 font-sans md:p-6 lg:h-dvh lg:overflow-hidden">
+      {actions ? <div className="absolute top-4 right-4 z-50 flex items-center gap-4 md:top-6 md:right-6">{actions}</div> : null}
+      <div className="animate-expand flex h-full min-h-0 w-full flex-1 flex-col">{children}</div>
     </main>
   )
 }

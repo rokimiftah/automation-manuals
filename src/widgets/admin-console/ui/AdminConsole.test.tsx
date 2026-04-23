@@ -70,14 +70,7 @@ describe("AdminConsole", () => {
     createDocument.mockRejectedValue(new Error("Admin session expired"))
     const onSessionInvalid = vi.fn()
 
-    render(
-      <AdminConsole
-        onSessionInvalid={onSessionInvalid}
-        onSignOut={vi.fn()}
-        sessionToken="token-123"
-        username="admin"
-      />
-    )
+    render(<AdminConsole onSessionInvalid={onSessionInvalid} onSignOut={vi.fn()} sessionToken="token-123" username="admin" />)
 
     fireEvent.click(screen.getByRole("button", { name: /queue document/i }))
 

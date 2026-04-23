@@ -15,9 +15,17 @@ const { title = "Automation Manuals" } = Astro.props
     <meta name="viewport" content="width=device-width, initial-scale=1" />
     <link rel="icon" type="image/svg+xml" href="/favicon.svg" />
     <meta name="generator" content={Astro.generator} />
+    <link rel="preconnect" href="https://fonts.googleapis.com" />
+    <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
+    <link
+      href="https://fonts.googleapis.com/css2?family=Inter:wght@300;400;500;600&family=JetBrains+Mono:wght@400;500&display=swap"
+      rel="stylesheet"
+    />
     <title>{title}</title>
   </head>
-  <body class="min-h-screen bg-slate-950 text-slate-100 antialiased">
+  <body
+    class="relative min-h-dvh bg-[#FFFFFF] font-sans text-[#000000] antialiased selection:bg-[#000000] selection:text-[#FFFFFF]"
+  >
     <slot />
   </body>
 </html>

@@ -75,7 +75,10 @@ function uniqueBy<T>(items: T[], key: (item: T) => string) {
 }
 
 function normalizeCitationId(value: string) {
-  return value.trim().replace(/^\[+|\]+$/g, "").toUpperCase()
+  return value
+    .trim()
+    .replace(/^\[+|\]+$/g, "")
+    .toUpperCase()
 }
 
 export function buildRefusalPacket(

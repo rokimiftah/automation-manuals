@@ -13,51 +13,53 @@ export function AdminLoginForm({
   const [password, setPassword] = useState("")
 
   return (
-    <section className="mx-auto max-w-md space-y-5 rounded-3xl border border-slate-800 bg-slate-900/80 p-6 shadow-xl shadow-slate-950/30">
-      <div className="space-y-2">
-        <p className="text-xs font-semibold tracking-[0.4em] text-cyan-300 uppercase">Admin access</p>
-        <h1 className="text-2xl font-semibold text-white">Admin sign in</h1>
-        <p className="text-sm leading-6 text-slate-400">Sign in to register manuals and run ingestion jobs.</p>
-      </div>
-
+    <section className="wire-border animate-expand relative mx-auto mt-[12vh] flex max-w-115 flex-col bg-white">
       <form
-        className="space-y-4"
+        className="flex flex-col gap-8 bg-white p-8 md:p-10"
         onSubmit={async (event) => {
           event.preventDefault()
           await onSubmit({ password, username })
         }}
       >
-        <label className="block space-y-2 text-sm text-slate-200">
-          <span>Username</span>
-          <input
-            className="mt-1 w-full rounded-2xl border border-slate-700 bg-slate-950 px-4 py-3 text-sm text-white outline-none"
-            value={username}
-            onChange={(event) => setUsername(event.target.value)}
-          />
-        </label>
+        <div className="space-y-6">
+          <label className="flex flex-col gap-3">
+            <span className="font-mono text-[11px] tracking-widest text-[#000000] uppercase">ID String</span>
+            <input
+              className="wire-border w-full bg-[#FAFAFA] px-5 py-4 text-[14px] font-medium text-[#000000] transition-colors outline-none placeholder:text-[#999999] focus:bg-white"
+              placeholder="admin"
+              value={username}
+              onChange={(event) => setUsername(event.target.value)}
+            />
+          </label>
 
-        <label className="block space-y-2 text-sm text-slate-200">
-          <span>Password</span>
-          <input
-            className="mt-1 w-full rounded-2xl border border-slate-700 bg-slate-950 px-4 py-3 text-sm text-white outline-none"
-            type="password"
-            value={password}
-            onChange={(event) => setPassword(event.target.value)}
-          />
-        </label>
+          <label className="flex flex-col gap-3">
+            <span className="font-mono text-[11px] tracking-widest text-[#000000] uppercase">Passphrase</span>
+            <input
+              className="wire-border w-full bg-[#FAFAFA] px-5 py-4 text-[14px] font-medium tracking-widest text-[#000000] transition-colors outline-none placeholder:text-[#999999] focus:bg-white"
+              type="password"
+              placeholder="••••••••"
+              value={password}
+              onChange={(event) => setPassword(event.target.value)}
+            />
+          </label>
+        </div>
 
         {error ? (
-          <p role="alert" className="rounded-2xl border border-rose-500/30 bg-rose-500/10 px-4 py-3 text-sm text-rose-200">
-            {error}
-          </p>
+          <div className="wire-border relative flex items-start gap-4 overflow-hidden bg-white p-4 font-mono text-[13px] text-[#000000]">
+            <div className="diagonal-bg pointer-events-none absolute inset-0 opacity-20"></div>
+            <span className="relative z-10 shrink-0 bg-[#000000] px-2 py-0.5 text-[10px] tracking-widest text-white uppercase">
+              ERR
+            </span>
+            <span className="relative z-10">{error}</span>
+          </div>
         ) : null}
 
         <button
-          className="inline-flex w-full items-center justify-center rounded-2xl bg-cyan-400 px-5 py-3 text-sm font-semibold text-slate-950 transition hover:bg-cyan-300 disabled:bg-slate-700 disabled:text-slate-300"
+          className="wire-border mt-4 w-full bg-[#000000] px-8 py-5 text-[13px] font-medium tracking-[0.2em] text-white uppercase transition-colors hover:border-[#000000] hover:bg-white hover:text-[#000000] active:scale-[0.98] disabled:pointer-events-none disabled:bg-[#FAFAFA] disabled:text-[#999999]"
           disabled={pending}
           type="submit"
         >
-          {pending ? "Signing in..." : "Sign in"}
+          {pending ? "Verifying" : "Access"}
         </button>
       </form>
     </section>

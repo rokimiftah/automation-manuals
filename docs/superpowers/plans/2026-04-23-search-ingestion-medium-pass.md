@@ -37,6 +37,7 @@
 ### Task 1: Guard Public Viewer Asset Visibility
 
 **Files:**
+
 - Modify: `convex/assets.ts`
 - Test: `convex/assets.test.ts`
 
@@ -92,10 +93,7 @@ import { v } from "convex/values"
 
 import { query } from "./_generated/server"
 
-export function canResolveViewerAsset(input: {
-  asset: { isCurrent: boolean } | null
-  document: { isActive: boolean } | null
-}) {
+export function canResolveViewerAsset(input: { asset: { isCurrent: boolean } | null; document: { isActive: boolean } | null }) {
   return input.asset?.isCurrent === true && input.document?.isActive === true
 }
 
@@ -141,6 +139,7 @@ Expected: PASS
 ### Task 2: Reduce Stale Bias In Document-Scoped Search
 
 **Files:**
+
 - Modify: `convex/search.ts`
 - Test: `convex/search.test.ts`
 
@@ -164,13 +163,7 @@ describe("getVectorSearchLimit", () => {
 
 describe("getTopEvidenceScore", () => {
   it("uses filtered current evidence scores instead of raw vector match order", () => {
-    expect(
-      getTopEvidenceScore([
-        { score: 0.58 },
-        { score: 0.73 },
-        { score: 0.64 }
-      ])
-    ).toBe(0.73)
+    expect(getTopEvidenceScore([{ score: 0.58 }, { score: 0.73 }, { score: 0.64 }])).toBe(0.73)
   })
 
   it("returns 0 when there is no current evidence", () => {
@@ -239,6 +232,7 @@ Expected: PASS
 ### Task 3: Bound Provider Reconciliation Retries
 
 **Files:**
+
 - Create: `convex/lib/providerRetry.ts`
 - Test: `convex/lib/providerRetry.test.ts`
 - Modify: `convex/schema.ts`
@@ -250,7 +244,7 @@ Expected: PASS
 // convex/lib/providerRetry.test.ts
 import { describe, expect, it } from "vitest"
 
-import { PROVIDER_RECONCILE_RETRY_LIMIT, getProviderReconcileDecision } from "./providerRetry"
+import { getProviderReconcileDecision, PROVIDER_RECONCILE_RETRY_LIMIT } from "./providerRetry"
 
 describe("getProviderReconcileDecision", () => {
   it("retries while the failure count remains below the ceiling", () => {
@@ -347,23 +341,22 @@ await ctx.db.patch(args.jobId, {
 })
 
 // extend recordProviderProgress args
-providerReconcileFailureCount: v.optional(v.number()),
-
-// extend recordProviderProgress patch
-await ctx.db.patch(args.jobId, {
-  ...(args.providerDataId === undefined ? {} : { providerDataId: args.providerDataId }),
-  ...(args.providerErrorCode === undefined ? {} : { providerErrorCode: args.providerErrorCode }),
-  ...(args.providerErrorMessage === undefined ? {} : { providerErrorMessage: args.providerErrorMessage }),
-  ...(args.providerReconcileFailureCount === undefined
-    ? {}
-    : { providerReconcileFailureCount: args.providerReconcileFailureCount }),
-  ...(args.providerResultUrl === undefined ? {} : { providerResultUrl: args.providerResultUrl }),
-  ...(args.providerTraceId === undefined ? {} : { providerTraceId: args.providerTraceId }),
-  providerLastCheckedAt: Date.now(),
-  providerState: args.providerState,
-  status: args.status,
-  updatedAt: Date.now()
-})
+providerReconcileFailureCount: (v.optional(v.number()),
+  // extend recordProviderProgress patch
+  await ctx.db.patch(args.jobId, {
+    ...(args.providerDataId === undefined ? {} : { providerDataId: args.providerDataId }),
+    ...(args.providerErrorCode === undefined ? {} : { providerErrorCode: args.providerErrorCode }),
+    ...(args.providerErrorMessage === undefined ? {} : { providerErrorMessage: args.providerErrorMessage }),
+    ...(args.providerReconcileFailureCount === undefined
+      ? {}
+      : { providerReconcileFailureCount: args.providerReconcileFailureCount }),
+    ...(args.providerResultUrl === undefined ? {} : { providerResultUrl: args.providerResultUrl }),
+    ...(args.providerTraceId === undefined ? {} : { providerTraceId: args.providerTraceId }),
+    providerLastCheckedAt: Date.now(),
+    providerState: args.providerState,
+    status: args.status,
+    updatedAt: Date.now()
+  }))
 ```
 
 ```ts
@@ -435,6 +428,7 @@ Expected: PASS
 ### Task 4: Full Verification
 
 **Files:**
+
 - No code changes expected
 
 - [ ] **Step 1: Run the entire test suite**
@@ -452,6 +446,7 @@ Expected: PASS with no type errors and no Biome issues
 - [ ] **Step 3: Verify the implementation against the approved spec**
 
 Check:
+
 - `resolveViewerAsset` returns `null` for stale or inactive artifacts
 - document-scoped search uses expanded vector overfetch and filtered current-evidence scoring
 - reconciliation retries stop at the configured ceiling and mark the job/document failed
@@ -459,6 +454,7 @@ Check:
 - [ ] **Step 4: Prepare the user-facing summary**
 
 Include:
+
 - files changed
 - tests added or updated
 - verification commands and outputs

@@ -35,7 +35,7 @@
   "plugins": ["@ianvs/prettier-plugin-sort-imports", "prettier-plugin-astro", "prettier-plugin-tailwindcss"],
   "printWidth": 130,
   "semi": false,
-  "tailwindPreserveWhitespace": true,
+  "tailwindPreserveWhitespace": false,
   "tailwindStylesheet": "./src/app/styles/global.css",
   "trailingComma": "none",
   "useTabs": false

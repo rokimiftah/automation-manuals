@@ -35,6 +35,7 @@
 ### Task 1: Ground The Answer Packet To Selected Evidence
 
 **Files:**
+
 - Modify: `convex/lib/mistral.ts`
 - Modify: `convex/lib/mistral.test.ts`
 - Modify: `convex/lib/answerPacket.ts`
@@ -70,25 +71,18 @@ const evidence = [
 
 describe("selectEvidenceByCitationIds", () => {
   it("keeps only evidence explicitly selected by the model", () => {
-    expect(selectEvidenceByCitationIds(evidence, ["E2"]))
-      .toEqual([evidence[1]])
+    expect(selectEvidenceByCitationIds(evidence, ["E2"])).toEqual([evidence[1]])
   })
 
   it("drops unknown identifiers so callers can refuse the answer", () => {
-    expect(selectEvidenceByCitationIds(evidence, ["E9"]))
-      .toEqual([])
+    expect(selectEvidenceByCitationIds(evidence, ["E9"])).toEqual([])
   })
 })
 
 describe("buildGroundedPacket", () => {
   it("keeps citation granularity by chunk id instead of collapsing same-page chunks", () => {
     expect(
-      buildGroundedPacket(
-        "chatSessions_1" as never,
-        "Install the module beside the controller.",
-        ["Check the chassis"],
-        evidence
-      )
+      buildGroundedPacket("chatSessions_1" as never, "Install the module beside the controller.", ["Check the chassis"], evidence)
     ).toEqual({
       answerSteps: ["Check the chassis"],
       answerSummary: "Install the module beside the controller.",
@@ -162,6 +156,7 @@ describe("generateGroundedAnswer", () => {
 Run: `bunx vitest run convex/lib/answerPacket.test.ts convex/lib/mistral.test.ts`
 
 Expected:
+
 - `answerPacket.test.ts` fails because `selectEvidenceByCitationIds` does not exist and same-page citations are still deduplicated away
 - `mistral.test.ts` fails because `generateGroundedAnswer` does not return `citationIds`
 
@@ -285,6 +280,7 @@ Expected: PASS
 ### Task 2: Recover Cleanly From Admin Session Expiry
 
 **Files:**
+
 - Modify: `src/features/admin-auth/ui/AdminSessionGate.tsx`
 - Modify: `src/features/admin-auth/ui/AdminSessionGate.test.tsx`
 - Modify: `src/widgets/admin-console/ui/AdminConsole.tsx`
@@ -310,11 +306,7 @@ describe("AdminSessionGate", () => {
     sessionStorage.setItem("adminSessionToken", "token-123")
     useQuery.mockReturnValue({ expiresAt: Date.now() + 1_000, username: "admin" })
 
-    render(
-      <AdminSessionGate>
-        {() => <div>Admin console</div>}
-      </AdminSessionGate>
-    )
+    render(<AdminSessionGate>{() => <div>Admin console</div>}</AdminSessionGate>)
 
     await screen.findByText("Admin console")
 
@@ -332,9 +324,7 @@ describe("AdminSessionGate", () => {
     signOut.mockRejectedValue(new Error("Admin session expired"))
 
     render(
-      <AdminSessionGate>
-        {({ onSignOut }) => <button onClick={() => void onSignOut()}>Leave admin</button>}
-      </AdminSessionGate>
+      <AdminSessionGate>{({ onSignOut }) => <button onClick={() => void onSignOut()}>Leave admin</button>}</AdminSessionGate>
     )
 
     fireEvent.click(await screen.findByRole("button", { name: /leave admin/i }))
@@ -371,14 +361,7 @@ it("routes protected mutation auth failures through onSessionInvalid", async () 
   createDocument.mockRejectedValue(new Error("Admin session expired"))
   const onSessionInvalid = vi.fn()
 
-  render(
-    <AdminConsole
-      onSessionInvalid={onSessionInvalid}
-      onSignOut={vi.fn()}
-      sessionToken="token-123"
-      username="admin"
-    />
-  )
+  render(<AdminConsole onSessionInvalid={onSessionInvalid} onSignOut={vi.fn()} sessionToken="token-123" username="admin" />)
 
   fireEvent.change(screen.getByLabelText(/vendor name/i), { target: { value: "Rockwell Automation" } })
   fireEvent.change(screen.getByLabelText(/product name/i), { target: { value: "GuardLogix" } })
@@ -397,6 +380,7 @@ it("routes protected mutation auth failures through onSessionInvalid", async () 
 Run: `bunx vitest run src/features/admin-auth/ui/AdminSessionGate.test.tsx src/widgets/admin-console/ui/AdminConsole.test.tsx`
 
 Expected:
+
 - `AdminSessionGate` tests fail because local expiry and sign-out cleanup are not implemented
 - `AdminConsole` test fails because the component does not expose `onSessionInvalid` or catch admin auth failures
 
@@ -407,13 +391,17 @@ Expected:
 const STORAGE_KEY = "adminSessionToken"
 const EXPIRED_MESSAGE = "Admin session expired. Please sign in again."
 
-export function AdminSessionGate({ children }: { children: (session: {
-  expiresAt: number
-  onSessionInvalid: (message?: string) => void
-  onSignOut: () => Promise<void>
-  sessionToken: string
-  username: string
-}) => ReactNode }) {
+export function AdminSessionGate({
+  children
+}: {
+  children: (session: {
+    expiresAt: number
+    onSessionInvalid: (message?: string) => void
+    onSignOut: () => Promise<void>
+    sessionToken: string
+    username: string
+  }) => ReactNode
+}) {
   const [sessionToken, setSessionToken] = useState<string | null>(null)
 
   const clearSession = (message?: string) => {
@@ -525,6 +513,7 @@ Expected: PASS
 ### Task 3: Fail Closed Before Activating A Document
 
 **Files:**
+
 - Modify: `convex/lib/documentReadiness.ts`
 - Modify: `convex/lib/documentReadiness.test.ts`
 - Modify: `convex/documents.ts`
@@ -593,11 +582,7 @@ Expected: FAIL because `assertReadyDocumentArtifacts` does not exist yet
 // convex/lib/documentReadiness.ts
 import type { GenericId } from "convex/values"
 
-export function assertReadyDocumentArtifacts(input: {
-  chunkCount: number
-  hasSourceAsset: boolean
-  pageCount: number
-}) {
+export function assertReadyDocumentArtifacts(input: { chunkCount: number; hasSourceAsset: boolean; pageCount: number }) {
   if (!input.hasSourceAsset) {
     throw new Error("A current source asset is required before a document can become ready")
   }
@@ -657,10 +642,13 @@ assertReadyDocumentArtifacts({
   pageCount: pages.length
 })
 
-await ctx.db.patch(args.documentId, buildReadyDocumentPatch({
-  now: Date.now(),
-  sourceAssetId: sourceAsset._id
-}))
+await ctx.db.patch(
+  args.documentId,
+  buildReadyDocumentPatch({
+    now: Date.now(),
+    sourceAssetId: sourceAsset._id
+  })
+)
 ```
 
 - [ ] **Step 5: Re-run the readiness tests and then the document-related backend tests**
@@ -676,6 +664,7 @@ Expected: PASS
 ### Task 4: Execute OCR Fallback In The Real MinerU Finalization Path
 
 **Files:**
+
 - Modify: `convex/lib/parsedPage.ts`
 - Modify: `convex/lib/normalize.ts`
 - Modify: `convex/lib/ingestDocument.ts`
@@ -692,7 +681,10 @@ import { buildDocumentPayload } from "./ingestDocument"
 
 describe("buildDocumentPayload", () => {
   it("runs OCR only for fallback pages in the parsed-pages branch", async () => {
-    const embed = vi.fn().mockResolvedValue([[0.1, 0.2], [0.3, 0.4]])
+    const embed = vi.fn().mockResolvedValue([
+      [0.1, 0.2],
+      [0.3, 0.4]
+    ])
     const ocr = vi.fn().mockResolvedValue("Recovered controller wiring instructions with enough text to be chunked safely.")
 
     await buildDocumentPayload({
@@ -789,10 +781,7 @@ export async function buildDocumentPayload(args: BuildDocumentPayloadArgs) {
     initial.pages.map(async (page) => ({
       pageNumber: page.pageNumber,
       printedPageNumber: page.printedPageNumber,
-      markdown:
-        page.needsOcrFallback && canUseOcr
-          ? await args.ocr(args.sourceUrl, page.pageNumber)
-          : page.markdown
+      markdown: page.needsOcrFallback && canUseOcr ? await args.ocr(args.sourceUrl, page.pageNumber) : page.markdown
     }))
   )
 
@@ -848,6 +837,7 @@ Expected: PASS
 ### Task 5: Full Verification
 
 **Files:**
+
 - No code changes expected
 
 - [ ] **Step 1: Run the entire test suite**
@@ -865,6 +855,7 @@ Expected: PASS with no type errors and no Biome issues
 - [ ] **Step 3: Compare the result against the approved spec**
 
 Check:
+
 - answer packets now include only selected evidence
 - admin session expiry clears local state and returns `/admin` to login behavior
 - documents do not activate without source asset, pages, and chunks
@@ -873,6 +864,7 @@ Check:
 - [ ] **Step 4: Prepare the user-facing summary**
 
 Include:
+
 - files changed
 - tests added or updated
 - verification commands and outputs

@@ -13,13 +13,9 @@ import { buildDocumentPayload } from "./lib/ingestDocument"
 import { assertNextIngestionStatus } from "./lib/ingestionState"
 import { getMineruBatchResult, mapMineruBatchState, submitMineruBatch } from "./lib/mineru"
 import { verifyMineruChecksum } from "./lib/mineruCallback"
-import {
-  buildProviderProgressPatch,
-  getProviderFailureMessage,
-  getProviderReconcileDecision
-} from "./lib/providerRetry"
 import { normalizeMineruDocument } from "./lib/mineruResult"
 import { embedTexts, ocrPdfPage } from "./lib/mistral"
+import { buildProviderProgressPatch, getProviderFailureMessage, getProviderReconcileDecision } from "./lib/providerRetry"
 import { ingestionStatusValidator } from "./lib/validators"
 
 const listJobValidator = v.object({
@@ -320,15 +316,15 @@ export const recordProviderSubmission = internalMutation({
 })
 
 export const recordProviderProgress = internalMutation({
-    args: {
-      jobId: v.id("ingestionJobs"),
-      providerDataId: v.optional(v.string()),
-      providerErrorCode: v.optional(v.number()),
-      providerErrorMessage: v.optional(v.string()),
-      providerReconcileFailureCount: v.optional(v.number()),
-      providerResultUrl: v.optional(v.string()),
-      providerState: v.string(),
-      providerTraceId: v.optional(v.string()),
+  args: {
+    jobId: v.id("ingestionJobs"),
+    providerDataId: v.optional(v.string()),
+    providerErrorCode: v.optional(v.number()),
+    providerErrorMessage: v.optional(v.string()),
+    providerReconcileFailureCount: v.optional(v.number()),
+    providerResultUrl: v.optional(v.string()),
+    providerState: v.string(),
+    providerTraceId: v.optional(v.string()),
     status: ingestionStatusValidator
   },
   returns: v.null(),

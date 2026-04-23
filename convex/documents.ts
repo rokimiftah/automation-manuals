@@ -4,8 +4,8 @@ import type { GenericId } from "convex/values"
 import { ConvexError, v } from "convex/values"
 
 import { internalMutation, internalQuery, mutation, query } from "./_generated/server"
-import { assertReadyDocumentArtifacts, buildReadyDocumentPatch } from "./lib/documentReadiness"
 import { buildAdminAuditActor, requireAdminQuerySession, requireAdminWriteSession } from "./lib/adminSession"
+import { assertReadyDocumentArtifacts, buildReadyDocumentPatch } from "./lib/documentReadiness"
 import { assertNextIngestionStatus } from "./lib/ingestionState"
 import { chunkTypeValidator, documentStatusValidator } from "./lib/validators"
 

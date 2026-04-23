@@ -136,11 +136,7 @@ export async function requireAdminWriteSession(ctx: MutationCtx, sessionToken: s
   return session
 }
 
-export async function revokeAdminSession(
-  ctx: MutationCtx,
-  sessionId: string,
-  revokedAt = Date.now()
-) {
+export async function revokeAdminSession(ctx: MutationCtx, sessionId: string, revokedAt = Date.now()) {
   await ctx.db.patch(sessionId as never, { revokedAt })
 }
 

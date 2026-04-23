@@ -23,50 +23,63 @@ export default function EngineerWorkspace() {
 
   return (
     <AppShell title="Engineer Workspace">
-      <div className="grid gap-6 xl:grid-cols-[minmax(0,0.95fr)_minmax(0,1.35fr)]">
-        <div className="space-y-6">
-          <QuestionComposer
-            disabled={isSubmitting}
-            onSubmit={(question) =>
-              (async () => {
-                setError(undefined)
-                setIsSubmitting(true)
+      <div className="grid h-full min-h-0 w-full grid-cols-1 gap-4 md:gap-6 lg:grid-cols-[minmax(0,1fr)_minmax(0,1.2fr)]">
+        <div className="flex h-full min-h-0 flex-col gap-4 md:gap-6">
+          <div className="animate-expand shrink-0" style={{ animationDelay: "0ms" }}>
+            <QuestionComposer
+              disabled={isSubmitting}
+              onSubmit={(question) =>
+                (async () => {
+                  setError(undefined)
+                  setIsSubmitting(true)
 
-                try {
-                  const result = await ask({ question, sessionId: sessionId ?? undefined })
+                  try {
+                    const result = await ask({ question, sessionId: sessionId ?? undefined })
 
-                  startTransition(() => {
-                    setSessionId(result.sessionId)
-                    setPacket(result)
-                    setActiveAsset(result.supportingAssets[0] ?? null)
-                  })
-                } catch (submitError) {
-                  const error = submitError instanceof Error ? submitError : new Error("Unable to answer the question.")
-                  setError(error.message)
-                  throw error
-                } finally {
-                  setIsSubmitting(false)
-                }
-              })()
-            }
-          />
+                    startTransition(() => {
+                      setSessionId(result.sessionId)
+                      setPacket(result)
+                      setActiveAsset(result.supportingAssets[0] ?? null)
+                    })
+                  } catch (submitError) {
+                    const error = submitError instanceof Error ? submitError : new Error("Unable to execute process.")
+                    setError(error.message)
+                    throw error
+                  } finally {
+                    setIsSubmitting(false)
+                  }
+                })()
+              }
+            />
 
-          {error ? (
-            <p role="alert" className="rounded-2xl border border-rose-500/30 bg-rose-500/10 px-4 py-3 text-sm text-rose-200">
-              {error}
-            </p>
-          ) : null}
+            {error ? (
+              <div className="wire-border relative mt-4 flex items-start gap-4 overflow-hidden bg-white p-4 font-mono text-[13px] text-[#000000] md:mt-6">
+                <div className="diagonal-bg pointer-events-none absolute inset-0 opacity-20"></div>
+                <span className="relative z-10 shrink-0 bg-[#000000] px-2 py-0.5 text-[10px] tracking-widest text-white uppercase">
+                  ERR
+                </span>
+                <span className="relative z-10">{error}</span>
+              </div>
+            ) : null}
+          </div>
 
-          {packet ? (
-            <AnswerPacketView packet={packet} onSelectCitation={setActiveAsset} />
-          ) : (
-            <section className="rounded-3xl border border-dashed border-slate-800 bg-slate-900/80 p-6 text-sm leading-6 text-slate-400 shadow-xl shadow-slate-950/30">
-              Ask a question to receive a grounded answer packet and supporting citations.
-            </section>
-          )}
+          <div className="animate-expand flex min-h-0 flex-1 flex-col" style={{ animationDelay: "0.1s" }}>
+            {packet ? (
+              <div className="wire-border relative min-h-0 overflow-y-auto bg-white lg:h-full">
+                {/* To avoid double borders if AnswerPacketView also has them, AnswerPacketView should not have wire-border. But assuming it does, we can just render it. */}
+                <AnswerPacketView packet={packet} onSelectCitation={setActiveAsset} />
+              </div>
+            ) : (
+              <section className="wire-border relative flex min-h-100 flex-col items-center justify-center border-dashed bg-[#FAFAFA] p-12 text-center font-mono text-[11px] tracking-[0.2em] text-[#000000] uppercase lg:h-full">
+                Awaiting...
+              </section>
+            )}
+          </div>
         </div>
 
-        <EvidenceViewer asset={activeAsset} />
+        <div className="animate-expand flex h-full min-h-0 flex-col" style={{ animationDelay: "0.2s" }}>
+          <EvidenceViewer asset={activeAsset} />
+        </div>
       </div>
     </AppShell>
   )

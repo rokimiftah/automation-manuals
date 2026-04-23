@@ -160,7 +160,9 @@ export async function generateGroundedAnswer(question: string, context: string, 
   }>(response.choices[0]?.message?.content)
 
   return {
-    answerSteps: Array.isArray(parsed.answerSteps) ? parsed.answerSteps.filter((step): step is string => typeof step === "string") : [],
+    answerSteps: Array.isArray(parsed.answerSteps)
+      ? parsed.answerSteps.filter((step): step is string => typeof step === "string")
+      : [],
     answerSummary: typeof parsed.answerSummary === "string" ? parsed.answerSummary : "",
     citationIds: Array.isArray(parsed.citationIds) ? parsed.citationIds.filter((id): id is string => typeof id === "string") : []
   }

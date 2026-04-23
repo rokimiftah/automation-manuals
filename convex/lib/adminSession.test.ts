@@ -12,14 +12,16 @@ import {
   revokeAdminSession
 } from "./adminSession"
 
-function createSessionLookupCtx(session: {
-  _id: string
-  createdAt: number
-  expiresAt: number
-  revokedAt?: number
-  tokenHash: string
-  username: string
-} | null) {
+function createSessionLookupCtx(
+  session: {
+    _id: string
+    createdAt: number
+    expiresAt: number
+    revokedAt?: number
+    tokenHash: string
+    username: string
+  } | null
+) {
   const unique = vi.fn().mockResolvedValue(session)
   const withIndex = vi.fn().mockReturnValue({ unique })
   const query = vi.fn().mockReturnValue({ withIndex })

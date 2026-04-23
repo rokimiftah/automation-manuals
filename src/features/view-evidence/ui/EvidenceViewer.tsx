@@ -9,53 +9,67 @@ export default function EvidenceViewer({ asset }: { asset: SupportingAsset | nul
 
   if (!asset) {
     return (
-      <section className="flex min-h-[24rem] items-center justify-center rounded-3xl border border-dashed border-slate-800 bg-slate-900/80 p-6 text-sm leading-6 text-slate-400 shadow-xl shadow-slate-950/30">
-        Select a citation to open the supporting PDF page.
+      <section className="wire-border relative flex min-h-160 flex-1 items-center justify-center border-dashed bg-white p-10 text-center font-mono text-[11px] tracking-[0.2em] text-[#000000] uppercase">
+        Awaiting...
       </section>
     )
   }
 
   if (viewerAsset === undefined) {
     return (
-      <section className="space-y-4 rounded-3xl border border-slate-800 bg-slate-900/80 p-6 shadow-xl shadow-slate-950/30">
-        <div className="space-y-2">
-          <p className="text-xs font-semibold tracking-[0.4em] text-cyan-300 uppercase">Evidence viewer</p>
-          <h2 className="text-2xl font-semibold text-white">Loading evidence</h2>
-          <p className="text-sm leading-6 text-slate-400">
-            Fetching the cited source PDF page for the supporting text, table, or diagram evidence.
-          </p>
+      <section className="wire-border relative flex h-full min-h-0 flex-1 flex-col bg-white">
+        <div className="wire-border-b flex shrink-0 items-center justify-between bg-[#FAFAFA] p-4 md:p-6">
+          <h3 className="text-[14px] font-medium tracking-wide text-[#000000] uppercase">Visual Output</h3>
+          <span className="wire-border px-3 py-1 font-mono text-[10px] font-medium tracking-widest text-[#000000] uppercase">
+            Loading...
+          </span>
         </div>
-        <div className="h-[34rem] animate-pulse rounded-2xl border border-slate-800 bg-slate-950/60" />
+        <div className="min-h-0 flex-1 p-4 md:p-6">
+          <div className="crosshatch-bg wire-border h-full w-full animate-pulse" />
+        </div>
       </section>
     )
   }
 
   if (!viewerAsset) {
     return (
-      <section className="space-y-4 rounded-3xl border border-slate-800 bg-slate-900/80 p-6 shadow-xl shadow-slate-950/30">
-        <div className="space-y-2">
-          <p className="text-xs font-semibold tracking-[0.4em] text-cyan-300 uppercase">Evidence viewer</p>
-          <h2 className="text-2xl font-semibold text-white">Supporting asset unavailable</h2>
+      <section className="wire-border relative flex h-full min-h-0 flex-1 flex-col bg-white">
+        <div className="wire-border-b flex shrink-0 items-center justify-between bg-[#FAFAFA] p-4 md:p-6">
+          <h3 className="text-[14px] font-medium tracking-wide text-[#000000] uppercase">Visual Output</h3>
+          <span className="wire-border bg-[#000000] px-3 py-1 font-mono text-[10px] font-medium tracking-widest text-white uppercase">
+            Error 404
+          </span>
         </div>
-        <div className="rounded-2xl border border-rose-500/30 bg-rose-500/10 px-4 py-5 text-sm leading-6 text-rose-200">
-          The linked asset could not be resolved from storage.
+        <div className="flex min-h-0 flex-1 items-center justify-center bg-[#FAFAFA] p-6 md:p-8">
+          <div className="wire-border diagonal-bg max-w-sm bg-white p-8 text-center">
+            <span className="wire-border mb-2 inline-block bg-white px-4 py-2 text-[14px] font-medium tracking-widest uppercase">
+              File Missing
+            </span>
+            <p className="bg-white p-2 font-mono text-[12px] text-[#000000]">Reference removed from storage.</p>
+          </div>
         </div>
       </section>
     )
   }
 
   return (
-    <section className="overflow-hidden rounded-3xl border border-slate-800 bg-slate-900/80 shadow-xl shadow-slate-950/30">
-      <div className="border-b border-slate-800 px-5 py-4">
-        <p className="text-xs font-semibold tracking-[0.4em] text-cyan-300 uppercase">Evidence viewer</p>
-        <div className="mt-2 flex flex-wrap items-center gap-3">
-          <h2 className="text-2xl font-semibold text-white">{asset.label}</h2>
-          <span className="rounded-full border border-slate-700 px-3 py-1 text-xs font-medium tracking-[0.25em] text-slate-300 uppercase">
-            Page <span className="font-mono">{asset.pageNumber}</span>
-          </span>
+    <section className="wire-border relative flex flex-1 flex-col bg-white">
+      <div className="wire-border-b flex flex-col justify-between gap-4 bg-[#FAFAFA] p-4 md:flex-row md:items-center md:p-6">
+        <div className="flex min-w-0 items-center gap-4">
+          <span className="h-1.5 w-1.5 shrink-0 bg-[#000000]"></span>
+          <h3 className="truncate text-[14px] font-medium tracking-wide text-[#000000] uppercase">{asset.label}</h3>
         </div>
+        <span className="wire-border shrink-0 bg-white px-3 py-1 font-mono text-[10px] font-medium tracking-widest text-[#000000] uppercase">
+          Pg. {asset.pageNumber}
+        </span>
       </div>
-      <iframe className="h-[34rem] w-full bg-white" src={`${viewerAsset.url}#page=${asset.pageNumber}`} title={asset.label} />
+      <div className="min-h-0 flex-1 p-4 md:p-6">
+        <iframe
+          className="wire-border h-full w-full bg-white"
+          src={`${viewerAsset.url}#page=${asset.pageNumber}`}
+          title={asset.label}
+        />
+      </div>
     </section>
   )
 }

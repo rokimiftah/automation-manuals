@@ -14,76 +14,81 @@ export type AnswerPacketViewProps = {
   packet: AnswerPacketViewPacket
 }
 
-function statusStyles(answerabilityStatus: AnswerabilityStatus) {
-  if (answerabilityStatus === "grounded") {
-    return "border-emerald-500/30 bg-emerald-500/10 text-emerald-200"
-  }
-
-  return "border-amber-500/30 bg-amber-500/10 text-amber-200"
-}
-
 export default function AnswerPacketView({ packet, onSelectCitation }: AnswerPacketViewProps) {
+  const isGrounded = packet.answerabilityStatus === "grounded"
+
   return (
-    <section className="space-y-5 rounded-3xl border border-slate-800 bg-slate-900/80 p-6 shadow-xl shadow-slate-950/30">
-      <div className="space-y-2">
-        <p
-          className={`inline-flex rounded-full border px-3 py-1 text-[11px] font-semibold tracking-[0.3em] uppercase ${statusStyles(packet.answerabilityStatus)}`}
-        >
-          {packet.answerabilityStatus === "grounded" ? "Grounded answer" : "Insufficient evidence"}
-        </p>
-        <p className="text-base leading-7 text-slate-100">{packet.answerSummary}</p>
+    <section className="wire-border relative flex flex-col bg-white">
+      <div className="wire-border-b flex items-center justify-between bg-[#FAFAFA] p-4 md:p-6">
+        <h3 className="text-[14px] font-medium tracking-wide text-[#000000] uppercase">Output Matrix</h3>
+        <span className="wire-border flex items-center gap-2 px-3 py-1 font-mono text-[10px] font-medium tracking-widest text-[#000000] uppercase">
+          {isGrounded ? (
+            <span className="block h-1.5 w-1.5 bg-[#000000]"></span>
+          ) : (
+            <span className="wire-border block h-1.5 w-1.5"></span>
+          )}
+          {isGrounded ? "Grounded" : "Unverified"}
+        </span>
       </div>
 
-      {packet.answerSteps.length > 0 ? (
-        <div className="space-y-3">
-          <p className="text-xs font-semibold tracking-[0.35em] text-slate-400 uppercase">Reasoning steps</p>
-          <ol className="space-y-2 text-sm leading-6 text-slate-300">
-            {packet.answerSteps.map((step, index) => (
-              <li key={step} className="rounded-2xl border border-slate-800 bg-slate-950/60 px-4 py-3">
-                <span className="mr-2 font-mono text-cyan-300">{index + 1}.</span>
-                {step}
-              </li>
-            ))}
-          </ol>
-        </div>
-      ) : null}
+      <div className="space-y-10 p-6 md:p-8">
+        <p className="font-mono text-[16px] leading-[1.8] whitespace-pre-wrap text-[#000000]">{packet.answerSummary}</p>
 
-      {packet.citations.length > 0 ? (
-        <div className="space-y-3">
-          <p className="text-xs font-semibold tracking-[0.35em] text-slate-400 uppercase">Citations</p>
-          <div className="flex flex-wrap gap-2">
-            {packet.citations.map((citation) => (
-              <span
-                key={citation.chunkId}
-                className="rounded-full border border-slate-700 bg-slate-950 px-3 py-1 text-xs font-medium text-slate-300"
-              >
-                {citation.citationLabel}
-              </span>
-            ))}
-          </div>
-        </div>
-      ) : null}
-
-      <div className="space-y-3">
-        <p className="text-xs font-semibold tracking-[0.35em] text-slate-400 uppercase">Supporting assets</p>
-        {packet.supportingAssets.length === 0 ? (
-          <div className="rounded-2xl border border-dashed border-slate-800 bg-slate-950/50 px-4 py-5 text-sm leading-6 text-slate-400">
-            No supporting assets were returned for this answer.
-          </div>
-        ) : (
-          <div className="flex flex-wrap gap-2">
-            {packet.supportingAssets.map((asset) => (
-              <button
-                key={`${asset.assetId}:${asset.pageNumber}`}
-                className="inline-flex items-center justify-center rounded-2xl border border-slate-700 bg-slate-950 px-4 py-2 text-sm font-medium text-slate-200 transition hover:border-slate-500 hover:text-white active:translate-y-px"
-                type="button"
-                onClick={() => onSelectCitation(asset)}
-              >
-                {asset.label}
-              </button>
-            ))}
+        {packet.answerSteps.length > 0 && (
+          <div className="space-y-4">
+            <h4 className="wire-border-b pb-2 text-[10px] font-medium tracking-[0.2em] text-[#000000] uppercase">Trace Log</h4>
+            <ol className="space-y-3 font-mono text-[14px] leading-relaxed text-[#000000]">
+              {packet.answerSteps.map((step, index) => (
+                <li key={step} className="flex gap-4">
+                  <span className="shrink-0 text-[#999999]">{(index + 1).toString().padStart(2, "0")}</span>
+                  <span>{step}</span>
+                </li>
+              ))}
+            </ol>
           </div>
         )}
+
+        {packet.citations.length > 0 && (
+          <div className="wire-border-t space-y-4 pt-6">
+            <h4 className="wire-border-b pb-2 text-[10px] font-medium tracking-[0.2em] text-[#000000] uppercase">
+              Reference Nodes
+            </h4>
+            <div className="flex flex-wrap gap-3">
+              {packet.citations.map((citation) => (
+                <span key={citation.chunkId} className="wire-border px-3 py-1 font-mono text-[11px] text-[#000000]">
+                  {citation.citationLabel}
+                </span>
+              ))}
+            </div>
+          </div>
+        )}
+
+        <div className="wire-border-t space-y-4 pt-6">
+          <h4 className="wire-border-b pb-2 text-[10px] font-medium tracking-[0.2em] text-[#000000] uppercase">
+            Attached Schematics
+          </h4>
+          {packet.supportingAssets.length === 0 ? (
+            <div className="crosshatch-bg wire-border flex h-24 w-full items-center justify-center">
+              <span className="wire-border bg-white px-4 py-1 font-mono text-[11px] tracking-widest uppercase">Null</span>
+            </div>
+          ) : (
+            <div className="grid gap-4 sm:grid-cols-2">
+              {packet.supportingAssets.map((asset) => (
+                <button
+                  key={`${asset.assetId}:${asset.pageNumber}`}
+                  className="wire-border group relative flex flex-col items-start bg-white p-4 text-left transition-colors hover:bg-[#000000] hover:text-white md:p-5"
+                  type="button"
+                  onClick={() => onSelectCitation(asset)}
+                >
+                  <span className="mb-4 line-clamp-2 text-[14px] font-medium tracking-wide uppercase">{asset.label}</span>
+                  <span className="mt-auto w-full border-t border-inherit pt-2 font-mono text-[11px] tracking-widest uppercase group-hover:border-white">
+                    Pg. {asset.pageNumber}
+                  </span>
+                </button>
+              ))}
+            </div>
+          )}
+        </div>
       </div>
     </section>
   )

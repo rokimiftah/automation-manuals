@@ -20,30 +20,30 @@ type IngestionJobListProps = {
 
 function statusClasses(status: string) {
   if (status === "failed") {
-    return "border-rose-500/30 bg-rose-500/10 text-rose-200"
+    return "text-[#000000] bg-white border-l-4 border-l-[#000000] wire-border"
   }
 
   if (status === "ready") {
-    return "border-emerald-500/30 bg-emerald-500/10 text-emerald-200"
+    return "text-white bg-[#000000] wire-border"
   }
 
-  return "border-slate-700 bg-slate-950 text-slate-300"
+  return "text-[#000000] bg-[#FAFAFA] wire-border"
 }
 
 function statusLabel(status: string) {
   if (status === "waiting_provider") {
-    return "Waiting on MinerU queue"
+    return "Pending"
   }
 
   if (status === "processing_provider") {
-    return "MinerU is processing"
+    return "Parsing"
   }
 
   if (status === "downloading_result") {
-    return "Importing MinerU result"
+    return "Fetching"
   }
 
-  return status
+  return status.charAt(0).toUpperCase() + status.slice(1)
 }
 
 function compareJobRecency(left: IngestionJob, right: IngestionJob) {
@@ -80,67 +80,80 @@ function canRetryJob(job: IngestionJob, jobs: IngestionJob[]) {
 
 export default function IngestionJobList({ jobs, onRetry }: IngestionJobListProps) {
   return (
-    <section className="space-y-4 rounded-3xl border border-slate-800 bg-slate-900/80 p-6 shadow-xl shadow-slate-950/30">
-      <div className="flex items-center justify-between gap-4">
+    <section className="wire-border relative flex h-full max-h-200 flex-col overflow-hidden bg-white">
+      <div className="wire-border-b flex shrink-0 items-center justify-between bg-[#FAFAFA] p-6 md:p-8">
         <div className="space-y-1">
-          <p className="text-xs font-semibold tracking-[0.4em] text-cyan-300 uppercase">Ingestion jobs</p>
-          <h2 className="text-2xl font-semibold text-white">Queue status</h2>
+          <h2 className="text-[20px] font-medium tracking-tight text-[#000000] uppercase">Ingestion Flow</h2>
         </div>
-        <p className="text-sm text-slate-400">
-          <span className="font-mono text-slate-100">{jobs.length}</span> jobs
-        </p>
+        <span className="wire-border bg-white px-4 py-2 font-mono text-[12px] font-medium tracking-widest text-[#000000] uppercase">
+          {jobs.length} Nodes
+        </span>
       </div>
 
-      {jobs.length === 0 ? (
-        <div className="rounded-2xl border border-dashed border-slate-800 bg-slate-950/50 px-4 py-6 text-sm leading-6 text-slate-400">
-          No ingestion jobs yet. Queue a document to start the pipeline.
-        </div>
-      ) : (
-        <div className="divide-y divide-slate-800 overflow-hidden rounded-2xl border border-slate-800">
-          {jobs.map((job) => (
-            <article
-              key={job._id}
-              className="flex flex-col gap-4 bg-slate-950/40 px-4 py-4 md:flex-row md:items-center md:justify-between"
-            >
-              <div className="space-y-2">
-                <div className="flex flex-wrap items-center gap-3">
-                  <p className="text-sm font-medium text-white">
-                    Document <span className="font-mono">{job.documentId}</span>
-                  </p>
-                  <span
-                    className={`rounded-full border px-3 py-1 text-[11px] font-semibold tracking-[0.3em] uppercase ${statusClasses(job.status)}`}
-                  >
-                    {statusLabel(job.status)}
-                  </span>
-                </div>
-                {job.errorMessage ? <p className="text-sm leading-6 text-rose-200">{job.errorMessage}</p> : null}
-                {job.providerState ? (
-                  <p className="text-xs tracking-[0.25em] text-slate-500 uppercase">Provider: {job.providerState}</p>
-                ) : null}
-                {job.providerErrorMessage ? <p className="text-sm leading-6 text-amber-200">{job.providerErrorMessage}</p> : null}
-                {job.providerErrorCode !== undefined ? (
-                  <p className="text-xs text-slate-500">Provider error code: {job.providerErrorCode}</p>
-                ) : null}
-                {job.providerLastCheckedAt !== undefined ? (
-                  <p className="text-xs text-slate-500">Last checked: {new Date(job.providerLastCheckedAt).toLocaleString()}</p>
-                ) : null}
-              </div>
+      <div className="flex-1 overflow-auto bg-white p-6 md:p-8">
+        {jobs.length === 0 ? (
+          <div className="wire-border flex h-full flex-col items-center justify-center border-dashed bg-[#FAFAFA] p-12 text-center">
+            <p className="font-mono text-[12px] tracking-[0.2em] text-[#000000] uppercase">Queue Empty</p>
+          </div>
+        ) : (
+          <div className="flex flex-col gap-6">
+            {jobs.map((job) => (
+              <article
+                key={job._id}
+                className="wire-border relative flex flex-col justify-between gap-6 bg-white p-6 transition-colors hover:bg-[#FAFAFA] sm:flex-row sm:items-start"
+              >
+                <div className="min-w-0 flex-1 space-y-4">
+                  <div className="flex items-center justify-between gap-4">
+                    <span className="truncate font-mono text-[14px] font-bold text-[#000000]">
+                      D_{job.documentId.slice(0, 8)}...
+                    </span>
+                    <span
+                      className={`shrink-0 px-3 py-1.5 font-mono text-[10px] font-medium tracking-widest uppercase ${statusClasses(job.status)}`}
+                    >
+                      {statusLabel(job.status)}
+                    </span>
+                  </div>
 
-              {canRetryJob(job, jobs) ? (
-                <button
-                  className="inline-flex items-center justify-center rounded-2xl border border-slate-700 px-4 py-2 text-sm font-medium text-slate-200 transition hover:border-slate-500 hover:text-white active:translate-y-px"
-                  type="button"
-                  onClick={() => {
-                    void onRetry(job._id)
-                  }}
-                >
-                  Retry
-                </button>
-              ) : null}
-            </article>
-          ))}
-        </div>
-      )}
+                  <div className="wire-border-t grid gap-x-8 gap-y-2 pt-4 font-mono text-[11px] tracking-widest text-[#000000] uppercase sm:grid-cols-2">
+                    {job.providerState && <div>State: {job.providerState}</div>}
+                    {job.providerErrorCode !== undefined && <div>Code: {job.providerErrorCode}</div>}
+                    {job.providerLastCheckedAt !== undefined && (
+                      <div className="sm:col-span-2">Ping: {new Date(job.providerLastCheckedAt).toLocaleTimeString()}</div>
+                    )}
+                  </div>
+
+                  {job.errorMessage ? (
+                    <div className="wire-border-t mt-4 pt-4">
+                      <p className="wire-border flex items-start gap-3 bg-[#FAFAFA] p-3 font-mono text-[12px] text-[#000000]">
+                        <span className="bg-[#000000] px-1.5 text-white">Err</span> {job.errorMessage}
+                      </p>
+                    </div>
+                  ) : null}
+                  {job.providerErrorMessage ? (
+                    <div className="mt-2">
+                      <p className="wire-border flex items-start gap-3 bg-[#FAFAFA] p-3 font-mono text-[12px] text-[#000000]">
+                        <span className="bg-[#000000] px-1.5 text-white">Prv</span> {job.providerErrorMessage}
+                      </p>
+                    </div>
+                  ) : null}
+                </div>
+
+                {canRetryJob(job, jobs) ? (
+                  <button
+                    className="wire-border w-full shrink-0 bg-white px-6 py-2.5 font-mono text-[11px] font-medium tracking-widest text-[#000000] uppercase transition-colors hover:bg-[#000000] hover:text-white active:scale-[0.98] sm:w-auto"
+                    type="button"
+                    onClick={() => {
+                      void onRetry(job._id)
+                    }}
+                  >
+                    [ Retry ]
+                  </button>
+                ) : null}
+              </article>
+            ))}
+          </div>
+        )}
+      </div>
     </section>
   )
 }

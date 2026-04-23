@@ -2,9 +2,9 @@ import { describe, expect, it } from "vitest"
 
 import {
   buildProviderProgressPatch,
-  PROVIDER_RECONCILE_RETRY_LIMIT,
+  getProviderFailureMessage,
   getProviderReconcileDecision,
-  getProviderFailureMessage
+  PROVIDER_RECONCILE_RETRY_LIMIT
 } from "./providerRetry"
 
 describe("getProviderReconcileDecision", () => {
@@ -88,9 +88,7 @@ describe("buildProviderProgressPatch", () => {
 
 describe("getProviderFailureMessage", () => {
   it("uses the provider message when present", () => {
-    expect(getProviderFailureMessage("MinerU extraction failed for this file")).toBe(
-      "MinerU extraction failed for this file"
-    )
+    expect(getProviderFailureMessage("MinerU extraction failed for this file")).toBe("MinerU extraction failed for this file")
   })
 
   it("falls back to the default provider failure message", () => {

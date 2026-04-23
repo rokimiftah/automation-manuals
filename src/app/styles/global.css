@@ -1,8 +1,80 @@
 @import "tailwindcss";
 
-/* Add your theme customizations here. */
-/* See the TailwindCSS v4 docs for more info: https://tailwindcss.com/docs/v4-beta#css-configuration-in-depth */
-
 @theme {
-  --font-display: "Inter", sans-serif;
+  --font-sans: "Inter", "Helvetica Neue", Arial, sans-serif;
+  --font-mono: "JetBrains Mono", "Courier New", monospace;
+}
+
+@layer base {
+  *,
+  ::before,
+  ::after {
+    border-radius: 0; /* Absolute rigidity */
+  }
+
+  /* Invisible scrollbar to maintain absolute minimalism */
+  ::-webkit-scrollbar {
+    width: 0px;
+    height: 0px;
+  }
+  * {
+    scrollbar-width: none;
+  }
+}
+
+/* Wireframe specific utilities */
+.wire-border {
+  border: 1px solid #000000;
+}
+
+.wire-border-b {
+  border-bottom: 1px solid #000000;
+}
+
+.wire-border-t {
+  border-top: 1px solid #000000;
+}
+
+.wire-border-r {
+  border-right: 1px solid #000000;
+}
+
+.wire-border-l {
+  border-left: 1px solid #000000;
+}
+
+/* Subtle entrance without opacity fading, just structural expansion */
+.animate-expand {
+  animation: expandIn 0.3s cubic-bezier(0.1, 0.9, 0.2, 1) forwards;
+  transform-origin: top;
+  transform: scaleY(0);
+}
+
+@keyframes expandIn {
+  from {
+    transform: scaleY(0);
+  }
+  to {
+    transform: scaleY(1);
+  }
+}
+
+/* Crosshatch pattern for empty states */
+.crosshatch-bg {
+  background-image:
+    repeating-linear-gradient(45deg, #000 0, #000 1px, transparent 1px, transparent 10px),
+    repeating-linear-gradient(-45deg, #000 0, #000 1px, transparent 1px, transparent 10px);
+  background-size: 14px 14px;
+  opacity: 0.05;
+}
+
+/* Diagonal line background */
+.diagonal-bg {
+  background-image: repeating-linear-gradient(
+    45deg,
+    transparent,
+    transparent 5px,
+    rgba(0, 0, 0, 0.1) 5px,
+    rgba(0, 0, 0, 0.1) 6px
+  );
 }

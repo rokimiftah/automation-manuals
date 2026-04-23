@@ -1,5 +1,5 @@
-import { dirname, resolve } from "node:path"
 import { readFileSync } from "node:fs"
+import { dirname, resolve } from "node:path"
 
 import { describe, expect, it } from "vitest"
 
@@ -13,9 +13,7 @@ describe("normalizeMineruDocument fixture", () => {
     }
 
     const testDir = dirname(testPath)
-    const fixture = JSON.parse(
-      readFileSync(resolve(testDir, "__fixtures__/mineru_guardlogix_middle.json"), "utf8")
-    )
+    const fixture = JSON.parse(readFileSync(resolve(testDir, "__fixtures__/mineru_guardlogix_middle.json"), "utf8"))
 
     const result = normalizeMineruDocument(fixture)
 

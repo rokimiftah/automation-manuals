@@ -690,9 +690,9 @@ Expected: FAIL because the component only prints raw status text.
 
 ```ts
 function statusLabel(status: string) {
-  if (status === "waiting_provider") return "Waiting on MinerU queue"
-  if (status === "processing_provider") return "MinerU is processing"
-  if (status === "downloading_result") return "Importing MinerU result"
+  if (status === "waiting_provider") return "Pending"
+  if (status === "processing_provider") return "Parsing"
+  if (status === "downloading_result") return "Fetching"
   return status
 }
 ```

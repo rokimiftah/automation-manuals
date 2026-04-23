@@ -25,7 +25,6 @@ export function assertReadyDocumentArtifacts(input: {
 
 export function buildReadyDocumentPatch(input: { now: number; sourceAssetId: GenericId<"documentAssets"> }) {
   return {
-    isActive: true,
     sourceAssetId: input.sourceAssetId,
     status: "ready" as const,
     updatedAt: input.now

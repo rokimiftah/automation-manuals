@@ -17,10 +17,10 @@ describe("QuestionComposer", () => {
 
     render(<QuestionComposer onSubmit={onSubmit} />)
 
-    const textarea = screen.getByRole("textbox", { name: /question/i })
+    const textarea = screen.getByRole("textbox")
 
     await user.type(textarea, "How should I wire the stop input?")
-    await user.click(screen.getByRole("button", { name: /ask assistant/i }))
+    await user.click(screen.getByRole("button", { name: /find manuals/i }))
 
     await waitFor(() => expect(onSubmit).toHaveBeenCalledWith("How should I wire the stop input?"))
     expect(textarea).toHaveValue("How should I wire the stop input?")
@@ -32,10 +32,10 @@ describe("QuestionComposer", () => {
 
     render(<QuestionComposer onSubmit={onSubmit} />)
 
-    const textarea = screen.getByRole("textbox", { name: /question/i })
+    const textarea = screen.getByRole("textbox")
 
     await user.type(textarea, "Show the relay wiring guidance")
-    await user.click(screen.getByRole("button", { name: /ask assistant/i }))
+    await user.click(screen.getByRole("button", { name: /find manuals/i }))
 
     await waitFor(() => expect(onSubmit).toHaveBeenCalledWith("Show the relay wiring guidance"))
     await waitFor(() => expect(textarea).toHaveValue(""))

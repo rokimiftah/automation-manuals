@@ -1,7 +1,7 @@
 import { v } from "convex/values"
 
 import { internalQuery, mutation } from "./_generated/server"
-import { requireAdminWriteSession } from "./lib/adminSession"
+import { insertAdminAuditEvent, requireAdminWriteSession } from "./lib/adminSession"
 import { defaultEvaluationCases } from "./lib/evaluationSeed"
 import { severityValidator } from "./lib/validators"
 
@@ -29,7 +29,7 @@ export const seedDefaults = mutation({
   args: { sessionToken: v.string() },
   returns: v.number(),
   handler: async (ctx, args) => {
-    await requireAdminWriteSession(ctx, args.sessionToken)
+    const adminSession = await requireAdminWriteSession(ctx, args.sessionToken)
     let inserted = 0
     for (const item of defaultEvaluationCases) {
       const existing = await ctx.db
@@ -44,6 +44,13 @@ export const seedDefaults = mutation({
       await ctx.db.insert("evaluationCases", item)
       inserted += 1
     }
+
+    await insertAdminAuditEvent(ctx, adminSession, {
+      action: "evaluations.seed_defaults",
+      targetId: `default:${inserted}`,
+      targetTable: "evaluationCases",
+      summary: `Seeded ${inserted} default evaluation case${inserted === 1 ? "" : "s"}`
+    })
 
     return inserted
   }

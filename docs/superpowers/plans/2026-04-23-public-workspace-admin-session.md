@@ -37,7 +37,7 @@
 - `src/shared/config/env.test.ts` - update env expectations for the reduced public env surface.
 - `src/app/providers/ConvexProvider.tsx` - read only `CONVEX_URL` from `astro:env/client`.
 - `astro.config.mjs` - expose only the public client env variables still used by the app.
-- `src/widgets/app-shell/ui/AppShell.tsx` - add an optional actions slot so the admin console can expose sign-out without reintroducing auth-specific shell code.
+- `src/widgets/app-shell/ui/AppShell.tsx` - keep the shell generic; the current admin dashboard does not expose session identity or a manual sign-out control.
 - `src/widgets/admin-console/ui/AdminConsole.tsx` - accept `sessionToken` and pass it to every protected query/mutation.
 - `src/widgets/admin-console/island.tsx` - render the admin session gate around the admin console.
 - `src/pages/index.astro` - replace the marketing landing screen with the engineer workspace island.
@@ -1122,12 +1122,6 @@ export function AdminLoginForm({
 
   return (
     <section className="mx-auto max-w-md space-y-5 rounded-3xl border border-slate-800 bg-slate-900/80 p-6 shadow-xl shadow-slate-950/30">
-      <div className="space-y-2">
-        <p className="text-xs font-semibold tracking-[0.4em] text-cyan-300 uppercase">Admin access</p>
-        <h1 className="text-2xl font-semibold text-white">Admin sign in</h1>
-        <p className="text-sm leading-6 text-slate-400">Sign in to register manuals and run ingestion jobs.</p>
-      </div>
-
       <form
         className="space-y-4"
         onSubmit={async (event) => {
@@ -1136,7 +1130,7 @@ export function AdminLoginForm({
         }}
       >
         <label className="block space-y-2 text-sm text-slate-200">
-          <span>Username</span>
+          <span>ID String</span>
           <input
             className="mt-1 w-full rounded-2xl border border-slate-700 bg-slate-950 px-4 py-3 text-sm text-white outline-none"
             value={username}
@@ -1145,7 +1139,7 @@ export function AdminLoginForm({
         </label>
 
         <label className="block space-y-2 text-sm text-slate-200">
-          <span>Password</span>
+          <span>Passphrase</span>
           <input
             className="mt-1 w-full rounded-2xl border border-slate-700 bg-slate-950 px-4 py-3 text-sm text-white outline-none"
             type="password"
@@ -1165,7 +1159,7 @@ export function AdminLoginForm({
           disabled={pending}
           type="submit"
         >
-          {pending ? "Signing in..." : "Sign in"}
+          {pending ? "Verifying" : "Access"}
         </button>
       </form>
     </section>
@@ -1179,7 +1173,7 @@ import type { ReactNode } from "react"
 
 import { useEffect, useState } from "react"
 
-import { useAction, useMutation, useQuery } from "convex/react"
+import { useAction, useQuery } from "convex/react"
 
 import { api } from "@convex/_generated/api"
 
@@ -1190,10 +1184,9 @@ const STORAGE_KEY = "adminSessionToken"
 export function AdminSessionGate({
   children
 }: {
-  children: (session: { expiresAt: number; onSignOut: () => Promise<void>; sessionToken: string; username: string }) => ReactNode
+  children: (session: { expiresAt: number; onSessionInvalid: (message?: string) => void; sessionToken: string }) => ReactNode
 }) {
   const signIn = useAction(api.adminAuth.signIn)
-  const signOut = useMutation(api.adminAuth.signOut)
   const [error, setError] = useState<string>()
   const [isPending, setIsPending] = useState(false)
   const [sessionToken, setSessionToken] = useState<string | null>(null)
@@ -1235,7 +1228,7 @@ export function AdminSessionGate({
   }
 
   if (session === undefined) {
-    return <div className="p-6 text-sm text-slate-400">Checking admin session...</div>
+    return null
   }
 
   if (!session) {
@@ -1244,13 +1237,12 @@ export function AdminSessionGate({
 
   return children({
     expiresAt: session.expiresAt,
-    onSignOut: async () => {
-      await signOut({ sessionToken })
+    onSessionInvalid: (message = "Admin session expired. Please sign in again.") => {
       sessionStorage.removeItem(STORAGE_KEY)
       setSessionToken(null)
+      setError(message)
     },
-    sessionToken,
-    username: session.username
+    sessionToken
   })
 }
 ```
@@ -1288,13 +1280,11 @@ import AppShell from "@widgets/app-shell/ui/AppShell"
 import { DocumentRegistrationForm, IngestionJobList } from "@features/admin-ingestion/ui"
 
 export default function AdminConsole({
-  onSignOut,
-  sessionToken,
-  username
+  onSessionInvalid,
+  sessionToken
 }: {
-  onSignOut: () => Promise<void>
+  onSessionInvalid: (message?: string) => void
   sessionToken: string
-  username: string
 }) {
   const documents = useQuery(api.documents.listAdmin, { sessionToken })
   const jobs = useQuery(api.ingestion.listJobs, { sessionToken })
@@ -1302,22 +1292,20 @@ export default function AdminConsole({
   const enqueue = useMutation(api.ingestion.enqueue)
   const retryJob = useMutation(api.ingestion.retry)
 
-  return (
-    <AppShell
-      title="Admin Console"
-      actions={
-        <>
-          <span className="text-sm text-slate-400">Signed in as {username}</span>
-          <button
-            className="inline-flex items-center justify-center rounded-2xl border border-slate-700 px-4 py-2 text-sm font-medium text-slate-200 transition hover:border-slate-500 hover:text-white"
-            type="button"
-            onClick={() => void onSignOut()}
-          >
-            Sign out
-          </button>
-        </>
+  async function runProtectedMutation<T>(work: () => Promise<T>) {
+    try {
+      return await work()
+    } catch (error) {
+      if (error instanceof Error && /admin session/i.test(error.message)) {
+        onSessionInvalid("Admin session expired. Please sign in again.")
       }
-    >
+
+      throw error
+    }
+  }
+
+  return (
+    <AppShell title="Admin Interface">
       <div className="grid gap-6 xl:grid-cols-[minmax(0,1.05fr)_minmax(0,0.95fr)]">
         <div className="space-y-6">
           <section className="rounded-3xl border border-slate-800 bg-slate-900/80 p-6 shadow-xl shadow-slate-950/30">
@@ -1333,8 +1321,10 @@ export default function AdminConsole({
 
           <DocumentRegistrationForm
             onSubmit={async (values) => {
-              const documentId = await createDocument({ ...values, sessionToken })
-              await enqueue({ documentId, sessionToken })
+              await runProtectedMutation(async () => {
+                const documentId = await createDocument({ ...values, sessionToken })
+                await enqueue({ documentId, sessionToken })
+              })
             }}
           />
         </div>
@@ -1353,7 +1343,7 @@ export default function AdminConsole({
             <IngestionJobList
               jobs={jobs}
               onRetry={(jobId) => {
-                void retryJob({ jobId, sessionToken })
+                void runProtectedMutation(() => retryJob({ jobId, sessionToken }))
               }}
             />
           )}
@@ -1376,9 +1366,7 @@ export default function AdminConsoleIsland() {
   return (
     <ConvexProviderWrapper>
       <AdminSessionGate>
-        {(session) => (
-          <AdminConsole onSignOut={session.onSignOut} sessionToken={session.sessionToken} username={session.username} />
-        )}
+        {(session) => <AdminConsole onSessionInvalid={session.onSessionInvalid} sessionToken={session.sessionToken} />}
       </AdminSessionGate>
     </ConvexProviderWrapper>
   )

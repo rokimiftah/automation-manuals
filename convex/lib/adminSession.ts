@@ -137,7 +137,7 @@ export async function requireAdminWriteSession(ctx: MutationCtx, sessionToken: s
 }
 
 export async function revokeAdminSession(ctx: MutationCtx, sessionId: string, revokedAt = Date.now()) {
-  await ctx.db.patch(sessionId as never, { revokedAt })
+  await ctx.db.patch("adminSessions", sessionId as never, { revokedAt })
 }
 
 export function buildAdminAuditActor(session: { _id: string; username: string }) {
@@ -146,4 +146,24 @@ export function buildAdminAuditActor(session: { _id: string; username: string })
     actorType: "admin_session",
     adminSessionId: session._id as never
   }
+}
+
+export async function insertAdminAuditEvent(
+  ctx: MutationCtx,
+  session: { _id: string; username: string },
+  input: {
+    action: string
+    summary: string
+    targetId: string
+    targetTable: string
+  }
+) {
+  await ctx.db.insert("auditEvents", {
+    ...buildAdminAuditActor(session),
+    action: input.action,
+    targetTable: input.targetTable,
+    targetId: input.targetId,
+    summary: input.summary,
+    createdAt: Date.now()
+  })
 }

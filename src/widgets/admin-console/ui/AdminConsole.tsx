@@ -15,15 +15,14 @@ export default function AdminConsole({
   sessionToken
 }: {
   onSessionInvalid: (message?: string) => void
-  onSignOut: () => Promise<void>
   sessionToken: string
-  username: string
 }) {
   const documents = useQuery(api.documents.listAdmin, { sessionToken })
   const jobs = useQuery(api.ingestion.listJobs, { sessionToken })
   const createDocument = useMutation(api.documents.create)
   const enqueue = useMutation(api.ingestion.enqueue)
   const retryJob = useMutation(api.ingestion.retry)
+  const setDocumentActive = useMutation(api.documents.setActive)
 
   async function runProtectedMutation<T>(work: () => Promise<T>) {
     try {
@@ -50,6 +49,64 @@ export default function AdminConsole({
                 {documents === undefined ? "—" : documents.length}
               </p>
               <span className="mb-2 font-mono text-[14px] tracking-widest uppercase">Units</span>
+            </div>
+          </section>
+
+          <section
+            className="wire-border animate-expand relative flex shrink-0 flex-col bg-white"
+            style={{ animationDelay: "0.05s" }}
+          >
+            <div className="wire-border-b flex items-center justify-between bg-[#FAFAFA] p-6 md:p-8">
+              <h2 className="text-[20px] font-medium tracking-tight text-[#000000] uppercase">Active Search Set</h2>
+            </div>
+            <div className="flex flex-col gap-4 p-6 md:p-8">
+              {documents === undefined ? (
+                <div className="crosshatch-bg wire-border h-24 animate-pulse" />
+              ) : documents.length === 0 ? (
+                <div className="wire-border border-dashed bg-[#FAFAFA] p-6 text-center font-mono text-[11px] tracking-[0.2em] uppercase">
+                  No manuals registered
+                </div>
+              ) : (
+                documents.map((document) => {
+                  const canActivate = document.status === "ready"
+                  const nextActiveState = !document.isActive
+                  const actionLabel = document.isActive ? `Deactivate ${document.version}` : `Set active ${document.version}`
+
+                  return (
+                    <article key={document._id} className="wire-border flex flex-col gap-4 bg-white p-4">
+                      <div className="flex items-start justify-between gap-4">
+                        <div className="space-y-1">
+                          <h3 className="text-[14px] font-medium tracking-wide uppercase">{document.title}</h3>
+                          <p className="font-mono text-[11px] tracking-widest text-[#555555] uppercase">
+                            {document.vendorSlug} / {document.productSlug} / {document.version}
+                          </p>
+                        </div>
+                        <span className="wire-border px-3 py-1 font-mono text-[10px] tracking-widest uppercase">
+                          {document.isActive ? "Active" : document.status}
+                        </span>
+                      </div>
+                      <div className="flex justify-end">
+                        <button
+                          className="wire-border px-4 py-2 font-mono text-[10px] tracking-widest uppercase transition-colors hover:bg-[#000000] hover:text-white disabled:cursor-not-allowed disabled:opacity-50"
+                          disabled={!document.isActive && !canActivate}
+                          type="button"
+                          onClick={() => {
+                            void runProtectedMutation(() =>
+                              setDocumentActive({
+                                documentId: document._id,
+                                isActive: nextActiveState,
+                                sessionToken
+                              })
+                            )
+                          }}
+                        >
+                          {actionLabel}
+                        </button>
+                      </div>
+                    </article>
+                  )
+                })
+              )}
             </div>
           </section>
 

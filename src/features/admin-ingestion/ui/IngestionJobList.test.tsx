@@ -26,7 +26,7 @@ describe("IngestionJobList", () => {
       />
     )
 
-    expect(screen.getByText(/waiting on mineru queue/i)).toBeInTheDocument()
+    expect(screen.getByText(/pending/i)).toBeInTheDocument()
   })
 
   it("hides retry for jobs that have not failed", () => {

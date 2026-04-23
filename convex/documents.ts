@@ -4,7 +4,7 @@ import type { GenericId } from "convex/values"
 import { ConvexError, v } from "convex/values"
 
 import { internalMutation, internalQuery, mutation, query } from "./_generated/server"
-import { buildAdminAuditActor, requireAdminQuerySession, requireAdminWriteSession } from "./lib/adminSession"
+import { insertAdminAuditEvent, requireAdminQuerySession, requireAdminWriteSession } from "./lib/adminSession"
 import { assertReadyDocumentArtifacts, buildReadyDocumentPatch } from "./lib/documentReadiness"
 import { assertNextIngestionStatus } from "./lib/ingestionState"
 import { chunkTypeValidator, documentStatusValidator } from "./lib/validators"
@@ -94,7 +94,7 @@ export const getById = internalQuery({
   args: { documentId: v.id("documents") },
   returns: documentByIdValidator,
   handler: async (ctx, args) => {
-    return await ctx.db.get(args.documentId)
+    return await ctx.db.get("documents", args.documentId)
   }
 })
 
@@ -129,12 +129,12 @@ export const replaceParsedContent = internalMutation({
       throw new Error("Chunk embeddings are misaligned")
     }
 
-    const document = await ctx.db.get(args.documentId)
+    const document = await ctx.db.get("documents", args.documentId)
     if (!document) {
       return null
     }
 
-    const job = await ctx.db.get(args.jobId)
+    const job = await ctx.db.get("ingestionJobs", args.jobId)
     if (job) {
       assertNextIngestionStatus(job.status, "ready")
     }
@@ -153,7 +153,7 @@ export const replaceParsedContent = internalMutation({
       .withIndex("by_document_and_current", (q) => q.eq("documentId", args.documentId).eq("isCurrent", true))
       .collect()
     for (const asset of currentAssets) {
-      await ctx.db.patch(asset._id, { isCurrent: false })
+      await ctx.db.patch("documentAssets", asset._id, { isCurrent: false })
     }
 
     const currentPages = await ctx.db
@@ -161,7 +161,7 @@ export const replaceParsedContent = internalMutation({
       .withIndex("by_document_and_current", (q) => q.eq("documentId", args.documentId).eq("isCurrent", true))
       .collect()
     for (const page of currentPages) {
-      await ctx.db.patch(page._id, { isCurrent: false })
+      await ctx.db.patch("documentPages", page._id, { isCurrent: false })
     }
 
     const currentChunks = await ctx.db
@@ -169,7 +169,7 @@ export const replaceParsedContent = internalMutation({
       .withIndex("by_document_and_current", (q) => q.eq("documentId", args.documentId).eq("isCurrent", true))
       .collect()
     for (const chunk of currentChunks) {
-      await ctx.db.patch(chunk._id, { isCurrent: false })
+      await ctx.db.patch("chunks", chunk._id, { isCurrent: false })
     }
 
     const currentEmbeddings = await ctx.db
@@ -177,7 +177,7 @@ export const replaceParsedContent = internalMutation({
       .withIndex("by_document_and_current", (q) => q.eq("documentId", args.documentId).eq("isCurrent", true))
       .collect()
     for (const embedding of currentEmbeddings) {
-      await ctx.db.delete(embedding._id)
+      await ctx.db.delete("chunkEmbeddings", embedding._id)
     }
 
     const sourceAssetId = await ctx.db.insert("documentAssets", {
@@ -237,10 +237,10 @@ export const replaceParsedContent = internalMutation({
       })
     }
 
-    await ctx.db.patch(args.documentId, buildReadyDocumentPatch({ now, sourceAssetId }))
+    await ctx.db.patch("documents", args.documentId, buildReadyDocumentPatch({ now, sourceAssetId }))
 
     if (job) {
-      await ctx.db.patch(args.jobId, {
+      await ctx.db.patch("ingestionJobs", args.jobId, {
         status: "ready",
         updatedAt: now
       })
@@ -254,7 +254,7 @@ export const markReady = internalMutation({
   args: { documentId: v.id("documents") },
   returns: v.null(),
   handler: async (ctx, args) => {
-    const document = await ctx.db.get(args.documentId)
+    const document = await ctx.db.get("documents", args.documentId)
     if (!document) {
       return null
     }
@@ -300,7 +300,60 @@ export const markReady = internalMutation({
       throw new Error("A current source asset is required before a document can become ready")
     }
 
-    await ctx.db.patch(args.documentId, buildReadyDocumentPatch({ now: Date.now(), sourceAssetId }))
+    await ctx.db.patch("documents", args.documentId, buildReadyDocumentPatch({ now: Date.now(), sourceAssetId }))
+    return null
+  }
+})
+
+export const setActive = mutation({
+  args: {
+    documentId: v.id("documents"),
+    isActive: v.boolean(),
+    sessionToken: v.string()
+  },
+  returns: v.null(),
+  handler: async (ctx, args) => {
+    const adminSession = await requireAdminWriteSession(ctx, args.sessionToken)
+    const document = await ctx.db.get("documents", args.documentId)
+    if (!document) {
+      throw new ConvexError("Document not found")
+    }
+
+    if (args.isActive && document.status !== "ready") {
+      throw new ConvexError("Only ready documents can be activated")
+    }
+
+    const now = Date.now()
+    if (args.isActive) {
+      const activeSiblings = await ctx.db
+        .query("documents")
+        .withIndex("by_product_and_active", (q) => q.eq("productId", document.productId).eq("isActive", true))
+        .collect()
+
+      for (const sibling of activeSiblings) {
+        if (sibling._id === document._id) {
+          continue
+        }
+
+        await ctx.db.patch("documents", sibling._id, {
+          isActive: false,
+          updatedAt: now
+        })
+      }
+    }
+
+    await ctx.db.patch("documents", args.documentId, {
+      isActive: args.isActive,
+      updatedAt: now
+    })
+
+    await insertAdminAuditEvent(ctx, adminSession, {
+      action: "document.set_active",
+      targetId: args.documentId,
+      targetTable: "documents",
+      summary: `${args.isActive ? "Activated" : "Deactivated"} ${document.title} ${document.version}`
+    })
+
     return null
   }
 })
@@ -313,22 +366,22 @@ export const markFailed = internalMutation({
   },
   returns: v.null(),
   handler: async (ctx, args) => {
-    const job = await ctx.db.get(args.jobId)
+    const job = await ctx.db.get("ingestionJobs", args.jobId)
     if (job) {
       assertNextIngestionStatus(job.status, "failed")
-      await ctx.db.patch(args.jobId, {
+      await ctx.db.patch("ingestionJobs", args.jobId, {
         errorMessage: args.errorMessage,
         status: "failed",
         updatedAt: Date.now()
       })
     }
 
-    const document = await ctx.db.get(args.documentId)
+    const document = await ctx.db.get("documents", args.documentId)
     if (!document) {
       return null
     }
 
-    await ctx.db.patch(args.documentId, { status: "failed", updatedAt: Date.now() })
+    await ctx.db.patch("documents", args.documentId, { status: "failed", updatedAt: Date.now() })
     return null
   }
 })
@@ -399,13 +452,11 @@ export const create = mutation({
       updatedAt: now
     })
 
-    await ctx.db.insert("auditEvents", {
-      ...buildAdminAuditActor(adminSession),
+    await insertAdminAuditEvent(ctx, adminSession, {
       action: "document.create",
-      targetTable: "documents",
       targetId: documentId,
-      summary: `Created ${title} ${version}`,
-      createdAt: now
+      targetTable: "documents",
+      summary: `Created ${title} ${version}`
     })
 
     return documentId

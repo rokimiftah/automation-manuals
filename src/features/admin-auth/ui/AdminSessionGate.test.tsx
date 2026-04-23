@@ -31,7 +31,9 @@ describe("AdminSessionGate", () => {
 
     render(<AdminSessionGate>{() => <div>Admin console</div>}</AdminSessionGate>)
 
-    expect(screen.getByRole("heading", { name: /admin sign in/i })).toBeInTheDocument()
+    expect(screen.getByLabelText(/id string/i)).toBeInTheDocument()
+    expect(screen.getByLabelText(/passphrase/i)).toBeInTheDocument()
+    expect(screen.getByRole("button", { name: /access/i })).toBeInTheDocument()
     expect(screen.queryByText("Admin console")).not.toBeInTheDocument()
   })
 
@@ -42,9 +44,9 @@ describe("AdminSessionGate", () => {
 
     render(<AdminSessionGate>{() => <div>Admin console</div>}</AdminSessionGate>)
 
-    const usernameInput = screen.getAllByLabelText(/username/i)[0]
-    const passwordInput = screen.getAllByLabelText(/password/i)[0]
-    const signInButton = screen.getAllByRole("button", { name: /sign in/i })[0]
+    const usernameInput = screen.getByLabelText(/id string/i)
+    const passwordInput = screen.getByLabelText(/passphrase/i)
+    const signInButton = screen.getByRole("button", { name: /access/i })
 
     fireEvent.change(usernameInput, { target: { value: "admin" } })
     fireEvent.change(passwordInput, { target: { value: "correct horse battery staple" } })
@@ -61,7 +63,7 @@ describe("AdminSessionGate", () => {
     render(<AdminSessionGate>{() => <div>Admin console</div>}</AdminSessionGate>)
 
     await waitFor(() => expect(sessionStorage.getItem("adminSessionToken")).toBeNull())
-    expect(screen.getAllByRole("heading", { name: /admin sign in/i }).length).toBeGreaterThan(0)
+    expect(screen.getByRole("button", { name: /access/i })).toBeInTheDocument()
   })
 
   it("clears the stored token when the validated session expires locally", async () => {
@@ -80,7 +82,7 @@ describe("AdminSessionGate", () => {
     })
 
     expect(sessionStorage.getItem("adminSessionToken")).toBeNull()
-    expect(screen.getAllByRole("heading", { name: /admin sign in/i }).length).toBeGreaterThan(0)
+    expect(screen.getByRole("button", { name: /access/i })).toBeInTheDocument()
     expect(screen.getByText(/session expired/i)).toBeInTheDocument()
   })
 
@@ -104,6 +106,6 @@ describe("AdminSessionGate", () => {
     fireEvent.click(await screen.findByRole("button", { name: /leave admin/i }))
 
     await waitFor(() => expect(sessionStorage.getItem("adminSessionToken")).toBeNull())
-    expect(screen.getAllByRole("heading", { name: /admin sign in/i }).length).toBeGreaterThan(0)
+    expect(screen.getByRole("button", { name: /access/i })).toBeInTheDocument()
   })
 })

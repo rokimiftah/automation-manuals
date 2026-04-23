@@ -2286,7 +2286,7 @@ const onSubmit = vi.fn()
 describe("DocumentRegistrationForm", () => {
   it("requires source URL and title before submit", () => {
     render(<DocumentRegistrationForm onSubmit={onSubmit} />)
-    fireEvent.click(screen.getByRole("button", { name: /queue document/i }))
+    fireEvent.click(screen.getByRole("button", { name: /enqueue data/i }))
     expect(onSubmit).not.toHaveBeenCalled()
   })
 })
@@ -2388,7 +2388,7 @@ export default function DocumentRegistrationForm({ onSubmit }: { onSubmit: (valu
       ))}
       {error && <p className="text-sm text-rose-300">{error}</p>}
       <button className="rounded-md bg-cyan-400 px-4 py-2 font-medium text-slate-950" disabled={isPending} type="submit">
-        Queue document
+        [ Enqueue Data ]
       </button>
     </form>
   )
@@ -2413,7 +2413,7 @@ export default function IngestionJobList({
             {job.errorMessage && <p className="text-sm text-rose-300">{job.errorMessage}</p>}
           </div>
           <button className="rounded-md border border-slate-700 px-3 py-2 text-sm" onClick={() => onRetry(job._id)} type="button">
-            Retry
+            [ Retry ]
           </button>
         </article>
       ))}
@@ -2449,7 +2449,7 @@ export default function AdminConsole() {
   return (
     <LegacyAuthGate>
       <LegacyRoleGate role="admin">
-        <AppShell title="Admin Console">
+        <AppShell title="Admin Interface">
           <div className="grid gap-6 lg:grid-cols-[minmax(0,1fr)_minmax(0,1fr)]">
             <DocumentRegistrationForm
               onSubmit={async (values) => {
@@ -2459,7 +2459,7 @@ export default function AdminConsole() {
             />
             <div className="space-y-4">
               <div className="rounded-xl border border-slate-800 bg-slate-900 p-5 text-sm text-slate-300">
-                <p className="font-medium text-white">Documents: {documents.length}</p>
+                <p className="font-medium text-white">Manual Inventory: {documents.length} Units</p>
               </div>
               <IngestionJobList jobs={jobs} onRetry={(jobId) => void retryJob({ jobId })} />
             </div>
@@ -2532,12 +2532,12 @@ export default function QuestionComposer({ onSubmit, disabled }: { onSubmit: (va
     >
       <textarea
         className="min-h-32 w-full rounded-xl border border-slate-800 bg-slate-900 px-4 py-3"
-        placeholder="Describe the hardware issue or ask about a connection rule..."
+        placeholder="..."
         value={value}
         onChange={(event) => setValue(event.target.value)}
       />
       <button className="rounded-md bg-cyan-400 px-4 py-2 font-medium text-slate-950" disabled={disabled} type="submit">
-        Ask assistant
+        Find Manuals
       </button>
     </form>
   )

@@ -311,9 +311,9 @@ At minimum, show:
 
 Suggested user-facing copy:
 
-- `Waiting on MinerU queue`
-- `MinerU is processing the document`
-- `MinerU finished, importing result`
+- `Pending`
+- `Parsing`
+- `Fetching`
 
 Do not claim `standard queue` as a provider fact. That wording should only be used if presented as an internal expectation or explanation.
 

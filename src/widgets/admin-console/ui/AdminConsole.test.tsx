@@ -8,6 +8,7 @@ import AdminConsole from "./AdminConsole"
 const createDocument = vi.fn()
 const enqueue = vi.fn()
 const retryJob = vi.fn()
+const setDocumentActive = vi.fn()
 const useMutation = vi.fn()
 const useQuery = vi.fn()
 
@@ -55,11 +56,16 @@ describe("AdminConsole", () => {
     createDocument.mockReset()
     enqueue.mockReset()
     retryJob.mockReset()
+    setDocumentActive.mockReset()
     useMutation.mockReset()
     useQuery.mockReset()
 
     useQuery.mockReturnValue([])
-    useMutation.mockReturnValueOnce(createDocument).mockReturnValueOnce(enqueue).mockReturnValueOnce(retryJob)
+    useMutation
+      .mockReturnValueOnce(createDocument)
+      .mockReturnValueOnce(enqueue)
+      .mockReturnValueOnce(retryJob)
+      .mockReturnValueOnce(setDocumentActive)
   })
 
   afterEach(() => {
@@ -70,10 +76,46 @@ describe("AdminConsole", () => {
     createDocument.mockRejectedValue(new Error("Admin session expired"))
     const onSessionInvalid = vi.fn()
 
-    render(<AdminConsole onSessionInvalid={onSessionInvalid} onSignOut={vi.fn()} sessionToken="token-123" username="admin" />)
+    render(<AdminConsole onSessionInvalid={onSessionInvalid} sessionToken="token-123" />)
 
     fireEvent.click(screen.getByRole("button", { name: /queue document/i }))
 
     await waitFor(() => expect(onSessionInvalid).toHaveBeenCalledWith("Admin session expired. Please sign in again."))
+  })
+
+  it("does not expose session identity or sign-out controls in the admin shell", () => {
+    render(<AdminConsole onSessionInvalid={vi.fn()} sessionToken="token-123" />)
+
+    expect(screen.queryByText(/sign out admin/i)).not.toBeInTheDocument()
+    expect(screen.queryByText(/^admin$/i)).not.toBeInTheDocument()
+  })
+
+  it("lets admins explicitly activate a ready document version", async () => {
+    useQuery.mockReset()
+    useQuery
+      .mockReturnValueOnce([
+        {
+          _id: "documents_1",
+          isActive: false,
+          productSlug: "guardlogix-5570-controllers",
+          status: "ready",
+          title: "GuardLogix 5570 Controllers User Manual",
+          vendorSlug: "rockwell-automation",
+          version: "20.01"
+        }
+      ])
+      .mockReturnValueOnce([])
+
+    render(<AdminConsole onSessionInvalid={vi.fn()} sessionToken="token-123" />)
+
+    fireEvent.click(screen.getByRole("button", { name: /set active 20\.01/i }))
+
+    await waitFor(() =>
+      expect(setDocumentActive).toHaveBeenCalledWith({
+        documentId: "documents_1",
+        isActive: true,
+        sessionToken: "token-123"
+      })
+    )
   })
 })

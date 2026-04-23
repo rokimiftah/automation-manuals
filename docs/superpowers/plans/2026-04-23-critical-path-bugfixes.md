@@ -361,15 +361,15 @@ it("routes protected mutation auth failures through onSessionInvalid", async () 
   createDocument.mockRejectedValue(new Error("Admin session expired"))
   const onSessionInvalid = vi.fn()
 
-  render(<AdminConsole onSessionInvalid={onSessionInvalid} onSignOut={vi.fn()} sessionToken="token-123" username="admin" />)
+  render(<AdminConsole onSessionInvalid={onSessionInvalid} sessionToken="token-123" />)
 
-  fireEvent.change(screen.getByLabelText(/vendor name/i), { target: { value: "Rockwell Automation" } })
-  fireEvent.change(screen.getByLabelText(/product name/i), { target: { value: "GuardLogix" } })
-  fireEvent.change(screen.getByLabelText(/^title$/i), { target: { value: "GuardLogix Manual" } })
-  fireEvent.change(screen.getByLabelText(/version/i), { target: { value: "20.01" } })
-  fireEvent.change(screen.getByLabelText(/language/i), { target: { value: "English" } })
-  fireEvent.change(screen.getByLabelText(/source url/i), { target: { value: "https://vendor.example/manual.pdf" } })
-  fireEvent.click(screen.getByRole("button", { name: /queue document/i }))
+  fireEvent.change(screen.getByLabelText(/manufacturer/i), { target: { value: "Rockwell Automation" } })
+  fireEvent.change(screen.getByLabelText(/apparatus/i), { target: { value: "GuardLogix" } })
+  fireEvent.change(screen.getByLabelText(/document title/i), { target: { value: "GuardLogix Manual" } })
+  fireEvent.change(screen.getByLabelText(/edition/i), { target: { value: "20.01" } })
+  fireEvent.change(screen.getByLabelText(/dialect/i), { target: { value: "English" } })
+  fireEvent.change(screen.getByLabelText(/blob url/i), { target: { value: "https://vendor.example/manual.pdf" } })
+  fireEvent.click(screen.getByRole("button", { name: /enqueue data/i }))
 
   await waitFor(() => expect(onSessionInvalid).toHaveBeenCalledWith("Admin session expired. Please sign in again."))
 })
@@ -463,14 +463,10 @@ function isAdminSessionError(error: unknown) {
 
 export default function AdminConsole({
   onSessionInvalid,
-  onSignOut,
-  sessionToken,
-  username
+  sessionToken
 }: {
   onSessionInvalid: (message?: string) => void
-  onSignOut: () => Promise<void>
   sessionToken: string
-  username: string
 }) {
   async function runProtectedMutation<T>(work: () => Promise<T>) {
     try {

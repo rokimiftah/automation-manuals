@@ -243,7 +243,7 @@ The answering layer:
 
 Engineers use a split-screen workspace:
 
-- left: chat and structured answer
+- left: question composer and structured answer packet
 - right: evidence viewer with cited page or asset
 
 ### 7.6 Governance and Observability Layer
@@ -373,7 +373,8 @@ Likely islands include:
 
 - `EngineerWorkspaceIsland`
 - `AdminConsoleIsland`
-- `EvidenceViewerIsland`
+
+The current runtime keeps the evidence viewer inside `EngineerWorkspace` rather than hydrating it as a separate island.
 
 Only interactive areas should be hydrated.
 
@@ -451,7 +452,7 @@ Structured answer packet fields should include:
 
 ### 11.3 Evidence Verification Flow
 
-When the user clicks a citation, the viewer must open the exact page or asset tied to that evidence record.
+Current runtime note: citation chips render as labels, and supporting-asset selection drives the viewer state.
 
 ### 11.4 Admin Recovery Flow
 
@@ -478,7 +479,7 @@ Admins must be able to:
 ### 12.3 Role Boundaries
 
 - only admins can ingest, retry, activate, or deactivate documents
-- engineers can query and read their own workspace history
+- engineers can keep session context across follow-up questions, even though no visible workspace-history UI exists yet
 - sensitive state transitions belong in internal server-side functions when not needed by the client
 
 ### 12.4 Historical Auth and Token Safety

@@ -9,11 +9,9 @@ describe("DocumentRegistrationForm", () => {
   it("requires every backend-mandated field before submit", () => {
     render(<DocumentRegistrationForm onSubmit={onSubmit} />)
 
-    fireEvent.click(screen.getByRole("button", { name: /queue document/i }))
+    fireEvent.click(screen.getByRole("button", { name: /enqueue data/i }))
 
     expect(onSubmit).not.toHaveBeenCalled()
-    expect(screen.getByRole("alert")).toHaveTextContent(
-      "Vendor name, product name, title, version, language, and source URL are required."
-    )
+    expect(screen.getByText("Validation Err: Incomplete parameters.")).toBeInTheDocument()
   })
 })

@@ -233,6 +233,6 @@ describe("revokeAdminSession", () => {
 
     await revokeAdminSession(ctx, "adminSessions_9" as never, 12_345)
 
-    expect(patch).toHaveBeenCalledWith("adminSessions_9", { revokedAt: 12_345 })
+    expect(patch).toHaveBeenCalledWith("adminSessions", "adminSessions_9", { revokedAt: 12_345 })
   })
 })

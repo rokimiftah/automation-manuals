@@ -3,8 +3,8 @@ import { v } from "convex/values"
 import { internal } from "./_generated/api"
 import { action, internalMutation, internalQuery, mutation, query } from "./_generated/server"
 import {
-  buildAdminAuditActor,
   hashSessionToken,
+  insertAdminAuditEvent,
   loadValidAdminSession,
   requireAdminQuerySession,
   revokeAdminSession
@@ -53,13 +53,11 @@ export const signOut = mutation({
     const session = await requireAdminQuerySession(ctx, args.sessionToken)
 
     await revokeAdminSession(ctx, session._id)
-    await ctx.db.insert("auditEvents", {
-      ...buildAdminAuditActor(session),
+    await insertAdminAuditEvent(ctx, session, {
       action: "admin.sign_out",
-      targetTable: "adminSessions",
       targetId: session._id,
-      summary: `Signed out ${session.username}`,
-      createdAt: Date.now()
+      targetTable: "adminSessions",
+      summary: `Signed out ${session.username}`
     })
 
     return null
@@ -119,14 +117,16 @@ export const createSession = internalMutation({
       username: args.username
     })
 
-    await ctx.db.insert("auditEvents", {
-      ...buildAdminAuditActor({ _id: sessionId, username: args.username }),
-      action: "admin.sign_in",
-      targetTable: "adminSessions",
-      targetId: sessionId,
-      summary: `Signed in ${args.username}`,
-      createdAt
-    })
+    await insertAdminAuditEvent(
+      ctx,
+      { _id: sessionId, username: args.username },
+      {
+        action: "admin.sign_in",
+        targetId: sessionId,
+        targetTable: "adminSessions",
+        summary: `Signed in ${args.username}`
+      }
+    )
 
     await ctx.scheduler.runAfter(Math.max(0, args.expiresAt - createdAt), internal.adminAuth.expireSession, { sessionId })
     return sessionId

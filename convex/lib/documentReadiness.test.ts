@@ -49,9 +49,8 @@ describe("assertReadyDocumentArtifacts", () => {
 })
 
 describe("buildReadyDocumentPatch", () => {
-  it("marks ready documents as active so they remain searchable", () => {
+  it("marks a document ready without forcing a new active-search decision", () => {
     expect(buildReadyDocumentPatch({ now: 5_678, sourceAssetId: "asset-1" as never })).toEqual({
-      isActive: true,
       sourceAssetId: "asset-1",
       status: "ready",
       updatedAt: 5_678

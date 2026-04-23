@@ -7,7 +7,7 @@ import { unzipSync } from "fflate"
 
 import { internal } from "./_generated/api"
 import { httpAction, internalAction, internalMutation, internalQuery, mutation, query } from "./_generated/server"
-import { requireAdminQuerySession, requireAdminWriteSession } from "./lib/adminSession"
+import { insertAdminAuditEvent, requireAdminQuerySession, requireAdminWriteSession } from "./lib/adminSession"
 import { getProviderEnv } from "./lib/env"
 import { buildDocumentPayload } from "./lib/ingestDocument"
 import { assertNextIngestionStatus } from "./lib/ingestionState"
@@ -188,6 +188,13 @@ export const enqueue = mutation({
       updatedAt: now
     })
 
+    await insertAdminAuditEvent(ctx, adminSession, {
+      action: "ingestion.enqueue",
+      targetId: jobId,
+      targetTable: "ingestionJobs",
+      summary: `Queued ingestion for ${args.documentId}`
+    })
+
     await ctx.scheduler.runAfter(0, internal.ingestion.runDocumentJob, {
       documentId: args.documentId,
       jobId
@@ -202,7 +209,7 @@ export const retry = mutation({
   returns: v.id("ingestionJobs"),
   handler: async (ctx, args) => {
     const adminSession = await requireAdminWriteSession(ctx, args.sessionToken)
-    const existing = await ctx.db.get(args.jobId)
+    const existing = await ctx.db.get("ingestionJobs", args.jobId)
     if (!existing) {
       throw new ConvexError("Ingestion job not found")
     }
@@ -224,6 +231,13 @@ export const retry = mutation({
       updatedAt: now
     })
 
+    await insertAdminAuditEvent(ctx, adminSession, {
+      action: "ingestion.retry",
+      targetId: retryJobId,
+      targetTable: "ingestionJobs",
+      summary: `Retried ingestion for ${existing.documentId}`
+    })
+
     await ctx.scheduler.runAfter(0, internal.ingestion.runDocumentJob, {
       documentId: existing.documentId,
       jobId: retryJobId
@@ -237,7 +251,7 @@ export const getJobById = internalQuery({
   args: { jobId: v.id("ingestionJobs") },
   returns: jobByIdValidator,
   handler: async (ctx, args) => {
-    return await ctx.db.get(args.jobId)
+    return await ctx.db.get("ingestionJobs", args.jobId)
   }
 })
 
@@ -260,7 +274,7 @@ export const updateJobStatus = internalMutation({
   },
   returns: v.null(),
   handler: async (ctx, args) => {
-    const job = await ctx.db.get(args.jobId)
+    const job = await ctx.db.get("ingestionJobs", args.jobId)
     if (!job) {
       return null
     }
@@ -274,7 +288,7 @@ export const updateJobStatus = internalMutation({
       patch.errorMessage = args.errorMessage
     }
 
-    await ctx.db.patch(args.jobId, patch)
+    await ctx.db.patch("ingestionJobs", args.jobId, patch)
     return null
   }
 })
@@ -291,13 +305,13 @@ export const recordProviderSubmission = internalMutation({
   },
   returns: v.null(),
   handler: async (ctx, args) => {
-    const job = await ctx.db.get(args.jobId)
+    const job = await ctx.db.get("ingestionJobs", args.jobId)
     if (!job) {
       return null
     }
 
     assertNextIngestionStatus(job.status, "waiting_provider")
-    await ctx.db.patch(args.jobId, {
+    await ctx.db.patch("ingestionJobs", args.jobId, {
       priorityQuotaBucket: args.priorityQuotaBucket,
       provider: "mineru",
       providerBatchId: args.providerBatchId,
@@ -329,7 +343,7 @@ export const recordProviderProgress = internalMutation({
   },
   returns: v.null(),
   handler: async (ctx, args) => {
-    const job = await ctx.db.get(args.jobId)
+    const job = await ctx.db.get("ingestionJobs", args.jobId)
     if (!job) {
       return null
     }
@@ -339,7 +353,7 @@ export const recordProviderProgress = internalMutation({
     }
 
     const now = Date.now()
-    await ctx.db.patch(args.jobId, buildProviderProgressPatch(args, now))
+    await ctx.db.patch("ingestionJobs", args.jobId, buildProviderProgressPatch(args, now))
     return null
   }
 })
@@ -348,12 +362,12 @@ export const recordProviderCallback = internalMutation({
   args: { jobId: v.id("ingestionJobs") },
   returns: v.null(),
   handler: async (ctx, args) => {
-    const job = await ctx.db.get(args.jobId)
+    const job = await ctx.db.get("ingestionJobs", args.jobId)
     if (!job) {
       return null
     }
 
-    await ctx.db.patch(args.jobId, {
+    await ctx.db.patch("ingestionJobs", args.jobId, {
       providerCallbackVerifiedAt: Date.now(),
       updatedAt: Date.now()
     })
@@ -365,13 +379,13 @@ export const claimProviderFinalization = internalMutation({
   args: { jobId: v.id("ingestionJobs") },
   returns: v.boolean(),
   handler: async (ctx, args) => {
-    const job = await ctx.db.get(args.jobId)
+    const job = await ctx.db.get("ingestionJobs", args.jobId)
     if (!job || job.status !== "downloading_result") {
       return false
     }
 
     assertNextIngestionStatus(job.status, "normalizing")
-    await ctx.db.patch(args.jobId, {
+    await ctx.db.patch("ingestionJobs", args.jobId, {
       status: "normalizing",
       updatedAt: Date.now()
     })

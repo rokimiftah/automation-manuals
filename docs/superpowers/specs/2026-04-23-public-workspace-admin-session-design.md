@@ -10,7 +10,7 @@ The new design removes all end-user authentication, role gates, and Convex Auth 
 
 The current product has two functional surfaces built on top of Astro and Convex:
 
-- The engineer workspace asks questions against the document corpus, saves chat history, generates grounded answer packets, and opens cited PDF pages in the evidence viewer.
+- The engineer workspace asks questions against the document corpus, keeps session continuity for follow-up questions, generates grounded answer packets, and opens the evidence viewer from supporting assets.
 - The admin console registers manuals, queues ingestion jobs, retries failed jobs, and monitors provider progress for MinerU-based extraction and embedding.
 
 Historically, authentication was implemented with Convex Auth. That older model introduced four separate coupling points:
@@ -190,7 +190,7 @@ The public functions remain public and do not take admin auth arguments:
 
 - `search.ask`
 - `assets.resolveViewerAsset`
-- public chat retrieval used by the engineer workspace
+- public chat retrieval endpoints exist for future history UI, but the current engineer workspace does not load prior history
 
 ## 7. Frontend Architecture
 
@@ -211,7 +211,7 @@ The previous `/app` route is removed. Any landing-page copy that assumes a separ
 Create a small new feature for the login UI and local session handling, for example:
 
 - `src/features/admin-auth/ui/AdminLoginForm.tsx`
-- `src/features/admin-auth/model/useAdminSession.ts`
+- `src/features/admin-auth/ui/AdminSessionGate.tsx`
 
 The implementation can stay simpler if the hook and form live together, but the responsibility split should stay clear: local session handling for admin, not generic application auth.
 
@@ -245,11 +245,13 @@ The sign-in sequence is:
 
 ### 8.2 Sign Out and Expiry
 
-The sign-out sequence is:
+The backend still supports explicit session revocation through `adminAuth.signOut`, but the current admin dashboard UX does not expose a manual sign-out control or display the signed-in username.
 
-1. frontend calls `adminAuth.signOut`
-2. backend revokes the matching session
-3. frontend clears local session state and `sessionStorage`
+The user-visible admin-session recovery path is:
+
+1. frontend renders the admin console after session validation succeeds
+2. protected admin calls continue to send `sessionToken`
+3. if validation later fails or the local expiry timer elapses, the frontend clears local session state and `sessionStorage`
 4. `/admin` returns to the login form
 
 Expired or revoked sessions follow the same user-visible result: protected calls fail, the token is cleared locally, and the user must sign in again.

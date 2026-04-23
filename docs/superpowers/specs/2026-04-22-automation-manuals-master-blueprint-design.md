@@ -2,11 +2,12 @@
 
 ## Document Status
 
-- Status: Draft approved in conversation, written for user review
+- Status: Historical draft approved in conversation, later superseded for auth, routing, and runtime boundaries by the 2026-04-23 public-workspace/admin-session design
 - Date: 2026-04-22
 - Product: Automation Manuals
 - Scope type: Master blueprint with phased thin slices
 - First implementation target: SP1 Platform Core
+- Historical note: auth-era recommendations in this draft were superseded by the 2026-04-23 public-workspace/admin-session migration.
 
 ## 1. Product Summary
 
@@ -167,17 +168,19 @@ Reasoning:
 - Mistral OCR exposes table formatting, images, page selection, and confidence signals that make it appropriate as a targeted recovery path
 - provider costs and rate limits make blanket OCR wasteful
 
-### 6.6 Authentication Baseline
+### 6.6 Historical Authentication Baseline
 
-- Convex Auth beta is the SP1 auth baseline by explicit user choice
-- sign-in methods: password and magic link
+- At the time of this draft, Convex Auth beta was the SP1 auth baseline by explicit user choice.
+- The proposed sign-in methods were password and magic link.
 
 Important constraint:
 
-- this is a pragmatic SP1 choice, not the most production-mature option
-- the design must isolate auth behind clear feature boundaries so the provider can be replaced later if needed
+- this was a pragmatic SP1 choice, not the most production-mature option
+- the design needed to isolate auth behind clear feature boundaries so the provider could be replaced later if needed
 
-### 6.7 Auth Security Position
+### 6.7 Historical Auth Security Position
+
+This section describes the superseded auth-era security stance, not the current runtime model.
 
 - internal-tool access only
 - no unrestricted public sign-up
@@ -260,7 +263,6 @@ The domain model is intentionally small but sufficient for ingestion, retrieval,
 
 ### 8.1 Core Entities
 
-- `users`
 - `vendors`
 - `products`
 - `documents`
@@ -277,9 +279,10 @@ The domain model is intentionally small but sufficient for ingestion, retrieval,
 
 ### 8.2 Entity Notes
 
-#### users
+Historical auth-era note:
 
-Contains authenticated application users plus role metadata.
+- the earlier draft included a `users` entity for authenticated application users plus role metadata
+- the current runtime no longer uses end-user auth tables and instead models admin sessions explicitly
 
 #### vendors
 
@@ -341,14 +344,14 @@ The repository already follows Feature-Sliced Design. The product should extend 
 
 ### 9.1 Entities
 
-- `entities/auth`
 - `entities/document`
 - `entities/knowledge`
 - `entities/chat`
+- `entities/admin-session` for the current runtime auth boundary
 
 ### 9.2 Features
 
-- `features/auth`
+- `features/admin-auth`
 - `features/ask-assistant`
 - `features/view-evidence`
 - `features/admin-ingestion`
@@ -362,18 +365,14 @@ The repository already follows Feature-Sliced Design. The product should extend 
 ### 9.4 Route Surfaces
 
 - `/`
-- `/auth`
-- `/app`
 - `/admin`
 
 ### 9.5 Island Boundaries
 
 Likely islands include:
 
-- `AuthIsland`
 - `EngineerWorkspaceIsland`
-- `AdminDocumentsIsland`
-- `IngestionJobsIsland`
+- `AdminConsoleIsland`
 - `EvidenceViewerIsland`
 
 Only interactive areas should be hydrated.
@@ -384,10 +383,9 @@ The backend should be organized by domain responsibilities.
 
 Recommended modules:
 
-- `convex/auth.ts`
-- `convex/auth.config.ts`
 - `convex/schema.ts`
-- `convex/users.ts`
+- `convex/adminAuth.ts`
+- `convex/lib/adminSession.ts`
 - `convex/vendors.ts`
 - `convex/documents.ts`
 - `convex/ingestion.ts`
@@ -397,6 +395,11 @@ Recommended modules:
 - `convex/evaluations.ts`
 - `convex/audit.ts`
 - `convex/http.ts` when webhook or HTTP callbacks are needed
+
+Historical note:
+
+- the earlier auth-era draft also recommended dedicated Convex Auth modules
+- the current runtime no longer uses those modules
 
 ### Function Type Policy
 
@@ -478,9 +481,11 @@ Admins must be able to:
 - engineers can query and read their own workspace history
 - sensitive state transitions belong in internal server-side functions when not needed by the client
 
-### 12.4 Auth and Token Safety
+### 12.4 Historical Auth and Token Safety
 
-Because Convex Auth stores tokens client-side by default, the frontend must be strict about XSS prevention.
+At the time of this draft, the auth-era design assumed Convex Auth stored tokens client-side by default, so the frontend needed to be strict about XSS prevention.
+
+The current runtime no longer uses that auth model, but the rendering-safety rules below still apply.
 
 Mandatory rules:
 
@@ -618,7 +623,7 @@ The full blueprint is delivered through five slices.
 
 Deliver one complete end-to-end path:
 
-- auth
+- historical auth-era access boundary, later replaced by the public-workspace/admin-session runtime model
 - curated document intake
 - ingestion state
 - retrieval
@@ -657,8 +662,8 @@ SP1 is the first implementation target and must remain a thin slice.
 
 ### 20.1 SP1 In Scope
 
-- Convex Auth beta with password and magic link
-- admin and engineer roles
+- Historical auth-era scope also included Convex Auth beta with password and magic link.
+- Historical auth-era scope also included admin and engineer roles.
 - admin-curated official document registration
 - one ingestion pipeline that stores source PDF, parses, normalizes, embeds, and tracks job state
 - engineer workspace with ask flow
@@ -698,14 +703,14 @@ SP1 is the first implementation target and must remain a thin slice.
 - chunk typing or classification helpers
 - answer packet shaping
 - citation formatting helpers
-- auth and role guards
+- historical auth and role guards, now replaced in the current runtime by admin-session boundary coverage
 
 ### 21.2 Integration Tests
 
 - ingestion state transitions
 - retrieval action with mocked providers
 - document readiness flow
-- protected route and role access behavior
+- protected admin access behavior
 
 ### 21.3 Product and Evaluation Tests
 
@@ -723,9 +728,9 @@ SP1 is the first implementation target and must remain a thin slice.
 
 ## 22. Primary Risks
 
-### 22.1 Auth Risk
+### 22.1 Historical Auth Risk
 
-Convex Auth is beta and the chosen password plus magic-link combination increases SP1 auth surface.
+At the time of this draft, Convex Auth was beta and the chosen password plus magic-link combination increased SP1 auth surface.
 
 ### 22.2 Parsing Risk
 
@@ -774,12 +779,14 @@ Sources:
 - `https://docs.convex.dev/file-storage`
 - `https://docs.convex.dev/auth`
 
-### Convex Auth
+### Historical Convex Auth Research
 
 - Convex Auth is beta and may change incompatibly
 - password flow needs reset support for a proper operational setup
 - magic links need additional care to reduce phishing or session fixation risk
 - tokens are accessible to client JavaScript by default, increasing the importance of XSS prevention
+
+This research section is retained for historical context only and is no longer the active runtime auth model.
 
 Sources:
 

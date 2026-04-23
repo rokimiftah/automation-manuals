@@ -2,11 +2,13 @@
 
 > **For agentic workers:** REQUIRED SUB-SKILL: Use superpowers:subagent-driven-development (recommended) or superpowers:executing-plans to implement this plan task-by-task. Steps use checkbox (`- [ ]`) syntax for tracking.
 
-**Goal:** Build the first end-to-end slice of Automation Manuals: auth, admin-curated document intake, ingestion, grounded retrieval, citations, and an engineer split-screen viewer.
+> Historical note: this plan captures the pre-migration auth-era approach. The current runtime architecture is defined by the 2026-04-23 public-workspace/admin-session docs, so the auth-specific file paths and snippets below are retained only as superseded historical context.
 
-**Architecture:** Astro serves route shells in hybrid mode while React islands power auth, admin, and engineer interactions. Convex stores operational state, file references, chunks, embeddings, sessions, and evaluation seeds; external parsing, OCR, embeddings, and answer generation run in Convex actions through provider adapters.
+**Historical Goal:** Build the first end-to-end auth-era slice of Automation Manuals: authenticated access, admin-curated document intake, ingestion, grounded retrieval, citations, and an engineer split-screen viewer.
 
-**Tech Stack:** Astro 6, React 19, Convex 1.x, Convex Auth beta, Tailwind CSS v4, Bun, Vitest, Testing Library, Llama Cloud TypeScript SDK, Mistral TypeScript SDK
+**Historical Architecture:** Astro serves route shells in hybrid mode while React islands power auth, admin, and engineer interactions. Convex stores operational state, file references, chunks, embeddings, sessions, and evaluation seeds; external parsing, OCR, embeddings, and answer generation run in Convex actions through provider adapters.
+
+**Historical Tech Stack:** Astro 6, React 19, Convex 1.x, Convex Auth beta, Tailwind CSS v4, Bun, Vitest, Testing Library, Llama Cloud TypeScript SDK, Mistral TypeScript SDK
 
 ---
 
@@ -15,7 +17,7 @@
 - Run `bun install`
 - Keep `bun run convex:dev` running in a separate terminal while implementing to regenerate `convex/_generated/*`
 - Use a dedicated worktree before execution
-- Set Convex deployment env vars before auth and ingestion tasks:
+- Historical auth-era prerequisite: the old auth flow expected these deployment env vars before auth and ingestion tasks:
   - `SITE_URL=http://localhost:3000`
   - `AUTH_RESEND_KEY=<resend-api-key>`
   - `AUTH_EMAIL_FROM=<verified-from-email>`
@@ -42,15 +44,17 @@ Root and tooling:
 
 Convex auth and access control:
 
+Historical auth-era note: the entries below describe superseded auth modules and types. They are retained for context only and are not part of the current runtime surface.
+
 - Modify: `convex/schema.ts`
-- Create: `convex/auth.config.ts`
-- Create: `convex/auth.ts`
+- Create: auth-era Convex Auth config module (removed in the current runtime)
+- Create: auth-era Convex Auth entry module (removed in the current runtime)
 - Create: `convex/http.ts`
-- Create: `convex/lib/roles.ts`
-- Create: `convex/lib/viewer.ts`
-- Create: `convex/users.ts`
+- Create: auth-era role helper module (removed in the current runtime)
+- Create: auth-era viewer helper module (removed in the current runtime)
+- Create: auth-era current-user query module (removed in the current runtime)
 - Create: `src/app/providers/ConvexProvider.tsx`
-- Create: `src/entities/auth/model/types.ts`
+- Create: auth-era auth entity types (removed in the current runtime)
 - Test: `convex/lib/roles.test.ts`
 
 Convex domain and ingestion:
@@ -79,17 +83,19 @@ Convex search and chat:
 
 Astro routes and UI islands:
 
+Historical auth-era note: the entries below describe the superseded `/auth` plus `/app` shell model. They are retained as plan history only and do not describe the current runtime surface.
+
 - Modify: `src/layouts/Layout.astro`
 - Modify: `src/pages/index.astro`
-- Create: `src/pages/auth.astro`
-- Create: `src/pages/app/index.astro`
+- Create: auth-era dedicated auth route (removed in the current runtime)
+- Create: auth-era protected app route (replaced by the public `/` workspace)
 - Create: `src/pages/admin/index.astro`
-- Create: `src/features/auth/ui/AuthScreen.tsx`
-- Create: `src/features/auth/ui/AuthGate.tsx`
-- Create: `src/features/auth/ui/RoleGate.tsx`
-- Create: `src/features/auth/ui/SignOutButton.tsx`
-- Create: `src/features/auth/ui/index.ts`
-- Create: `src/features/auth/island.tsx`
+- Create: auth-era sign-in screen module (removed in the current runtime)
+- Create: auth-era auth gate module (removed in the current runtime)
+- Create: auth-era role gate module (removed in the current runtime)
+- Create: auth-era sign-out control (removed in the current runtime)
+- Create: auth-era auth feature exports (removed in the current runtime)
+- Create: auth-era auth island wrapper (removed in the current runtime)
 - Create: `src/widgets/app-shell/ui/AppShell.tsx`
 - Create: `src/widgets/app-shell/index.ts`
 - Create: `src/features/admin-ingestion/ui/DocumentRegistrationForm.tsx`
@@ -108,7 +114,7 @@ Astro routes and UI islands:
 - Create: `src/widgets/engineer-workspace/ui/EngineerWorkspace.tsx`
 - Create: `src/widgets/engineer-workspace/island.tsx`
 - Create: `src/widgets/engineer-workspace/index.ts`
-- Test: `src/features/auth/ui/AuthScreen.test.tsx`
+- Test: auth-era auth-screen test (removed in the current runtime)
 - Test: `src/features/admin-ingestion/ui/DocumentRegistrationForm.test.tsx`
 - Test: `src/features/ask-assistant/ui/AnswerPacketView.test.tsx`
 
@@ -132,7 +138,7 @@ Evaluation support:
 - Create: `src/shared/config/env.ts`
 - Test: `src/shared/config/env.test.ts`
 
-- [ ] **Step 1: Install auth, provider, and test dependencies**
+- [ ] **Step 1: Install auth, provider, and test dependencies (historical auth-era setup)**
 
 Run:
 
@@ -141,7 +147,7 @@ bun add @auth/core @convex-dev/auth @llamaindex/llama-cloud @mistralai/mistralai
 bun add -d vitest jsdom @testing-library/react @testing-library/jest-dom @testing-library/user-event
 ```
 
-Expected: Bun updates `package.json` and `bun.lock` without peer dependency failures.
+Expected: In the historical auth-era branch, Bun updates `package.json` and `bun.lock` without peer dependency failures.
 
 - [ ] **Step 2: Add a failing env test and test harness**
 
@@ -291,24 +297,28 @@ Expected: env test passes and `bun run lint` exits with code 0.
 
 - [ ] **Step 6: Commit**
 
+Historical note: this example commit belonged to the superseded auth-era setup path.
+
 ```bash
 git add package.json bun.lock astro.config.mjs tsconfig.json .env.local.example vitest.config.ts src/test/setup.ts src/shared/config/env.ts src/shared/config/env.test.ts
 git commit -m "chore(sp1): add auth and test foundation"
 ```
 
-### Task 2: Convex Auth and Viewer Access Boundary
+### Task 2: Historical Convex Auth and Viewer Access Boundary
+
+Historical note: this task describes the superseded Convex Auth boundary and should not be used as the implementation guide for the current runtime.
 
 **Files:**
 
 - Modify: `convex/schema.ts`
-- Create: `convex/auth.config.ts`
-- Create: `convex/auth.ts`
+- Create: auth-era Convex Auth config module (removed in the current runtime)
+- Create: auth-era Convex Auth entry module (removed in the current runtime)
 - Create: `convex/http.ts`
-- Create: `convex/lib/roles.ts`
-- Create: `convex/lib/viewer.ts`
-- Create: `convex/users.ts`
+- Create: auth-era role helper module (removed in the current runtime)
+- Create: auth-era viewer helper module (removed in the current runtime)
+- Create: auth-era current-user query module (removed in the current runtime)
 - Create: `src/app/providers/ConvexProvider.tsx`
-- Create: `src/entities/auth/model/types.ts`
+- Create: auth-era auth entity types (removed in the current runtime)
 - Test: `convex/lib/roles.test.ts`
 
 - [ ] **Step 1: Write the failing viewer-access test**
@@ -359,7 +369,7 @@ Run: `bunx vitest run convex/lib/roles.test.ts`
 
 Expected: FAIL with `Cannot find module './roles'`.
 
-- [ ] **Step 3: Implement manual Convex Auth wiring and viewer helpers**
+- [ ] **Step 3: Implement manual Convex Auth wiring and auth-era viewer helpers (later superseded)**
 
 ```ts
 // convex/auth.config.ts
@@ -462,7 +472,7 @@ export function computeViewerAccess(email: string, config = readAccessConfig()) 
 ```
 
 ```ts
-// convex/lib/viewer.ts
+// auth-era viewer helper module (later removed)
 import type { ActionCtx, MutationCtx, QueryCtx } from "../_generated/server"
 
 import { ConvexError } from "convex/values"
@@ -514,7 +524,7 @@ export async function requireAdminViewer(ctx: ViewerCtx) {
 ```
 
 ```ts
-// convex/users.ts
+// auth-era current-user query module (later removed)
 import { v } from "convex/values"
 
 import { query } from "./_generated/server"
@@ -605,7 +615,7 @@ Expected: role tests pass, Convex auth files typecheck, lint exits 0.
 - [ ] **Step 5: Commit**
 
 ```bash
-git add convex/schema.ts convex/auth.config.ts convex/auth.ts convex/http.ts convex/lib/roles.ts convex/lib/viewer.ts convex/users.ts src/app/providers/ConvexProvider.tsx src/entities/auth/model/types.ts convex/lib/roles.test.ts
+git add convex/schema.ts convex/auth.config.ts convex/auth.ts convex/http.ts convex/lib/roles.ts src/app/providers/ConvexProvider.tsx src/entities/auth/model/types.ts convex/lib/roles.test.ts # plus the auth-era viewer/current-user modules above
 git commit -m "feat(auth): wire Convex Auth and viewer access"
 ```
 
@@ -703,6 +713,8 @@ export function assertNextIngestionStatus(current: IngestionStatus, next: Ingest
   }
 }
 ```
+
+Historical auth-era note: the following schema block is preserved as a superseded example. The current runtime no longer uses `authTables`, `users` ownership fields, or public-user-linked chat records.
 
 ```ts
 // convex/schema.ts
@@ -1531,6 +1543,8 @@ git commit -m "feat(ingestion): run document pipeline"
 
 ### Task 6: Search, Chat, and Structured Answer Packets
 
+Historical note: this task belongs to the auth-era plan. Current runtime search/chat behavior is now public on `/`, and the auth-linked snippets below are historical context only.
+
 **Files:**
 
 - Create: `convex/lib/answerPacket.ts`
@@ -1853,24 +1867,26 @@ git commit -m "feat(search): add grounded answer pipeline"
 
 ### Task 7: Auth Pages and Protected Shells
 
+Historical note: this entire task describes the superseded auth-era `/auth` + `/app` route model and should not be implemented in the current runtime.
+
 **Files:**
 
 - Modify: `src/layouts/Layout.astro`
 - Modify: `src/pages/index.astro`
-- Create: `src/pages/auth.astro`
-- Create: `src/pages/app/index.astro`
+- Create: auth-era dedicated auth route (removed in the current runtime)
+- Create: auth-era protected app route (replaced by the public `/` workspace)
 - Create: `src/pages/admin/index.astro`
-- Create: `src/features/auth/ui/AuthScreen.tsx`
-- Create: `src/features/auth/ui/AuthGate.tsx`
-- Create: `src/features/auth/ui/RoleGate.tsx`
-- Create: `src/features/auth/ui/SignOutButton.tsx`
-- Create: `src/features/auth/ui/index.ts`
-- Create: `src/features/auth/island.tsx`
+- Create: auth-era sign-in screen module (removed in the current runtime)
+- Create: auth-era auth gate module (removed in the current runtime)
+- Create: auth-era role gate module (removed in the current runtime)
+- Create: auth-era sign-out control (removed in the current runtime)
+- Create: auth-era auth feature exports (removed in the current runtime)
+- Create: auth-era auth island wrapper (removed in the current runtime)
 - Create: `src/widgets/app-shell/ui/AppShell.tsx`
 - Create: `src/widgets/app-shell/index.ts`
-- Test: `src/features/auth/ui/AuthScreen.test.tsx`
+- Test: auth-era auth-screen test (removed in the current runtime)
 
-- [ ] **Step 1: Write the failing auth-screen test**
+- [ ] **Step 1: Write the failing auth-screen test (historical auth-era example)**
 
 ```tsx
 // src/features/auth/ui/AuthScreen.test.tsx
@@ -1946,13 +1962,15 @@ import Layout from "@/layouts/Layout.astro"
     <p class="max-w-2xl text-lg text-slate-300">
       Use one controlled workspace for document ingestion, evidence-bounded retrieval, and split-screen verification.
     </p>
-    <a class="inline-flex w-fit rounded-md bg-cyan-400 px-5 py-3 font-medium text-slate-950" href="/auth">Open workspace</a>
+    <a class="inline-flex w-fit rounded-md bg-cyan-400 px-5 py-3 font-medium text-slate-950" href="#historical-auth-route">
+      Open auth-era workspace
+    </a>
   </main>
 </Layout>
 ```
 
 ```tsx
-// src/features/auth/ui/AuthScreen.tsx
+// auth-era AuthScreen module (later removed)
 import { useState } from "react"
 
 import { useAuthActions } from "@convex-dev/auth/react"
@@ -1981,7 +1999,7 @@ export default function AuthScreen() {
           onSubmit={(event) => {
             event.preventDefault()
             if (mode === "magicLink") {
-              void signIn("resend-magic-link", { email, redirectTo: "/auth" })
+              void signIn("resend-magic-link", { email, redirectTo: "/historical-auth-route" })
               return
             }
             if (mode === "resetRequest") {
@@ -2046,7 +2064,7 @@ export default function AuthScreen() {
 ```
 
 ```tsx
-// src/features/auth/ui/AuthGate.tsx
+// auth-era AuthGate module (later removed)
 import type { ReactNode } from "react"
 
 import { Authenticated, AuthLoading, Unauthenticated, useQuery } from "convex/react"
@@ -2056,7 +2074,7 @@ import { api } from "@convex/_generated/api"
 import AuthScreen from "./AuthScreen"
 
 export function AuthGate({ children }: { children: ReactNode }) {
-  const viewer = useQuery(api.users.current, {})
+  const viewer = useQuery(api.viewer.current, {})
 
   return (
     <>
@@ -2081,7 +2099,7 @@ export function AuthGate({ children }: { children: ReactNode }) {
 ```
 
 ```tsx
-// src/features/auth/ui/RoleGate.tsx
+// auth-era RoleGate module (later removed)
 import type { ReactNode } from "react"
 
 import { useQuery } from "convex/react"
@@ -2089,7 +2107,7 @@ import { useQuery } from "convex/react"
 import { api } from "@convex/_generated/api"
 
 export function RoleGate({ role, children }: { role: "admin" | "engineer"; children: ReactNode }) {
-  const viewer = useQuery(api.users.current, {})
+  const viewer = useQuery(api.viewer.current, {})
   if (viewer === undefined) return <div className="p-6 text-sm text-slate-400">Loading permissions...</div>
   if (!viewer || viewer.role !== role)
     return <div className="p-6 text-sm text-rose-300">You do not have access to this page.</div>
@@ -2098,7 +2116,7 @@ export function RoleGate({ role, children }: { role: "admin" | "engineer"; child
 ```
 
 ```tsx
-// src/features/auth/ui/SignOutButton.tsx
+// auth-era SignOutButton module (later removed)
 import { useAuthActions } from "@convex-dev/auth/react"
 
 export function SignOutButton() {
@@ -2120,7 +2138,7 @@ export { default as AuthScreen } from "./AuthScreen"
 ```
 
 ```tsx
-// src/features/auth/island.tsx
+// auth-era auth island wrapper (later removed)
 import { ConvexProviderWrapper } from "@app/providers/ConvexProvider"
 
 import AuthScreen from "./ui/AuthScreen"
@@ -2142,10 +2160,10 @@ import { useQuery } from "convex/react"
 
 import { api } from "@convex/_generated/api"
 
-import { SignOutButton } from "@features/auth/ui"
+import { LegacySignOutButton } from "@features/legacy-auth/ui"
 
 export default function AppShell({ title, children }: { title: string; children: ReactNode }) {
-  const viewer = useQuery(api.users.current, {})
+  const viewer = useQuery(api.viewer.current, {})
 
   return (
     <main className="min-h-screen bg-slate-950 text-slate-100">
@@ -2157,7 +2175,7 @@ export default function AppShell({ title, children }: { title: string; children:
           </div>
           <div className="flex items-center gap-3 text-sm text-slate-300">
             <span>{viewer?.email}</span>
-            <SignOutButton />
+            <LegacySignOutButton />
           </div>
         </div>
       </header>
@@ -2174,20 +2192,20 @@ export { default } from "./ui/AppShell"
 
 ```astro
 ---
-// src/pages/auth.astro
+// auth-era dedicated auth route (later removed)
 import Layout from "@/layouts/Layout.astro"
 
-import AuthIsland from "@features/auth/island"
+import LegacyAuthIsland from "@features/legacy-auth/island"
 ---
 
 <Layout title="Sign in | Automation Manuals">
-  <AuthIsland client:load />
+  <LegacyAuthIsland client:load />
 </Layout>
 ```
 
 ```astro
 ---
-// src/pages/app/index.astro
+// auth-era protected app route (later replaced by the public workspace)
 import Layout from "@/layouts/Layout.astro"
 
 import EngineerWorkspaceIsland from "@widgets/engineer-workspace"
@@ -2216,7 +2234,7 @@ import AdminConsoleIsland from "@widgets/admin-console"
 Run:
 
 ```bash
-bunx vitest run src/features/auth/ui/AuthScreen.test.tsx
+bunx vitest run <historical auth-screen test from this task>
 bun run lint
 ```
 
@@ -2225,11 +2243,13 @@ Expected: auth UI test passes and repo verification exits 0.
 - [ ] **Step 5: Commit**
 
 ```bash
-git add src/layouts/Layout.astro src/pages/index.astro src/pages/auth.astro src/pages/app/index.astro src/pages/admin/index.astro src/features/auth/ui/AuthScreen.tsx src/features/auth/ui/AuthGate.tsx src/features/auth/ui/RoleGate.tsx src/features/auth/ui/SignOutButton.tsx src/features/auth/ui/index.ts src/features/auth/island.tsx src/widgets/app-shell/ui/AppShell.tsx src/widgets/app-shell/index.ts src/features/auth/ui/AuthScreen.test.tsx
+git add src/layouts/Layout.astro src/pages/index.astro src/pages/admin/index.astro src/widgets/app-shell/ui/AppShell.tsx src/widgets/app-shell/index.ts # plus the auth-era files described above
 git commit -m "feat(app): add auth routes and protected shell"
 ```
 
 ### Task 8: Admin Console and Engineer Workspace UI
+
+Historical note: this task preserves the auth-era UI composition. The current runtime no longer uses auth-gated engineer/admin shells in this form, so any auth-linked snippets below are superseded examples only.
 
 **Files:**
 
@@ -2417,7 +2437,7 @@ import { api } from "@convex/_generated/api"
 import AppShell from "@widgets/app-shell/ui/AppShell"
 
 import { DocumentRegistrationForm, IngestionJobList } from "@features/admin-ingestion/ui"
-import { AuthGate, RoleGate } from "@features/auth/ui"
+import { LegacyAuthGate, LegacyRoleGate } from "@features/legacy-auth/ui"
 
 export default function AdminConsole() {
   const documents = useQuery(api.documents.listAdmin, {}) ?? []
@@ -2427,8 +2447,8 @@ export default function AdminConsole() {
   const retryJob = useMutation(api.ingestion.retry)
 
   return (
-    <AuthGate>
-      <RoleGate role="admin">
+    <LegacyAuthGate>
+      <LegacyRoleGate role="admin">
         <AppShell title="Admin Console">
           <div className="grid gap-6 lg:grid-cols-[minmax(0,1fr)_minmax(0,1fr)]">
             <DocumentRegistrationForm
@@ -2445,8 +2465,8 @@ export default function AdminConsole() {
             </div>
           </div>
         </AppShell>
-      </RoleGate>
-    </AuthGate>
+      </LegacyRoleGate>
+    </LegacyAuthGate>
   )
 }
 ```
@@ -2628,7 +2648,7 @@ import { api } from "@convex/_generated/api"
 import AppShell from "@widgets/app-shell/ui/AppShell"
 
 import { AnswerPacketView, QuestionComposer } from "@features/ask-assistant/ui"
-import { AuthGate } from "@features/auth/ui"
+import { LegacyAuthGate } from "@features/legacy-auth/ui"
 import EvidenceViewer from "@features/view-evidence/ui/EvidenceViewer"
 
 export default function EngineerWorkspace() {
@@ -2648,7 +2668,7 @@ export default function EngineerWorkspace() {
   const [isSubmitting, setIsSubmitting] = useState(false)
 
   return (
-    <AuthGate>
+    <LegacyAuthGate>
       <AppShell title="Engineer Workspace">
         <div className="grid gap-6 xl:grid-cols-[minmax(0,0.95fr)_minmax(0,1.35fr)]">
           <div className="space-y-6">
@@ -2671,7 +2691,7 @@ export default function EngineerWorkspace() {
           <EvidenceViewer asset={activeAsset} />
         </div>
       </AppShell>
-    </AuthGate>
+    </LegacyAuthGate>
   )
 }
 ```
@@ -2716,6 +2736,8 @@ git commit -m "feat(ui): add admin and engineer workspaces"
 ```
 
 ### Task 9: Evaluation Seeds and Manual Verification
+
+Historical note: this task remains useful for evaluation coverage, but any auth-linked or role-linked assumptions inside the older examples should be read as superseded auth-era context.
 
 **Files:**
 

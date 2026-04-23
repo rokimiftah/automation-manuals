@@ -17,10 +17,10 @@ Historically, authentication was implemented with Convex Auth. That older model 
 
 - package and provider coupling through `@convex-dev/auth`, `@auth/core`, and `ConvexAuthProvider`
 - frontend route and component gating through `/auth`, `AuthGate`, `RoleGate`, and `SignOutButton`
-- backend viewer and access logic through `users.current`, `convex/lib/viewer.ts`, and `convex/lib/roles.ts`
+- backend viewer and access logic through the old generic current-user query, the old viewer helper module, and `convex/lib/roles.ts`
 - schema and HTTP coupling through `authTables`, `convex/auth.ts`, `convex/auth.config.ts`, and auth HTTP routes in `convex/http.ts`
 
-The current working tree already removes large parts of that stack, but it still leaves behind transitional assumptions such as viewer helpers and fake anonymous user IDs. Those transitional shortcuts are not the target design.
+At the time this design was written, the working tree had already removed large parts of that stack but still left behind transitional assumptions such as viewer helpers and fake anonymous user IDs. Those transitional shortcuts were not the target design.
 
 ## 3. Target Product Behavior
 
@@ -140,15 +140,15 @@ Add a login-attempt tracking table, for example `adminLoginAttempts`, to support
 
 ### 6.1 Remove Legacy Auth Boundaries
 
-Delete the remaining public auth-era modules and references:
+The remaining public auth-era modules and references targeted by this migration were:
 
 - `convex/auth.ts`
 - `convex/auth.config.ts`
-- `convex/users.ts`
-- `convex/lib/viewer.ts`
+- the generic current-user query module
+- the viewer helper module
 - any imports of `@convex-dev/auth` or `@auth/core`
 
-The backend should have no viewer role model and no generic “current user” query after this migration.
+The backend should have no viewer role model and no generic “current user” query after this migration. That cleanup is now complete in the current runtime.
 
 ### 6.2 New Admin Auth Module
 

@@ -304,7 +304,6 @@ Update the following documentation artifacts:
 
 - `README.md`
 - `.env.local.example`
-- `MIGRATION.md`
 
 The migration guide should cover:
 

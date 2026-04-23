@@ -2,6 +2,13 @@ import { v } from "convex/values"
 
 import { query } from "./_generated/server"
 
+export function canResolveViewerAsset(input: {
+  asset: { isCurrent: boolean } | null
+  document: { isActive: boolean } | null
+}) {
+  return input.asset?.isCurrent === true && input.document?.isActive === true
+}
+
 export const resolveViewerAsset = query({
   args: { assetId: v.id("documentAssets") },
   returns: v.union(
@@ -15,6 +22,11 @@ export const resolveViewerAsset = query({
   ),
   handler: async (ctx, args) => {
     const asset = await ctx.db.get(args.assetId)
+    const document = asset ? await ctx.db.get(asset.documentId) : null
+
+    if (!canResolveViewerAsset({ asset, document })) {
+      return null
+    }
     if (!asset) {
       return null
     }

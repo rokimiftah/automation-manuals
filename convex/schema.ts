@@ -62,6 +62,7 @@ export default defineSchema({
     providerDataId: v.optional(v.string()),
     providerErrorCode: v.optional(v.number()),
     providerErrorMessage: v.optional(v.string()),
+    providerReconcileFailureCount: v.optional(v.number()),
     providerResultUrl: v.optional(v.string()),
     providerState: v.optional(v.string()),
     providerTraceId: v.optional(v.string()),

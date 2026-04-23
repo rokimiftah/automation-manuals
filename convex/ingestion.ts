@@ -13,6 +13,11 @@ import { buildDocumentPayload } from "./lib/ingestDocument"
 import { assertNextIngestionStatus } from "./lib/ingestionState"
 import { getMineruBatchResult, mapMineruBatchState, submitMineruBatch } from "./lib/mineru"
 import { verifyMineruChecksum } from "./lib/mineruCallback"
+import {
+  buildProviderProgressPatch,
+  getProviderFailureMessage,
+  getProviderReconcileDecision
+} from "./lib/providerRetry"
 import { normalizeMineruDocument } from "./lib/mineruResult"
 import { embedTexts, ocrPdfPage } from "./lib/mistral"
 import { ingestionStatusValidator } from "./lib/validators"
@@ -46,6 +51,7 @@ const jobByIdValidator = v.union(
     providerErrorCode: v.optional(v.number()),
     providerErrorMessage: v.optional(v.string()),
     providerLastCheckedAt: v.optional(v.number()),
+    providerReconcileFailureCount: v.optional(v.number()),
     providerResultUrl: v.optional(v.string()),
     providerState: v.optional(v.string()),
     providerSubmittedAt: v.optional(v.number()),
@@ -247,6 +253,7 @@ export const recordProviderSubmission = internalMutation({
       priorityQuotaBucket: args.priorityQuotaBucket,
       provider: "mineru",
       providerBatchId: args.providerBatchId,
+      providerReconcileFailureCount: 0,
       providerState: "pending",
       ...(args.providerTraceId === undefined ? {} : { providerTraceId: args.providerTraceId }),
       providerSubmittedAt: Date.now(),
@@ -261,14 +268,15 @@ export const recordProviderSubmission = internalMutation({
 })
 
 export const recordProviderProgress = internalMutation({
-  args: {
-    jobId: v.id("ingestionJobs"),
-    providerDataId: v.optional(v.string()),
-    providerErrorCode: v.optional(v.number()),
-    providerErrorMessage: v.optional(v.string()),
-    providerResultUrl: v.optional(v.string()),
-    providerState: v.string(),
-    providerTraceId: v.optional(v.string()),
+    args: {
+      jobId: v.id("ingestionJobs"),
+      providerDataId: v.optional(v.string()),
+      providerErrorCode: v.optional(v.number()),
+      providerErrorMessage: v.optional(v.string()),
+      providerReconcileFailureCount: v.optional(v.number()),
+      providerResultUrl: v.optional(v.string()),
+      providerState: v.string(),
+      providerTraceId: v.optional(v.string()),
     status: ingestionStatusValidator
   },
   returns: v.null(),
@@ -282,17 +290,8 @@ export const recordProviderProgress = internalMutation({
       assertNextIngestionStatus(job.status, args.status)
     }
 
-    await ctx.db.patch(args.jobId, {
-      ...(args.providerDataId === undefined ? {} : { providerDataId: args.providerDataId }),
-      ...(args.providerErrorCode === undefined ? {} : { providerErrorCode: args.providerErrorCode }),
-      ...(args.providerErrorMessage === undefined ? {} : { providerErrorMessage: args.providerErrorMessage }),
-      ...(args.providerResultUrl === undefined ? {} : { providerResultUrl: args.providerResultUrl }),
-      ...(args.providerTraceId === undefined ? {} : { providerTraceId: args.providerTraceId }),
-      providerLastCheckedAt: Date.now(),
-      providerState: args.providerState,
-      status: args.status,
-      updatedAt: Date.now()
-    })
+    const now = Date.now()
+    await ctx.db.patch(args.jobId, buildProviderProgressPatch(args, now))
     return null
   }
 })
@@ -436,18 +435,21 @@ export const reconcileProviderJob = internalAction({
       const result = selectSingleResult(providerResult.results)
 
       if (result.state === "failed") {
+        const providerFailureMessage = getProviderFailureMessage(result.errorMessage)
+
         await ctx.runMutation(internal.ingestion.recordProviderProgress, {
           jobId: args.jobId,
           ...(result.dataId === undefined ? {} : { providerDataId: result.dataId }),
           ...(result.errorCode === undefined ? {} : { providerErrorCode: result.errorCode }),
-          ...(result.errorMessage === undefined ? {} : { providerErrorMessage: result.errorMessage }),
+          providerErrorMessage: providerFailureMessage,
+          providerReconcileFailureCount: 0,
           providerState: result.state,
           ...(providerResult.traceId === undefined ? {} : { providerTraceId: providerResult.traceId }),
           status: job.status
         })
 
         await ctx.runMutation(internal.documents.markFailed, {
-          errorMessage: result.errorMessage || "MinerU extraction failed",
+          errorMessage: providerFailureMessage,
           jobId: args.jobId,
           documentId: job.documentId
         })
@@ -460,6 +462,7 @@ export const reconcileProviderJob = internalAction({
         ...(result.dataId === undefined ? {} : { providerDataId: result.dataId }),
         ...(result.errorCode === undefined ? {} : { providerErrorCode: result.errorCode }),
         ...(result.errorMessage === undefined ? {} : { providerErrorMessage: result.errorMessage }),
+        providerReconcileFailureCount: 0,
         ...(result.resultUrl === undefined ? {} : { providerResultUrl: result.resultUrl }),
         providerState: result.state,
         ...(providerResult.traceId === undefined ? {} : { providerTraceId: providerResult.traceId }),
@@ -480,13 +483,24 @@ export const reconcileProviderJob = internalAction({
       return null
     } catch (error) {
       const errorMessage = error instanceof Error ? error.message : "Unknown provider reconciliation error"
+      const decision = getProviderReconcileDecision(job.providerReconcileFailureCount ?? 0)
 
       await ctx.runMutation(internal.ingestion.recordProviderProgress, {
         jobId: args.jobId,
         providerErrorMessage: errorMessage,
+        providerReconcileFailureCount: decision.nextFailureCount,
         providerState: job.providerState || "pending",
         status: job.status
       })
+
+      if (decision.shouldFail) {
+        await ctx.runMutation(internal.documents.markFailed, {
+          errorMessage,
+          jobId: args.jobId,
+          documentId: job.documentId
+        })
+        return null
+      }
 
       await ctx.scheduler.runAfter(selectBackoffDelay(job.status), internal.ingestion.reconcileProviderJob, {
         jobId: args.jobId

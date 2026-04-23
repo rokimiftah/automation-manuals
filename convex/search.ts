@@ -17,6 +17,18 @@ type SearchResult = {
   score: number
 }
 
+export const DEFAULT_VECTOR_LIMIT = 6
+
+export const DOCUMENT_SCOPED_VECTOR_LIMIT = 24
+
+export function getVectorSearchLimit(documentId?: GenericId<"documents">) {
+  return documentId ? DOCUMENT_SCOPED_VECTOR_LIMIT : DEFAULT_VECTOR_LIMIT
+}
+
+export function getTopEvidenceScore(evidence: Array<{ score: number }>) {
+  return evidence.reduce((topScore, item) => Math.max(topScore, item.score), 0)
+}
+
 const searchResultValidator = v.object({
   assetId: v.optional(v.id("documentAssets")),
   citationLabel: v.string(),
@@ -145,7 +157,7 @@ export const ask = action({
     const matches = embedding
       ? await ctx.vectorSearch("chunkEmbeddings", "by_embedding", {
           filter: (q) => (args.documentId ? q.eq("documentId", args.documentId) : q.eq("isCurrent", true)),
-          limit: 6,
+          limit: getVectorSearchLimit(args.documentId),
           vector: embedding
         })
       : []
@@ -155,7 +167,7 @@ export const ask = action({
       ...item,
       evidenceId: `E${index + 1}`
     }))
-    const topScore = matches[0]?._score ?? 0
+    const topScore = getTopEvidenceScore(evidence)
 
     if (evidence.length === 0 || topScore < 0.55) {
       const packet = buildRefusalPacket(sessionId)

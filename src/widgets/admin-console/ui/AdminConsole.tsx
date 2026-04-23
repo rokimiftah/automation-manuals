@@ -6,11 +6,17 @@ import AppShell from "@widgets/app-shell/ui/AppShell"
 
 import { DocumentRegistrationForm, IngestionJobList } from "@features/admin-ingestion/ui"
 
+function isAdminSessionError(error: unknown) {
+  return error instanceof Error && /admin session/i.test(error.message)
+}
+
 export default function AdminConsole({
+  onSessionInvalid,
   onSignOut,
   sessionToken,
   username
 }: {
+  onSessionInvalid: (message?: string) => void
   onSignOut: () => Promise<void>
   sessionToken: string
   username: string
@@ -20,6 +26,18 @@ export default function AdminConsole({
   const createDocument = useMutation(api.documents.create)
   const enqueue = useMutation(api.ingestion.enqueue)
   const retryJob = useMutation(api.ingestion.retry)
+
+  async function runProtectedMutation<T>(work: () => Promise<T>) {
+    try {
+      return await work()
+    } catch (error) {
+      if (isAdminSessionError(error)) {
+        onSessionInvalid("Admin session expired. Please sign in again.")
+      }
+
+      throw error
+    }
+  }
 
   return (
     <AppShell
@@ -52,8 +70,10 @@ export default function AdminConsole({
 
           <DocumentRegistrationForm
             onSubmit={async (values) => {
-              const documentId = await createDocument({ ...values, sessionToken })
-              await enqueue({ documentId, sessionToken })
+              await runProtectedMutation(async () => {
+                const documentId = await createDocument({ ...values, sessionToken })
+                await enqueue({ documentId, sessionToken })
+              })
             }}
           />
         </div>
@@ -72,7 +92,7 @@ export default function AdminConsole({
             <IngestionJobList
               jobs={jobs}
               onRetry={(jobId) => {
-                void retryJob({ jobId, sessionToken })
+                void runProtectedMutation(() => retryJob({ jobId, sessionToken }))
               }}
             />
           )}

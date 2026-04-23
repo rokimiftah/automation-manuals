@@ -70,7 +70,7 @@ export function buildCitationLabel(pageNumber: number, printedPageNumber?: strin
 export function normalizeParsedPages(pages: ParsedPage[]): NormalizedDocument {
   const normalizedPages = pages.map((page) => ({
     ...page,
-    needsOcrFallback: needsOcrFallback(page.markdown)
+    needsOcrFallback: page.needsOcrFallback ?? needsOcrFallback(page.markdown)
   }))
 
   const chunks = pages.flatMap((page) => {

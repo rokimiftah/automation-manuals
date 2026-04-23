@@ -11,13 +11,22 @@ type LegacyBuildDocumentPayloadArgs = {
 
 type ParsedPagesBuildDocumentPayloadArgs = {
   embed: (inputs: string[]) => Promise<number[][]>
+  ocr?: (sourceUrl: string, pageNumber: number) => Promise<string>
   parsedPages: ParsedPage[]
+  sourceUrl?: string
 }
 
 type BuildDocumentPayloadArgs = LegacyBuildDocumentPayloadArgs | ParsedPagesBuildDocumentPayloadArgs
 
 function hasParsedPages(args: BuildDocumentPayloadArgs): args is ParsedPagesBuildDocumentPayloadArgs {
   return "parsedPages" in args
+}
+
+function hasOcrFallback(args: BuildDocumentPayloadArgs): args is BuildDocumentPayloadArgs & {
+  ocr: (sourceUrl: string, pageNumber: number) => Promise<string>
+  sourceUrl: string
+} {
+  return "ocr" in args && typeof args.ocr === "function" && "sourceUrl" in args && typeof args.sourceUrl === "string"
 }
 
 export async function buildDocumentPayload(args: BuildDocumentPayloadArgs) {
@@ -28,7 +37,7 @@ export async function buildDocumentPayload(args: BuildDocumentPayloadArgs) {
     initial.pages.map(async (page) => ({
       pageNumber: page.pageNumber,
       printedPageNumber: page.printedPageNumber,
-      markdown: !hasParsedPages(args) && page.needsOcrFallback ? await args.ocr(args.sourceUrl, page.pageNumber) : page.markdown
+      markdown: page.needsOcrFallback && hasOcrFallback(args) ? await args.ocr(args.sourceUrl, page.pageNumber) : page.markdown
     }))
   )
 

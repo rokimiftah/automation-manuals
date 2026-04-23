@@ -66,7 +66,7 @@ describe("generateGroundedAnswer", () => {
               message: {
                 content: [
                   { text: '{"answerSummary":"Install the module beside the controller.","answerSteps":[' },
-                  { text: '"Verify the mounting rail"]}' }
+                  { text: '"Verify the mounting rail"],"citationIds":["E1"]}' }
                 ]
               }
             }
@@ -82,14 +82,15 @@ describe("generateGroundedAnswer", () => {
       })
     ).resolves.toEqual({
       answerSteps: ["Verify the mounting rail"],
-      answerSummary: "Install the module beside the controller."
+      answerSummary: "Install the module beside the controller.",
+      citationIds: ["E1"]
     })
     expect(client.chat.complete).toHaveBeenCalledWith(
       expect.objectContaining({
         messages: [
           {
             content:
-              "Use only the provided context. If the context is insufficient, say so and return an empty answerSteps array. Return strict JSON with keys answerSummary and answerSteps.",
+              "Use only the provided context. If the context is insufficient, say so and return an empty answerSteps array and an empty citationIds array. Return strict JSON with keys answerSummary, answerSteps, and citationIds.",
             role: "system"
           },
           {

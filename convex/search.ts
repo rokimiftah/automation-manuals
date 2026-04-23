@@ -5,7 +5,7 @@ import { ConvexError, v } from "convex/values"
 
 import { api, internal } from "./_generated/api"
 import { action, internalMutation, internalQuery } from "./_generated/server"
-import { answerPacketValidator, buildGroundedPacket, buildRefusalPacket } from "./lib/answerPacket"
+import { answerPacketValidator, buildGroundedPacket, buildRefusalPacket, selectEvidenceByCitationIds } from "./lib/answerPacket"
 import { embedTexts, generateGroundedAnswer } from "./lib/mistral"
 
 type SearchResult = {
@@ -151,6 +151,10 @@ export const ask = action({
       : []
 
     const evidence: SearchResult[] = await ctx.runQuery(internal.search.loadSearchResults, { matches })
+    const evidenceWithIds = evidence.map((item, index) => ({
+      ...item,
+      evidenceId: `E${index + 1}`
+    }))
     const topScore = matches[0]?._score ?? 0
 
     if (evidence.length === 0 || topScore < 0.55) {
@@ -166,12 +170,13 @@ export const ask = action({
       return packet
     }
 
-    const context = evidence.map((item) => `${item.citationLabel}: ${item.content}`).join("\n\n")
+    const context = evidenceWithIds.map((item) => `[${item.evidenceId}] ${item.citationLabel}: ${item.content}`).join("\n\n")
     const groundedAnswer = await generateGroundedAnswer(question, context)
+    const selectedEvidence = selectEvidenceByCitationIds(evidenceWithIds, groundedAnswer.citationIds)
     const packet: AnswerPacket =
-      groundedAnswer.answerSteps.length === 0
+      groundedAnswer.answerSteps.length === 0 || selectedEvidence.length === 0
         ? buildRefusalPacket(sessionId)
-        : buildGroundedPacket(sessionId, groundedAnswer.answerSummary, groundedAnswer.answerSteps, evidence)
+        : buildGroundedPacket(sessionId, groundedAnswer.answerSummary, groundedAnswer.answerSteps, selectedEvidence)
 
     const assistantMessageId = await ctx.runMutation(internal.chats.appendMessage, {
       answerabilityStatus: packet.answerabilityStatus,
@@ -181,38 +186,21 @@ export const ask = action({
     })
 
     if (packet.answerabilityStatus === "grounded") {
-      const evidenceByChunkId = new Map(evidence.map((item) => [item.chunkId, item]))
       await ctx.runMutation(internal.search.saveEvidence, {
-        evidence: packet.citations
-          .map((citation) => {
-            const item = evidenceByChunkId.get(citation.chunkId)
-            if (!item) {
-              return null
-            }
-
-            return item.assetId === undefined
-              ? {
-                  chunkId: citation.chunkId,
-                  pageNumber: citation.pageNumber,
-                  score: item.score
-                }
-              : {
-                  assetId: item.assetId,
-                  chunkId: citation.chunkId,
-                  pageNumber: citation.pageNumber,
-                  score: item.score
-                }
-          })
-          .filter(
-            (
-              item
-            ): item is {
-              assetId?: GenericId<"documentAssets">
-              chunkId: GenericId<"chunks">
-              pageNumber: number
-              score: number
-            } => item !== null
-          ),
+        evidence: selectedEvidence.map((item) =>
+          item.assetId === undefined
+            ? {
+                chunkId: item.chunkId,
+                pageNumber: item.pageNumber,
+                score: item.score
+              }
+            : {
+                assetId: item.assetId,
+                chunkId: item.chunkId,
+                pageNumber: item.pageNumber,
+                score: item.score
+              }
+        ),
         messageId: assistantMessageId
       })
     }

@@ -4,7 +4,7 @@ import type { GenericId } from "convex/values"
 import { ConvexError, v } from "convex/values"
 
 import { internalMutation, internalQuery, mutation, query } from "./_generated/server"
-import { buildReadyDocumentPatch } from "./lib/documentReadiness"
+import { assertReadyDocumentArtifacts, buildReadyDocumentPatch } from "./lib/documentReadiness"
 import { buildAdminAuditActor, requireAdminQuerySession, requireAdminWriteSession } from "./lib/adminSession"
 import { assertNextIngestionStatus } from "./lib/ingestionState"
 import { chunkTypeValidator, documentStatusValidator } from "./lib/validators"
@@ -141,6 +141,12 @@ export const replaceParsedContent = internalMutation({
 
     const now = Date.now()
 
+    assertReadyDocumentArtifacts({
+      chunkCount: args.chunks.length,
+      hasSourceAsset: true,
+      pageCount: args.pages.length
+    })
+
     const currentAssets = await ctx.db
       .query("documentAssets")
       .withIndex("by_document_and_current", (q) => q.eq("documentId", args.documentId).eq("isCurrent", true))
@@ -251,7 +257,33 @@ export const markReady = internalMutation({
       return null
     }
 
-    await ctx.db.patch(args.documentId, buildReadyDocumentPatch({ now: Date.now() }))
+    const currentAssets = await ctx.db
+      .query("documentAssets")
+      .withIndex("by_document_and_current", (q) => q.eq("documentId", args.documentId).eq("isCurrent", true))
+      .collect()
+    const sourceAssetId = currentAssets.find((asset) => asset.kind === "source_pdf")?._id
+
+    const currentPages = await ctx.db
+      .query("documentPages")
+      .withIndex("by_document_and_current", (q) => q.eq("documentId", args.documentId).eq("isCurrent", true))
+      .collect()
+
+    const currentChunks = await ctx.db
+      .query("chunks")
+      .withIndex("by_document_and_current", (q) => q.eq("documentId", args.documentId).eq("isCurrent", true))
+      .collect()
+
+    assertReadyDocumentArtifacts({
+      chunkCount: currentChunks.length,
+      hasSourceAsset: sourceAssetId !== undefined,
+      pageCount: currentPages.length
+    })
+
+    if (!sourceAssetId) {
+      throw new Error("A current source asset is required before a document can become ready")
+    }
+
+    await ctx.db.patch(args.documentId, buildReadyDocumentPatch({ now: Date.now(), sourceAssetId }))
     return null
   }
 })

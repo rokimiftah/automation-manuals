@@ -141,7 +141,7 @@ export async function generateGroundedAnswer(question: string, context: string, 
     messages: [
       {
         content:
-          "Use only the provided context. If the context is insufficient, say so and return an empty answerSteps array. Return strict JSON with keys answerSummary and answerSteps.",
+          "Use only the provided context. If the context is insufficient, say so and return an empty answerSteps array and an empty citationIds array. Return strict JSON with keys answerSummary, answerSteps, and citationIds.",
         role: "system"
       },
       {
@@ -153,5 +153,15 @@ export async function generateGroundedAnswer(question: string, context: string, 
     responseFormat: { type: "json_object" }
   })
 
-  return parseJsonResponse<{ answerSteps: string[]; answerSummary: string }>(response.choices[0]?.message?.content)
+  const parsed = parseJsonResponse<{
+    answerSteps?: unknown
+    answerSummary?: unknown
+    citationIds?: unknown
+  }>(response.choices[0]?.message?.content)
+
+  return {
+    answerSteps: Array.isArray(parsed.answerSteps) ? parsed.answerSteps.filter((step): step is string => typeof step === "string") : [],
+    answerSummary: typeof parsed.answerSummary === "string" ? parsed.answerSummary : "",
+    citationIds: Array.isArray(parsed.citationIds) ? parsed.citationIds.filter((id): id is string => typeof id === "string") : []
+  }
 }

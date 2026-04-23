@@ -14,7 +14,7 @@ import { assertNextIngestionStatus } from "./lib/ingestionState"
 import { getMineruBatchResult, mapMineruBatchState, submitMineruBatch } from "./lib/mineru"
 import { verifyMineruChecksum } from "./lib/mineruCallback"
 import { normalizeMineruDocument } from "./lib/mineruResult"
-import { embedTexts } from "./lib/mistral"
+import { embedTexts, ocrPdfPage } from "./lib/mistral"
 import { ingestionStatusValidator } from "./lib/validators"
 
 const listJobValidator = v.object({
@@ -520,6 +520,16 @@ export const finalizeProviderResult = internalAction({
       return null
     }
 
+    const document = await ctx.runQuery(internal.documents.getById, { documentId: args.documentId })
+    if (!document) {
+      await ctx.runMutation(internal.documents.markFailed, {
+        errorMessage: "Document not found",
+        jobId: args.jobId,
+        documentId: args.documentId
+      })
+      return null
+    }
+
     try {
       const response = await fetch(job.providerResultUrl)
       if (!response.ok) {
@@ -531,7 +541,9 @@ export const finalizeProviderResult = internalAction({
       const normalized = normalizeMineruDocument(middleJson)
       const payload = await buildDocumentPayload({
         embed: (inputs) => embedTexts(inputs),
-        parsedPages: normalized.pages.map(({ needsOcrFallback: _needsOcrFallback, ...page }) => page)
+        ocr: (sourceUrl, pageNumber) => ocrPdfPage(sourceUrl, pageNumber),
+        parsedPages: normalized.pages,
+        sourceUrl: document.sourceUrl
       })
 
       await ctx.runMutation(internal.ingestion.updateJobStatus, {

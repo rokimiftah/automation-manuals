@@ -44,4 +44,57 @@ describe("buildDocumentPayload", () => {
       })
     ).rejects.toThrow("Embedding count does not match chunk count")
   })
+
+  it("runs OCR only for fallback pages in the parsed-pages branch", async () => {
+    const embed = vi.fn().mockResolvedValue([
+      [0.1, 0.2],
+      [0.3, 0.4]
+    ])
+    const ocr = vi.fn().mockResolvedValue("Recovered controller wiring instructions with enough text to be chunked safely.")
+
+    await buildDocumentPayload({
+      embed,
+      ocr,
+      parsedPages: [
+        {
+          markdown: "![image](https://cdn.example/page-1.png)",
+          needsOcrFallback: true,
+          pageNumber: 1
+        },
+        {
+          markdown: "Install the module beside the controller and torque the rail screws before power-up.",
+          needsOcrFallback: false,
+          pageNumber: 2
+        }
+      ],
+      sourceUrl: "https://vendor.example/manual.pdf"
+    } as never)
+
+    expect(ocr).toHaveBeenCalledTimes(1)
+    expect(ocr).toHaveBeenCalledWith("https://vendor.example/manual.pdf", 1)
+    expect(embed).toHaveBeenCalledWith([
+      "Recovered controller wiring instructions with enough text to be chunked safely.",
+      "Install the module beside the controller and torque the rail screws before power-up."
+    ])
+  })
+
+  it("skips OCR for non-fallback provider pages", async () => {
+    const embed = vi.fn().mockResolvedValue([[0.1, 0.2]])
+    const ocr = vi.fn()
+
+    await buildDocumentPayload({
+      embed,
+      ocr,
+      parsedPages: [
+        {
+          markdown: "Install the module beside the controller and torque the rail screws before power-up.",
+          needsOcrFallback: false,
+          pageNumber: 2
+        }
+      ],
+      sourceUrl: "https://vendor.example/manual.pdf"
+    } as never)
+
+    expect(ocr).not.toHaveBeenCalled()
+  })
 })

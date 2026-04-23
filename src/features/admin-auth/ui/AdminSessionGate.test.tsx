@@ -1,5 +1,5 @@
-import { fireEvent, render, screen, waitFor } from "@testing-library/react"
-import { beforeEach, describe, expect, it, vi } from "vitest"
+import { act, cleanup, fireEvent, render, screen, waitFor } from "@testing-library/react"
+import { afterEach, beforeEach, describe, expect, it, vi } from "vitest"
 
 import { AdminSessionGate } from "./AdminSessionGate"
 
@@ -21,6 +21,11 @@ describe("AdminSessionGate", () => {
     useQuery.mockReset()
   })
 
+  afterEach(() => {
+    cleanup()
+    vi.useRealTimers()
+  })
+
   it("shows the login form when no session token exists", () => {
     useQuery.mockReturnValue("skip")
 
@@ -31,8 +36,9 @@ describe("AdminSessionGate", () => {
   })
 
   it("stores the returned session token and renders children after sign in", async () => {
-    useQuery.mockReturnValueOnce("skip").mockReturnValue({ expiresAt: 123_456, username: "admin" })
-    signIn.mockResolvedValue({ expiresAt: 123_456, sessionToken: "token-123", username: "admin" })
+    const expiresAt = Date.now() + 60_000
+    useQuery.mockReturnValueOnce("skip").mockReturnValue({ expiresAt, username: "admin" })
+    signIn.mockResolvedValue({ expiresAt, sessionToken: "token-123", username: "admin" })
 
     render(<AdminSessionGate>{() => <div>Admin console</div>}</AdminSessionGate>)
 
@@ -53,6 +59,49 @@ describe("AdminSessionGate", () => {
     useQuery.mockReturnValue(null)
 
     render(<AdminSessionGate>{() => <div>Admin console</div>}</AdminSessionGate>)
+
+    await waitFor(() => expect(sessionStorage.getItem("adminSessionToken")).toBeNull())
+    expect(screen.getAllByRole("heading", { name: /admin sign in/i }).length).toBeGreaterThan(0)
+  })
+
+  it("clears the stored token when the validated session expires locally", async () => {
+    vi.useFakeTimers()
+    vi.setSystemTime(new Date("2026-04-23T00:00:00.000Z"))
+    sessionStorage.setItem("adminSessionToken", "live-token")
+    useQuery.mockReturnValueOnce(undefined).mockReturnValue({ expiresAt: Date.now() + 1_000, username: "admin" })
+
+    render(<AdminSessionGate>{() => <div>Admin console</div>}</AdminSessionGate>)
+
+    await act(async () => {})
+    expect(screen.getAllByText("Admin console")).not.toHaveLength(0)
+
+    await act(async () => {
+      await vi.advanceTimersByTimeAsync(1_001)
+    })
+
+    expect(sessionStorage.getItem("adminSessionToken")).toBeNull()
+    expect(screen.getAllByRole("heading", { name: /admin sign in/i }).length).toBeGreaterThan(0)
+    expect(screen.getByText(/session expired/i)).toBeInTheDocument()
+  })
+
+  it("clears local session state even when sign out rejects", async () => {
+    sessionStorage.setItem("adminSessionToken", "live-token")
+    useQuery.mockImplementation((_, args) =>
+      args === "skip" ? undefined : { expiresAt: Date.now() + 60_000, username: "admin" }
+    )
+    signOut.mockRejectedValue(new Error("Admin session expired"))
+
+    render(
+      <AdminSessionGate>
+        {({ onSignOut }) => (
+          <button type="button" onClick={() => void onSignOut()}>
+            Leave admin
+          </button>
+        )}
+      </AdminSessionGate>
+    )
+
+    fireEvent.click(await screen.findByRole("button", { name: /leave admin/i }))
 
     await waitFor(() => expect(sessionStorage.getItem("adminSessionToken")).toBeNull())
     expect(screen.getAllByRole("heading", { name: /admin sign in/i }).length).toBeGreaterThan(0)

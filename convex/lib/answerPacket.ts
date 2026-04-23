@@ -30,6 +30,7 @@ type Evidence = {
   assetId?: GenericId<"documentAssets">
   citationLabel: string
   chunkId: GenericId<"chunks">
+  evidenceId?: string
   pageNumber: number
   score: number
 }
@@ -73,6 +74,10 @@ function uniqueBy<T>(items: T[], key: (item: T) => string) {
   return unique
 }
 
+function normalizeCitationId(value: string) {
+  return value.trim().replace(/^\[+|\]+$/g, "").toUpperCase()
+}
+
 export function buildRefusalPacket(
   sessionId: GenericId<"chatSessions">,
   answerSummary = "I could not find enough evidence in the official documentation to answer that safely.",
@@ -88,6 +93,11 @@ export function buildRefusalPacket(
   }
 }
 
+export function selectEvidenceByCitationIds(evidence: Evidence[], citationIds: string[]) {
+  const wanted = new Set(citationIds.map(normalizeCitationId).filter(Boolean))
+  return evidence.filter((item) => item.evidenceId !== undefined && wanted.has(normalizeCitationId(item.evidenceId)))
+}
+
 export function buildGroundedPacket(
   sessionId: GenericId<"chatSessions">,
   answerSummary: string,
@@ -96,7 +106,7 @@ export function buildGroundedPacket(
 ): AnswerPacket {
   // v1 keeps evidence page-based: citations open the source PDF page instead of
   // rendering extracted MinerU image assets inline in the answer packet.
-  const citations = uniqueBy(evidence, (item) => `${item.pageNumber}:${item.assetId ?? "none"}`).map((item) => ({
+  const citations = uniqueBy(evidence, (item) => item.chunkId).map((item) => ({
     ...(item.assetId === undefined ? {} : { assetId: item.assetId }),
     citationLabel: item.citationLabel,
     chunkId: item.chunkId,

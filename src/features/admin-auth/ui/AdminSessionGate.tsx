@@ -1,6 +1,6 @@
 import type { ReactNode } from "react"
 
-import { useEffect, useState } from "react"
+import { useCallback, useEffect, useState } from "react"
 
 import { useAction, useMutation, useQuery } from "convex/react"
 
@@ -9,17 +9,30 @@ import { api } from "@convex/_generated/api"
 import { AdminLoginForm } from "./AdminLoginForm"
 
 const STORAGE_KEY = "adminSessionToken"
+const EXPIRED_MESSAGE = "Admin session expired. Please sign in again."
 
 export function AdminSessionGate({
   children
 }: {
-  children: (session: { expiresAt: number; onSignOut: () => Promise<void>; sessionToken: string; username: string }) => ReactNode
+  children: (session: {
+    expiresAt: number
+    onSessionInvalid: (message?: string) => void
+    onSignOut: () => Promise<void>
+    sessionToken: string
+    username: string
+  }) => ReactNode
 }) {
   const signIn = useAction(api.adminAuth.signIn)
   const signOut = useMutation(api.adminAuth.signOut)
   const [error, setError] = useState<string>()
   const [isPending, setIsPending] = useState(false)
   const [sessionToken, setSessionToken] = useState<string | null>(null)
+
+  const clearSession = useCallback((message?: string) => {
+    sessionStorage.removeItem(STORAGE_KEY)
+    setSessionToken(null)
+    setError(message)
+  }, [])
 
   useEffect(() => {
     setSessionToken(sessionStorage.getItem(STORAGE_KEY))
@@ -29,11 +42,29 @@ export function AdminSessionGate({
 
   useEffect(() => {
     if (sessionToken && session === null) {
-      sessionStorage.removeItem(STORAGE_KEY)
-      setSessionToken(null)
-      setError("Admin session expired. Please sign in again.")
+      clearSession(EXPIRED_MESSAGE)
     }
-  }, [session, sessionToken])
+  }, [session, sessionToken, clearSession])
+
+  useEffect(() => {
+    if (!sessionToken || !session) {
+      return
+    }
+
+    const timeoutMs = session.expiresAt - Date.now()
+    if (timeoutMs <= 0) {
+      clearSession(EXPIRED_MESSAGE)
+      return
+    }
+
+    const timeoutId = window.setTimeout(() => {
+      clearSession(EXPIRED_MESSAGE)
+    }, timeoutMs)
+
+    return () => {
+      window.clearTimeout(timeoutId)
+    }
+  }, [session, sessionToken, clearSession])
 
   if (!sessionToken) {
     return (
@@ -67,10 +98,17 @@ export function AdminSessionGate({
 
   return children({
     expiresAt: session.expiresAt,
+    onSessionInvalid: (message = EXPIRED_MESSAGE) => {
+      clearSession(message)
+    },
     onSignOut: async () => {
-      await signOut({ sessionToken })
-      sessionStorage.removeItem(STORAGE_KEY)
-      setSessionToken(null)
+      const token = sessionToken
+      clearSession()
+      try {
+        await signOut({ sessionToken: token })
+      } catch {
+        // Local session state is already cleared; remote revocation is best effort.
+      }
     },
     sessionToken,
     username: session.username

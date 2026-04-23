@@ -163,9 +163,5 @@ export default defineSchema({
     targetId: v.string(),
     summary: v.string(),
     createdAt: v.number()
-  }).index("by_actor_type", ["actorType"]),
-  comments: defineTable({
-    author: v.string(),
-    content: v.string()
-  })
+  }).index("by_actor_type", ["actorType"])
 })

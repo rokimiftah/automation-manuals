@@ -1,6 +1,8 @@
 import { fireEvent, render, screen, waitFor } from "@testing-library/react"
 import { beforeEach, describe, expect, it, vi } from "vitest"
 
+import { AdminSessionGate } from "./AdminSessionGate"
+
 const signIn = vi.fn()
 const signOut = vi.fn()
 const useQuery = vi.fn()
@@ -8,10 +10,8 @@ const useQuery = vi.fn()
 vi.mock("convex/react", () => ({
   useAction: () => signIn,
   useMutation: () => signOut,
-  useQuery: (...args: unknown[]) => useQuery(...args),
+  useQuery: (...args: unknown[]) => useQuery(...args)
 }))
-
-import { AdminSessionGate } from "./AdminSessionGate"
 
 describe("AdminSessionGate", () => {
   beforeEach(() => {

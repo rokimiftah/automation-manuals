@@ -11,7 +11,7 @@ import { AdminLoginForm } from "./AdminLoginForm"
 const STORAGE_KEY = "adminSessionToken"
 
 export function AdminSessionGate({
-  children,
+  children
 }: {
   children: (session: { expiresAt: number; onSignOut: () => Promise<void>; sessionToken: string; username: string }) => ReactNode
 }) {
@@ -73,6 +73,6 @@ export function AdminSessionGate({
       setSessionToken(null)
     },
     sessionToken,
-    username: session.username,
+    username: session.username
   })
 }

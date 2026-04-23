@@ -2,42 +2,42 @@ import { v } from "convex/values"
 
 import { internal } from "./_generated/api"
 import { action, internalMutation, internalQuery, mutation, query } from "./_generated/server"
-import { buildAdminAuditActor, hashSessionToken, loadAdminSession, requireAdminQuerySession } from "./lib/adminSession"
+import { buildAdminAuditActor, hashSessionToken, loadValidAdminSession, requireAdminQuerySession, revokeAdminSession } from "./lib/adminSession"
 
 const adminSessionViewValidator = v.object({
   expiresAt: v.number(),
-  username: v.string(),
+  username: v.string()
 })
 
 export const signIn = action({
   args: {
     password: v.string(),
-    username: v.string(),
+    username: v.string()
   },
   returns: v.object({
     expiresAt: v.number(),
     sessionToken: v.string(),
-    username: v.string(),
+    username: v.string()
   }),
   handler: async (ctx, args): Promise<{ expiresAt: number; sessionToken: string; username: string }> => {
     return await ctx.runAction(internal.adminAuthNode.signInWithPassword, args)
-  },
+  }
 })
 
 export const validateSession = query({
   args: { sessionToken: v.string() },
   returns: v.union(v.null(), adminSessionViewValidator),
   handler: async (ctx, args) => {
-    const session = await loadAdminSession(ctx, args.sessionToken)
-    if (!session || session.revokedAt !== undefined) {
+    const session = await loadValidAdminSession(ctx, args.sessionToken)
+    if (!session) {
       return null
     }
 
     return {
       expiresAt: session.expiresAt,
-      username: session.username,
+      username: session.username
     }
-  },
+  }
 })
 
 export const signOut = mutation({
@@ -46,24 +46,24 @@ export const signOut = mutation({
   handler: async (ctx, args) => {
     const session = await requireAdminQuerySession(ctx, args.sessionToken)
 
-    await ctx.db.patch("adminSessions", session._id, { revokedAt: Date.now() })
+    await revokeAdminSession(ctx, session._id)
     await ctx.db.insert("auditEvents", {
       ...buildAdminAuditActor(session),
       action: "admin.sign_out",
       targetTable: "adminSessions",
       targetId: session._id,
       summary: `Signed out ${session.username}`,
-      createdAt: Date.now(),
+      createdAt: Date.now()
     })
 
     return null
-  },
+  }
 })
 
 export const listRecentLoginAttempts = internalQuery({
   args: {
     username: v.string(),
-    windowStart: v.number(),
+    windowStart: v.number()
   },
   returns: v.array(v.object({ createdAt: v.number(), successful: v.boolean() })),
   handler: async (ctx, args) => {
@@ -74,32 +74,32 @@ export const listRecentLoginAttempts = internalQuery({
 
     return attempts.map((attempt) => ({
       createdAt: attempt.createdAt,
-      successful: attempt.successful,
+      successful: attempt.successful
     }))
-  },
+  }
 })
 
 export const recordLoginAttempt = internalMutation({
   args: {
     successful: v.boolean(),
-    username: v.string(),
+    username: v.string()
   },
   returns: v.null(),
   handler: async (ctx, args) => {
     await ctx.db.insert("adminLoginAttempts", {
       createdAt: Date.now(),
       successful: args.successful,
-      username: args.username,
+      username: args.username
     })
     return null
-  },
+  }
 })
 
 export const createSession = internalMutation({
   args: {
     expiresAt: v.number(),
     sessionToken: v.string(),
-    username: v.string(),
+    username: v.string()
   },
   returns: v.id("adminSessions"),
   handler: async (ctx, args) => {
@@ -110,7 +110,7 @@ export const createSession = internalMutation({
       createdAt,
       expiresAt: args.expiresAt,
       tokenHash,
-      username: args.username,
+      username: args.username
     })
 
     await ctx.db.insert("auditEvents", {
@@ -119,12 +119,12 @@ export const createSession = internalMutation({
       targetTable: "adminSessions",
       targetId: sessionId,
       summary: `Signed in ${args.username}`,
-      createdAt,
+      createdAt
     })
 
     await ctx.scheduler.runAfter(Math.max(0, args.expiresAt - createdAt), internal.adminAuth.expireSession, { sessionId })
     return sessionId
-  },
+  }
 })
 
 export const expireSession = internalMutation({
@@ -136,7 +136,7 @@ export const expireSession = internalMutation({
       return null
     }
 
-    await ctx.db.patch("adminSessions", args.sessionId, { revokedAt: Date.now() })
+    await revokeAdminSession(ctx, args.sessionId)
     return null
-  },
+  }
 })

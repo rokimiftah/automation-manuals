@@ -16,6 +16,10 @@ export type AdminAuthEnv = {
   username: string
 }
 
+export function getAdminLoginAttemptUsername(username: string) {
+  return username.trim().toLowerCase()
+}
+
 export function getAdminAuthEnv(input: AdminAuthEnvInput = process.env): AdminAuthEnv {
   const username = input.ADMIN_USERNAME?.trim()
   if (!username) {
@@ -29,14 +33,14 @@ export function getAdminAuthEnv(input: AdminAuthEnvInput = process.env): AdminAu
 
   const ttlRaw = input.ADMIN_SESSION_TTL_MS?.trim()
   const ttl = ttlRaw ? Number(ttlRaw) : 1_800_000
-  if (!Number.isFinite(ttl) || ttl <= 0) {
+  if (!Number.isFinite(ttl) || !Number.isInteger(ttl) || ttl <= 0) {
     throw new Error("ADMIN_SESSION_TTL_MS must be a positive integer")
   }
 
   return {
     passwordHash,
-    sessionTtlMs: Math.floor(ttl),
-    username: username.toLowerCase(),
+    sessionTtlMs: ttl,
+    username: getAdminLoginAttemptUsername(username)
   }
 }
 
@@ -55,17 +59,16 @@ export async function authenticateAdminLogin(
     verifyPasswordHash: (passwordHash: string, password: string) => Promise<boolean>
   }
 ) {
-  const normalizedUsername = input.username.trim().toLowerCase()
+  const normalizedUsername = getAdminLoginAttemptUsername(input.username)
   if (normalizedUsername !== input.env.username) {
     return null
   }
 
-  const password = input.password.trim()
-  if (!password) {
+  if (!input.password) {
     return null
   }
 
-  const verified = await deps.verifyPasswordHash(input.env.passwordHash, password)
+  const verified = await deps.verifyPasswordHash(input.env.passwordHash, input.password)
   return verified ? { username: input.env.username } : null
 }
 
@@ -106,28 +109,45 @@ export async function loadAdminSession(ctx: AdminReadCtx, sessionToken: string) 
     .unique()
 }
 
-export async function requireAdminQuerySession(ctx: QueryCtx | MutationCtx, sessionToken: string) {
+export async function loadValidAdminSession(ctx: AdminReadCtx, sessionToken: string, now = Date.now()) {
   const session = await loadAdminSession(ctx, sessionToken)
-  if (!session || session.revokedAt !== undefined) {
+  if (!session || !isSessionStateValid({ expiresAt: session.expiresAt, now, revokedAt: session.revokedAt })) {
+    return null
+  }
+
+  return session
+}
+
+export async function requireAdminQuerySession(ctx: QueryCtx | MutationCtx, sessionToken: string, now = Date.now()) {
+  const session = await loadValidAdminSession(ctx, sessionToken, now)
+  if (!session) {
     throw new ConvexError("Admin session required")
   }
 
   return session
 }
 
-export async function requireAdminWriteSession(ctx: MutationCtx, sessionToken: string) {
-  const session = await loadAdminSession(ctx, sessionToken)
-  if (!session || !isSessionStateValid({ expiresAt: session.expiresAt, now: Date.now(), revokedAt: session.revokedAt })) {
+export async function requireAdminWriteSession(ctx: MutationCtx, sessionToken: string, now = Date.now()) {
+  const session = await loadValidAdminSession(ctx, sessionToken, now)
+  if (!session) {
     throw new ConvexError("Admin session expired")
   }
 
   return session
 }
 
+export async function revokeAdminSession(
+  ctx: MutationCtx,
+  sessionId: string,
+  revokedAt = Date.now()
+) {
+  await ctx.db.patch(sessionId as never, { revokedAt })
+}
+
 export function buildAdminAuditActor(session: { _id: string; username: string }) {
   return {
     actorLabel: session.username,
     actorType: "admin_session",
-    adminSessionId: session._id as never,
+    adminSessionId: session._id as never
   }
 }

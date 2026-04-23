@@ -4,8 +4,9 @@ import type { GenericId } from "convex/values"
 import { ConvexError, v } from "convex/values"
 
 import { internalMutation, internalQuery, mutation, query } from "./_generated/server"
-import { assertNextIngestionStatus } from "./lib/ingestionState"
+import { buildReadyDocumentPatch } from "./lib/documentReadiness"
 import { buildAdminAuditActor, requireAdminQuerySession, requireAdminWriteSession } from "./lib/adminSession"
+import { assertNextIngestionStatus } from "./lib/ingestionState"
 import { chunkTypeValidator, documentStatusValidator } from "./lib/validators"
 
 function toSlug(value: string) {
@@ -85,7 +86,7 @@ const documentByIdValidator = v.union(
     updatedAt: v.number(),
     vendorId: v.id("vendors"),
     vendorSlug: v.string(),
-    version: v.string(),
+    version: v.string()
   })
 )
 
@@ -228,11 +229,7 @@ export const replaceParsedContent = internalMutation({
       })
     }
 
-    await ctx.db.patch(args.documentId, {
-      sourceAssetId,
-      status: "ready",
-      updatedAt: now
-    })
+    await ctx.db.patch(args.documentId, buildReadyDocumentPatch({ now, sourceAssetId }))
 
     if (job) {
       await ctx.db.patch(args.jobId, {
@@ -254,7 +251,7 @@ export const markReady = internalMutation({
       return null
     }
 
-    await ctx.db.patch(args.documentId, { status: "ready", updatedAt: Date.now() })
+    await ctx.db.patch(args.documentId, buildReadyDocumentPatch({ now: Date.now() }))
     return null
   }
 })
@@ -297,7 +294,7 @@ export const listAdmin = query({
       status: documentStatusValidator,
       title: v.string(),
       vendorSlug: v.string(),
-      version: v.string(),
+      version: v.string()
     })
   ),
   handler: async (ctx, args) => {
@@ -310,9 +307,9 @@ export const listAdmin = query({
       status: doc.status,
       title: doc.title,
       vendorSlug: doc.vendorSlug,
-      version: doc.version,
+      version: doc.version
     }))
-  },
+  }
 })
 
 export const create = mutation({
@@ -323,7 +320,7 @@ export const create = mutation({
     sourceUrl: v.string(),
     title: v.string(),
     vendorName: v.string(),
-    version: v.string(),
+    version: v.string()
   },
   returns: v.id("documents"),
   handler: async (ctx, args) => {
@@ -350,7 +347,7 @@ export const create = mutation({
       createdByAdmin: adminSession.username,
       isActive: false,
       createdAt: now,
-      updatedAt: now,
+      updatedAt: now
     })
 
     await ctx.db.insert("auditEvents", {
@@ -359,9 +356,9 @@ export const create = mutation({
       targetTable: "documents",
       targetId: documentId,
       summary: `Created ${title} ${version}`,
-      createdAt: now,
+      createdAt: now
     })
 
     return documentId
-  },
+  }
 })

@@ -3,7 +3,7 @@ import { useState } from "react"
 export function AdminLoginForm({
   error,
   onSubmit,
-  pending,
+  pending
 }: {
   error?: string
   onSubmit: (input: { password: string; username: string }) => Promise<void>
@@ -29,17 +29,34 @@ export function AdminLoginForm({
       >
         <label className="block space-y-2 text-sm text-slate-200">
           <span>Username</span>
-          <input className="mt-1 w-full rounded-2xl border border-slate-700 bg-slate-950 px-4 py-3 text-sm text-white outline-none" value={username} onChange={(event) => setUsername(event.target.value)} />
+          <input
+            className="mt-1 w-full rounded-2xl border border-slate-700 bg-slate-950 px-4 py-3 text-sm text-white outline-none"
+            value={username}
+            onChange={(event) => setUsername(event.target.value)}
+          />
         </label>
 
         <label className="block space-y-2 text-sm text-slate-200">
           <span>Password</span>
-          <input className="mt-1 w-full rounded-2xl border border-slate-700 bg-slate-950 px-4 py-3 text-sm text-white outline-none" type="password" value={password} onChange={(event) => setPassword(event.target.value)} />
+          <input
+            className="mt-1 w-full rounded-2xl border border-slate-700 bg-slate-950 px-4 py-3 text-sm text-white outline-none"
+            type="password"
+            value={password}
+            onChange={(event) => setPassword(event.target.value)}
+          />
         </label>
 
-        {error ? <p role="alert" className="rounded-2xl border border-rose-500/30 bg-rose-500/10 px-4 py-3 text-sm text-rose-200">{error}</p> : null}
+        {error ? (
+          <p role="alert" className="rounded-2xl border border-rose-500/30 bg-rose-500/10 px-4 py-3 text-sm text-rose-200">
+            {error}
+          </p>
+        ) : null}
 
-        <button className="inline-flex w-full items-center justify-center rounded-2xl bg-cyan-400 px-5 py-3 text-sm font-semibold text-slate-950 transition hover:bg-cyan-300 disabled:bg-slate-700 disabled:text-slate-300" disabled={pending} type="submit">
+        <button
+          className="inline-flex w-full items-center justify-center rounded-2xl bg-cyan-400 px-5 py-3 text-sm font-semibold text-slate-950 transition hover:bg-cyan-300 disabled:bg-slate-700 disabled:text-slate-300"
+          disabled={pending}
+          type="submit"
+        >
           {pending ? "Signing in..." : "Sign in"}
         </button>
       </form>

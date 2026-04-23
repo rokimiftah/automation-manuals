@@ -1,0 +1,66 @@
+{
+  "pdf_info": [
+    {
+      "page_idx": 0,
+      "page_size": [612, 792],
+      "discarded_blocks": [
+        {
+          "type": "text",
+          "bbox": [0, 0, 0, 0],
+          "lines": [
+            {
+              "bbox": [0, 0, 0, 0],
+              "spans": [
+                {
+                  "type": "text",
+                  "content": "User Manual",
+                  "bbox": [0, 0, 0, 0]
+                }
+              ]
+            }
+          ]
+        }
+      ],
+      "para_blocks": [
+        {
+          "type": "title",
+          "bbox": [0, 0, 0, 0],
+          "lines": [
+            {
+              "bbox": [0, 0, 0, 0],
+              "spans": [
+                {
+                  "type": "text",
+                  "content": "GuardLogix 5570 Controllers",
+                  "bbox": [0, 0, 0, 0]
+                }
+              ]
+            }
+          ]
+        },
+        {
+          "type": "table",
+          "bbox": [0, 0, 0, 0],
+          "blocks": [
+            {
+              "type": "table_body",
+              "bbox": [0, 0, 0, 0],
+              "lines": [
+                {
+                  "bbox": [0, 0, 0, 0],
+                  "spans": [
+                    {
+                      "type": "table",
+                      "html": "<table><tr><td>IMPORTANT</td></tr></table>",
+                      "bbox": [0, 0, 0, 0]
+                    }
+                  ]
+                }
+              ]
+            }
+          ]
+        }
+      ]
+    }
+  ]
+}

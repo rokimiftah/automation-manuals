@@ -1,7 +1,6 @@
 import { v } from "convex/values"
 
 import { query } from "./_generated/server"
-import { requireAllowedViewer } from "./lib/viewer"
 
 export const resolveViewerAsset = query({
   args: { assetId: v.id("documentAssets") },
@@ -15,8 +14,6 @@ export const resolveViewerAsset = query({
     })
   ),
   handler: async (ctx, args) => {
-    await requireAllowedViewer(ctx)
-
     const asset = await ctx.db.get(args.assetId)
     if (!asset) {
       return null

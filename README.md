@@ -178,8 +178,11 @@ cp .env.local.example .env.local
 5. **Start development server**
 
 ```bash
-# Start both Astro and Convex dev servers
+# Terminal 1: Astro app
 bun run dev
+
+# Terminal 2: Convex backend
+bun run convex:dev
 ```
 
 Your site will be available at `http://localhost:3000`
@@ -304,22 +307,24 @@ bun run convex:deploy
 
 Copy `.env.local.example` to `.env.local` and fill in your values:
 
-| Variable                | Description                                 | Source           |
-| ----------------------- | ------------------------------------------- | ---------------- |
-| `CONVEX_DEPLOYMENT`     | Deployment identifier from Convex dashboard | Convex Dashboard |
-| `CONVEX_URL`            | Convex production URL                       | Convex Dashboard |
-| `CONVEX_SITE_URL`       | Convex site URL for production              | Convex Dashboard |
-| `ADMIN_USERNAME`        | Admin username for `/admin` access          | Your choice      |
-| `ADMIN_PASSWORD_HASH`   | Argon2id hash of admin password              | Generated via script |
-| `ADMIN_SESSION_TTL_MS`  | Admin session timeout in milliseconds        | Default: 1800000 |
+| Variable               | Description                                 | Source               |
+| ---------------------- | ------------------------------------------- | -------------------- |
+| `CONVEX_DEPLOYMENT`    | Deployment identifier from Convex dashboard | Convex Dashboard     |
+| `CONVEX_URL`           | Convex production URL                       | Convex Dashboard     |
+| `ADMIN_USERNAME`       | Admin username for `/admin` access          | Your choice          |
+| `ADMIN_PASSWORD_HASH`  | Argon2id hash of admin password             | Generated via script |
+| `ADMIN_SESSION_TTL_MS` | Admin session timeout in milliseconds       | Default: 1800000     |
 
 **Note:** Never commit `.env.local` to version control. It's already in `.gitignore`.
+
+Only `CONVEX_URL` is read by the public client application. Provider secrets and optional callback settings remain server-side environment variables.
 
 ### Admin Auth Configuration
 
 The `/admin` route is protected by minimal server-enforced admin session auth. To configure:
 
 1. Generate a password hash:
+
    ```bash
    node scripts/hash-admin-password.mjs "your-strong-password"
    ```
@@ -329,17 +334,19 @@ The `/admin` route is protected by minimal server-enforced admin session auth. T
    - `ADMIN_PASSWORD_HASH` - The hash generated above
    - `ADMIN_SESSION_TTL_MS` - Session timeout in milliseconds (default: 1800000 = 30 minutes)
 
-3. For production deployments, set these in the Convex Dashboard under Deployment Settings → Environment Variables.
+3. Make sure those same values are also available to the Convex runtime.
+   - local development: provide them to the `convex dev` process
+   - production: set them in Convex Dashboard under Deployment Settings → Environment Variables
 
 ---
 
 ## Password Hash Generation
 
-This project uses **hash-wasm** for password hashing instead of argon2. This is required for Convex runtime compatibility.
+This project generates and verifies **encoded Argon2id hashes** using **hash-wasm**.
 
 ### Why hash-wasm?
 
-- **Convex Runtime Compatibility**: hash-wasm works in Convex's runtime environment, while argon2 does not
+- **Runtime compatibility**: the project can generate and verify Argon2id hashes without introducing the native `argon2` dependency
 - **WebAssembly Performance**: Provides fast, secure password hashing via WebAssembly
 - **Browser & Node Support**: Works in both browser and Node.js environments
 
@@ -351,17 +358,7 @@ To generate a password hash for the `ADMIN_PASSWORD_HASH` environment variable:
 node scripts/hash-admin-password.mjs "your-strong-password"
 ```
 
-This will output an encoded Argon2id hash that you can use in your environment variables.
-
-**Important:** Existing argon2 hashes will not work with hash-wasm. You must regenerate all password hashes using the updated script.
-
-### Migration from argon2
-
-If you previously used argon2 for password hashing:
-
-1. Regenerate all password hashes using the new script
-2. Update your environment variables with the new hashes
-3. Remove the `argon2` dependency if it was installed
+This will output an encoded Argon2id hash string for `ADMIN_PASSWORD_HASH`. Use the provided script as the source of truth so generation parameters stay aligned with the runtime verifier.
 
 ---
 
@@ -375,7 +372,7 @@ If you previously used argon2 for password hashing:
 | `convex:dev`    | `convex dev`                                     | Start Convex dev server     |
 | `convex:deploy` | `convex deploy`                                  | Deploy Convex to production |
 | `format`        | `prettier --write .`                             | Format all files            |
-| `lint`          | `biome check --write --unsafe . && tsc --noEmit` | Lint and type check         |
+| `lint`          | `biome check --write --unsafe . && tsc --noEmit && tsc --noEmit -p convex` | Lint and type check         |
 
 ---
 

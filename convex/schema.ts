@@ -16,23 +16,23 @@ export default defineSchema({
     expiresAt: v.number(),
     revokedAt: v.optional(v.number()),
     tokenHash: v.string(),
-    username: v.string(),
+    username: v.string()
   }).index("by_token_hash", ["tokenHash"]),
   adminLoginAttempts: defineTable({
     createdAt: v.number(),
     successful: v.boolean(),
-    username: v.string(),
+    username: v.string()
   }).index("by_username_and_created_at", ["username", "createdAt"]),
   vendors: defineTable({
     slug: v.string(),
     name: v.string(),
-    createdAt: v.number(),
+    createdAt: v.number()
   }).index("by_slug", ["slug"]),
   products: defineTable({
     vendorId: v.id("vendors"),
     slug: v.string(),
     name: v.string(),
-    createdAt: v.number(),
+    createdAt: v.number()
   }).index("by_vendor_and_slug", ["vendorId", "slug"]),
   documents: defineTable({
     vendorId: v.id("vendors"),
@@ -48,7 +48,7 @@ export default defineSchema({
     isActive: v.boolean(),
     createdAt: v.number(),
     updatedAt: v.number(),
-    createdByAdmin: v.string(),
+    createdByAdmin: v.string()
   })
     .index("by_product", ["productId"])
     .index("by_product_and_active", ["productId", "isActive"]),
@@ -75,7 +75,7 @@ export default defineSchema({
     sourceFileName: v.optional(v.string()),
     sourceMimeType: v.optional(v.string()),
     createdAt: v.number(),
-    updatedAt: v.number(),
+    updatedAt: v.number()
   })
     .index("by_document", ["documentId"])
     .index("by_provider_batch_id", ["providerBatchId"]),
@@ -88,7 +88,7 @@ export default defineSchema({
     mimeType: v.string(),
     pageNumber: v.optional(v.number()),
     isCurrent: v.boolean(),
-    createdAt: v.number(),
+    createdAt: v.number()
   }).index("by_document_and_current", ["documentId", "isCurrent"]),
   documentPages: defineTable({
     documentId: v.id("documents"),
@@ -97,7 +97,7 @@ export default defineSchema({
     printedPageNumber: v.optional(v.string()),
     markdown: v.string(),
     needsOcrFallback: v.boolean(),
-    isCurrent: v.boolean(),
+    isCurrent: v.boolean()
   }).index("by_document_and_current", ["documentId", "isCurrent"]),
   chunks: defineTable({
     documentId: v.id("documents"),
@@ -106,7 +106,7 @@ export default defineSchema({
     chunkType: chunkTypeValidator,
     content: v.string(),
     citationLabel: v.string(),
-    isCurrent: v.boolean(),
+    isCurrent: v.boolean()
   })
     .index("by_document_and_current", ["documentId", "isCurrent"])
     .index("by_document_and_page", ["documentId", "pageNumber"]),
@@ -117,32 +117,32 @@ export default defineSchema({
     productSlug: v.string(),
     chunkType: chunkTypeValidator,
     isCurrent: v.boolean(),
-    embedding: v.array(v.float64()),
+    embedding: v.array(v.float64())
   })
     .index("by_chunk", ["chunkId"])
     .vectorIndex("by_embedding", {
       vectorField: "embedding",
       dimensions: 1024,
-      filterFields: ["documentId", "vendorSlug", "productSlug", "chunkType", "isCurrent"],
+      filterFields: ["documentId", "vendorSlug", "productSlug", "chunkType", "isCurrent"]
     }),
   chatSessions: defineTable({
     title: v.string(),
     createdAt: v.number(),
-    updatedAt: v.number(),
+    updatedAt: v.number()
   }),
   chatMessages: defineTable({
     sessionId: v.id("chatSessions"),
     role: messageRoleValidator,
     content: v.string(),
     answerabilityStatus: v.optional(answerabilityStatusValidator),
-    createdAt: v.number(),
+    createdAt: v.number()
   }).index("by_session", ["sessionId"]),
   answerEvidence: defineTable({
     messageId: v.id("chatMessages"),
     chunkId: v.id("chunks"),
     assetId: v.optional(v.id("documentAssets")),
     pageNumber: v.number(),
-    score: v.number(),
+    score: v.number()
   }).index("by_message", ["messageId"]),
   evaluationCases: defineTable({
     slug: v.string(),
@@ -151,7 +151,7 @@ export default defineSchema({
     severity: severityValidator,
     expectedDocumentTitle: v.string(),
     expectedPageNumbers: v.array(v.number()),
-    expectedRefusal: v.boolean(),
+    expectedRefusal: v.boolean()
   }).index("by_slug", ["slug"]),
   auditEvents: defineTable({
     actorLabel: v.string(),
@@ -161,10 +161,10 @@ export default defineSchema({
     targetTable: v.string(),
     targetId: v.string(),
     summary: v.string(),
-    createdAt: v.number(),
+    createdAt: v.number()
   }).index("by_actor_type", ["actorType"]),
   comments: defineTable({
     author: v.string(),
-    content: v.string(),
-  }),
+    content: v.string()
+  })
 })

@@ -8,7 +8,9 @@ export default function AdminConsoleIsland() {
   return (
     <ConvexProviderWrapper>
       <AdminSessionGate>
-        {(session) => <AdminConsole onSignOut={session.onSignOut} sessionToken={session.sessionToken} username={session.username} />}
+        {(session) => (
+          <AdminConsole onSignOut={session.onSignOut} sessionToken={session.sessionToken} username={session.username} />
+        )}
       </AdminSessionGate>
     </ConvexProviderWrapper>
   )

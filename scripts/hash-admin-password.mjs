@@ -14,7 +14,7 @@ const hash = await argon2id({
   memorySize: 19_456,
   parallelism: 1,
   hashLength: 32,
-  outputType: "encoded",
+  outputType: "encoded"
 })
 
 console.log(hash)

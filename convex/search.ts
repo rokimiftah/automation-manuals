@@ -7,7 +7,6 @@ import { api, internal } from "./_generated/api"
 import { action, internalMutation, internalQuery } from "./_generated/server"
 import { answerPacketValidator, buildGroundedPacket, buildRefusalPacket } from "./lib/answerPacket"
 import { embedTexts, generateGroundedAnswer } from "./lib/mistral"
-import { requireAllowedViewer } from "./lib/viewer"
 
 type SearchResult = {
   assetId?: GenericId<"documentAssets">
@@ -115,7 +114,6 @@ export const ask = action({
   },
   returns: answerPacketValidator,
   handler: async (ctx, args): Promise<AnswerPacket> => {
-    const viewer = await requireAllowedViewer(ctx)
     const question = args.question.trim()
     if (!question) {
       throw new ConvexError("Question is required")
@@ -129,8 +127,7 @@ export const ask = action({
       }
     } else {
       sessionId = await ctx.runMutation(internal.chats.ensureSession, {
-        title: question.slice(0, 80),
-        userId: viewer.userId
+        title: question.slice(0, 80)
       })
     }
 
@@ -141,8 +138,7 @@ export const ask = action({
     await ctx.runMutation(internal.chats.appendMessage, {
       content: question,
       role: "user",
-      sessionId,
-      userId: viewer.userId
+      sessionId
     })
 
     const [embedding] = await embedTexts([question])
@@ -164,8 +160,7 @@ export const ask = action({
         answerabilityStatus: packet.answerabilityStatus,
         content: packet.answerSummary,
         role: "assistant",
-        sessionId,
-        userId: viewer.userId
+        sessionId
       })
 
       return packet
@@ -182,8 +177,7 @@ export const ask = action({
       answerabilityStatus: packet.answerabilityStatus,
       content: packet.answerSummary,
       role: "assistant",
-      sessionId,
-      userId: viewer.userId
+      sessionId
     })
 
     if (packet.answerabilityStatus === "grounded") {

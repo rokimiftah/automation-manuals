@@ -46,5 +46,5 @@ export const seedDefaults = mutation({
     }
 
     return inserted
-  },
+  }
 })

@@ -7,10 +7,10 @@ import { unzipSync } from "fflate"
 
 import { internal } from "./_generated/api"
 import { httpAction, internalAction, internalMutation, internalQuery, mutation, query } from "./_generated/server"
+import { requireAdminQuerySession, requireAdminWriteSession } from "./lib/adminSession"
 import { getProviderEnv } from "./lib/env"
 import { buildDocumentPayload } from "./lib/ingestDocument"
 import { assertNextIngestionStatus } from "./lib/ingestionState"
-import { requireAdminQuerySession, requireAdminWriteSession } from "./lib/adminSession"
 import { getMineruBatchResult, mapMineruBatchState, submitMineruBatch } from "./lib/mineru"
 import { verifyMineruChecksum } from "./lib/mineruCallback"
 import { normalizeMineruDocument } from "./lib/mineruResult"
@@ -55,7 +55,7 @@ const jobByIdValidator = v.union(
     sourceMimeType: v.optional(v.string()),
     sourceStorageId: v.optional(v.id("_storage")),
     status: ingestionStatusValidator,
-    updatedAt: v.number(),
+    updatedAt: v.number()
   })
 )
 
@@ -123,9 +123,9 @@ export const listJobs = query({
       ...(job.providerErrorMessage === undefined ? {} : { providerErrorMessage: job.providerErrorMessage }),
       ...(job.providerLastCheckedAt === undefined ? {} : { providerLastCheckedAt: job.providerLastCheckedAt }),
       ...(job.providerState === undefined ? {} : { providerState: job.providerState }),
-      status: job.status,
+      status: job.status
     }))
-  },
+  }
 })
 
 export const enqueue = mutation({
@@ -139,16 +139,16 @@ export const enqueue = mutation({
       documentId: args.documentId,
       requestedByAdmin: adminSession.username,
       status: "queued",
-      updatedAt: now,
+      updatedAt: now
     })
 
     await ctx.scheduler.runAfter(0, internal.ingestion.runDocumentJob, {
       documentId: args.documentId,
-      jobId,
+      jobId
     })
 
     return jobId
-  },
+  }
 })
 
 export const retry = mutation({
@@ -167,16 +167,16 @@ export const retry = mutation({
       requestedByAdmin: adminSession.username,
       status: "queued",
       createdAt: now,
-      updatedAt: now,
+      updatedAt: now
     })
 
     await ctx.scheduler.runAfter(0, internal.ingestion.runDocumentJob, {
       documentId: existing.documentId,
-      jobId: retryJobId,
+      jobId: retryJobId
     })
 
     return retryJobId
-  },
+  }
 })
 
 export const getJobById = internalQuery({

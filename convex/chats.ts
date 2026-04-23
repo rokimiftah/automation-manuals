@@ -67,9 +67,9 @@ export const ensureSession = internalMutation({
     return await ctx.db.insert("chatSessions", {
       createdAt: now,
       title: args.title.slice(0, 120) || "New chat",
-      updatedAt: now,
+      updatedAt: now
     })
-  },
+  }
 })
 
 export const appendMessage = internalMutation({
@@ -77,7 +77,7 @@ export const appendMessage = internalMutation({
     answerabilityStatus: v.optional(v.union(v.literal("grounded"), v.literal("insufficient_evidence"))),
     content: v.string(),
     role: messageRoleValidator,
-    sessionId: v.id("chatSessions"),
+    sessionId: v.id("chatSessions")
   },
   returns: v.id("chatMessages"),
   handler: async (ctx, args) => {
@@ -92,10 +92,10 @@ export const appendMessage = internalMutation({
       content: args.content,
       createdAt: now,
       role: args.role,
-      sessionId: args.sessionId,
+      sessionId: args.sessionId
     })
 
     await ctx.db.patch(args.sessionId, { updatedAt: now })
     return messageId
-  },
+  }
 })

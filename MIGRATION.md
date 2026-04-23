@@ -1,225 +1,135 @@
 # Migration Guide: Public Workspace with Admin-Only Auth
 
-This document describes the migration from Convex Auth to a minimal admin-only session system.
+This project no longer uses Convex Auth for the runtime product flow. The current target architecture is:
 
-## Overview
+- `/` is the public engineer workspace
+- `/admin` is protected by a minimal server-enforced admin session
+- public chat and retrieval flows no longer pretend that visitors are authenticated users
 
-The project has been converted from an authenticated application (using @convex-dev/auth with email/password and magic link) to a public workspace with minimal admin-only authentication.
+## Final Runtime Surface
 
-## Final Architecture
+### Public route
 
-- **Public Workspace (`/`)**: No authentication required. Anyone can access the engineer workspace.
-- **Admin Console (`/admin`)**: Protected by minimal server-enforced admin session auth.
-- **No End-User Accounts**: Removed role-based access control and Convex Auth integration.
-- **Honest Public Records**: Replaced fake anonymous user IDs with explicit admin metadata.
+- `src/pages/index.astro` renders the engineer workspace directly
+- no login, role gate, allowlist, or `/auth` route is required for asking grounded questions
 
-## Changes Made
+### Admin route
 
-### Removed Files
+- `src/pages/admin/index.astro` renders the admin console behind `AdminSessionGate`
+- login uses username + password
+- successful login returns an opaque session token
+- the raw token is stored only in `sessionStorage`
+- Convex stores only the token hash and metadata
 
-| File                       | Reason                                                           |
-| -------------------------- | ---------------------------------------------------------------- |
-| `convex/auth.ts`           | Auth configuration with providers                                |
-| `convex/auth.config.ts`    | Auth site configuration                                          |
-| `convex/lib/roles.ts`      | Role-based access control                                        |
-| `convex/lib/roles.test.ts` | Tests for roles                                                  |
-| `src/features/auth/**`     | All auth UI components (AuthGate, RoleGate, SignOutButton, etc.) |
-| `src/pages/auth.astro`     | Auth page                                                        |
-| `src/pages/app.astro`      | Old authenticated app page                                       |
+## Backend Auth Surface
 
-### Added Files
+The runtime admin auth API is intentionally narrow:
 
-| File                       | Purpose                                                          |
-| -------------------------- | ---------------------------------------------------------------- |
-| `convex/adminAuth.ts`      | Admin session management and login logic                        |
-| `convex/adminAuth.test.ts` | Tests for admin auth                                             |
-| `src/features/admin-auth/**` | Admin login UI components                                        |
-| `src/pages/admin.astro`    | Admin console page with auth gate                               |
-| `scripts/hash-admin-password.mjs` | Password hash generation script                              |
+- `adminAuth.signIn` - public action used by the `/admin` login form
+- `adminAuth.validateSession` - public query used to validate the locally stored admin token
+- `adminAuth.signOut` - public mutation used to revoke the current admin session
 
-### Modified Files
+Every protected admin read or write function requires a `sessionToken` argument and verifies it on the server before doing work.
 
-| File                                                      | Changes                                                       |
-| --------------------------------------------------------- | ------------------------------------------------------------- |
-| `convex/schema.ts`                                        | Removed `authTables`, added `adminSessions` and `adminLoginAttempts` |
-| `convex/lib/viewer.ts`                                    | Simplified to return public viewer with admin metadata       |
-| `convex/users.ts`                                         | Simplified `current` query to return public viewer info      |
-| `convex/chats.ts`                                         | Uses explicit admin metadata instead of fake user IDs         |
-| `convex/search.ts`                                        | Removed viewer requirement from ask action                    |
-| `convex/documents.ts`                                     | Uses explicit admin metadata                                  |
-| `convex/ingestion.ts`                                     | Uses explicit admin metadata                                  |
-| `convex/assets.ts`                                        | Removed viewer requirement                                    |
-| `convex/evaluations.ts`                                   | Removed admin check from seedDefaults                         |
-| `src/app/providers/ConvexProvider.tsx`                    | Removed ConvexAuthProvider wrapper                            |
-| `src/widgets/app-shell/island.tsx`                        | Removed AuthGate/RoleGate wrappers                            |
-| `src/widgets/app-shell/ui/AppShell.tsx`                   | Removed viewer info display and SignOutButton                 |
-| `src/widgets/admin-console/ui/AdminConsole.tsx`           | Now wrapped in admin auth gate                                |
-| `src/widgets/engineer-workspace/ui/EngineerWorkspace.tsx` | Now public, no auth gate                                      |
+Protected functions currently include:
 
-### Database Schema Changes
+- `documents.listAdmin`
+- `documents.create`
+- `ingestion.listJobs`
+- `ingestion.enqueue`
+- `ingestion.retry`
+- `evaluations.seedDefaults`
 
-#### Removed Tables
+Public functions remain public:
 
-- `authTables` (from @convex-dev/auth): `users`, `sessions`, `authenticators`, `verificationTokens`
+- `search.ask`
+- `assets.resolveViewerAsset`
+- public chat queries used by the engineer workspace
 
-#### Added Tables
+## Schema Changes
 
-```typescript
+### Removed auth-era assumptions
+
+- the Convex Auth tables are gone
+- public chat records no longer store fake user ownership
+- admin-owned records store explicit admin metadata instead
+
+### Current admin session tables
+
+```ts
 adminSessions: defineTable({
-  token: v.string(),
-  expiresAt: v.number(),
   createdAt: v.number(),
-  lastSeenAt: v.number(),
-})
-  .index("by_token", ["token"])
-  .index("by_expires", ["expiresAt"]),
+  expiresAt: v.number(),
+  revokedAt: v.optional(v.number()),
+  tokenHash: v.string(),
+  username: v.string()
+}).index("by_token_hash", ["tokenHash"])
 
 adminLoginAttempts: defineTable({
-  username: v.string(),
-  success: v.boolean(),
-  attemptedAt: v.number(),
-  ipAddress: v.optional(v.string()),
-  userAgent: v.optional(v.string()),
-})
-  .index("by_username", ["username"]),
+  createdAt: v.number(),
+  successful: v.boolean(),
+  username: v.string()
+}).index("by_username_and_created_at", ["username", "createdAt"])
 ```
 
-#### Simplified Tables
+### Public chat shape
 
-The `users` table was simplified from the @convex-dev/auth schema to:
+```ts
+chatSessions: defineTable({
+  title: v.string(),
+  createdAt: v.number(),
+  updatedAt: v.number()
+})
 
-```typescript
-users: defineTable({
-  email: v.string()
+chatMessages: defineTable({
+  sessionId: v.id("chatSessions"),
+  role: messageRoleValidator,
+  content: v.string(),
+  answerabilityStatus: v.optional(answerabilityStatusValidator),
+  createdAt: v.number()
 })
 ```
-
-## How It Works Now
-
-- **Public Access**: `/` is a public engineer workspace with no authentication required
-- **Admin Protection**: `/admin` requires login with username and password
-- **Session-Based Auth**: Admin sessions are stored in Convex with configurable TTL
-- **No End-User Accounts**: Removed role-based access control and Convex Auth integration
-- **Explicit Admin Metadata**: Actions record admin session tokens instead of fake user IDs
 
 ## Environment Variables
 
-### Removed Variables
+### Removed auth-era variables
 
-The following environment variables are no longer used:
+- `AUTH_RESEND_KEY`
+- `AUTH_EMAIL_FROM`
+- `ADMIN_EMAILS`
+- `ALLOWED_EMAILS`
+- `ALLOWED_EMAIL_DOMAINS`
 
-| Variable                | Purpose                               |
-| ----------------------- | ------------------------------------- |
-| `AUTH_RESEND_KEY`       | Resend API key for magic link emails  |
-| `AUTH_EMAIL_FROM`       | Sender email for auth emails          |
-| `ADMIN_EMAILS`          | Comma-separated admin emails          |
-| `ALLOWED_EMAILS`        | Comma-separated allowed emails        |
-| `ALLOWED_EMAIL_DOMAINS` | Comma-separated allowed email domains |
+### Current admin auth variables
 
-### Added Variables
+| Variable | Purpose |
+| --- | --- |
+| `ADMIN_USERNAME` | Admin username for `/admin` access |
+| `ADMIN_PASSWORD_HASH` | Encoded Argon2id hash used for password verification |
+| `ADMIN_SESSION_TTL_MS` | Session lifetime in milliseconds |
 
-| Variable                | Purpose                               |
-| ----------------------- | ------------------------------------- |
-| `ADMIN_USERNAME`         | Admin username for `/admin` access    |
-| `ADMIN_PASSWORD_HASH`   | Argon2id hash of admin password       |
-| `ADMIN_SESSION_TTL_MS`  | Admin session timeout in milliseconds |
+The public client only requires `CONVEX_URL`. Optional MinerU callback settings stay server-side.
 
-## Setup Instructions
+## Password Hash Setup
 
-### 1. Generate Admin Password Hash
+Generate the admin password hash with:
 
 ```bash
 node scripts/hash-admin-password.mjs "your-strong-password"
 ```
 
-This will output an encoded Argon2id hash that you can use in your environment variables.
+This prints the encoded Argon2id hash string to store in `ADMIN_PASSWORD_HASH`.
 
-### 2. Configure Environment Variables
+## Operational Verification
 
-Set the following in `.env.local` (for development) or Convex Dashboard (for production):
+After configuration, verify the following:
 
-```bash
-ADMIN_USERNAME=admin
-ADMIN_PASSWORD_HASH=<hash-from-step-1>
-ADMIN_SESSION_TTL_MS=1800000
-```
+1. Visit `/` and confirm the engineer workspace loads without any auth gate.
+2. Visit `/admin` and confirm the login form is shown.
+3. Sign in with the configured admin credentials.
+4. Confirm document registration and ingestion actions work only with a valid admin session.
+5. Confirm expired or revoked admin sessions are rejected and the UI returns to the login form.
 
-### 3. Deploy to Convex
+## Notes on Legacy Files
 
-```bash
-bun run convex:deploy
-```
-
-### 4. Verify Setup
-
-- Visit `/` - should be publicly accessible without login
-- Visit `/admin` - should redirect to login page
-- Login with your admin credentials - should access admin console
-
-## API Changes
-
-### Queries
-
-| Query           | Change                                                                             |
-| --------------- | ---------------------------------------------------------------------------------- |
-| `users.current` | Now returns `{ canManageDocuments: true, isAllowed: true, isAdmin: boolean }`    |
-| `adminAuth.validate` | New query to validate admin session tokens                                    |
-
-### Mutations
-
-| Mutation            | Change                           |
-| ------------------- | -------------------------------- |
-| `adminAuth.login`   | New mutation for admin login     |
-| `adminAuth.logout`  | New mutation for admin logout    |
-| `documents.create`  | Records admin session token     |
-| `ingestion.enqueue` | Records admin session token     |
-| `ingestion.retry`   | Records admin session token     |
-
-## Security Considerations
-
-### Current State
-
-- **Public Workspace**: No authentication on `/` - suitable for internal tools or public documentation
-- **Admin Console**: Minimal session-based auth on `/admin` - suitable for trusted environments
-- **No End-User Accounts**: Removed complexity of user management and role-based access
-
-### Recommendations
-
-For production deployments:
-
-1. **Use Strong Passwords**: Generate secure password hashes with the provided script
-2. **Set Appropriate TTL**: Configure `ADMIN_SESSION_TTL_MS` based on your security requirements
-3. **Monitor Login Attempts**: Review `adminLoginAttempts` table for suspicious activity
-4. **Use HTTPS**: Ensure your Convex deployment uses HTTPS
-5. **Consider Additional Layers**: For high-security requirements, consider:
-   - Reverse proxy authentication (Authelia, Auth0)
-   - IP whitelisting for `/admin`
-   - Multi-factor authentication
-
-## Migration Checklist
-
-- [ ] Removed `@convex-dev/auth` and `@auth/core` dependencies
-- [ ] Removed old auth routes and UI gates
-- [ ] Replaced fake anonymous user IDs with explicit admin metadata
-- [ ] Added `adminSessions` and `adminLoginAttempts` tables
-- [ ] Generated `ADMIN_PASSWORD_HASH` with provided script
-- [ ] Set `ADMIN_USERNAME`, `ADMIN_PASSWORD_HASH`, and `ADMIN_SESSION_TTL_MS` in Convex dashboard
-- [ ] Confirmed `/` is public and accessible without login
-- [ ] Confirmed `/admin` requires login and protects admin features
-- [ ] Removed all auth-era environment variables
-- [ ] Updated documentation to reflect new architecture
-
-## Rollback Plan
-
-To restore the previous Convex Auth implementation:
-
-1. Install dependencies: `npm install @convex-dev/auth @auth/core`
-2. Restore `convex/auth.ts` with provider configuration
-3. Restore `convex/auth.config.ts`
-4. Restore `convex/lib/roles.ts`
-5. Restore auth tables in `convex/schema.ts`
-6. Restore the `users` query with proper auth integration
-7. Update all viewer functions to use `getAuthUserId`
-8. Restore AuthGate and RoleGate components
-9. Restore the auth page and provider
-10. Set auth environment variables (`AUTH_RESEND_KEY`, `AUTH_EMAIL_FROM`, etc.)
+The target architecture no longer depends on Convex Auth, role gates, or public-user viewer models. If any legacy auth-era helper files are still present in the repository, treat them as cleanup candidates rather than part of the intended runtime design.

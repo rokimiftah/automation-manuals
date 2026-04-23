@@ -1,6 +1,6 @@
 import { v } from "convex/values"
 
-import { mutation, query } from "./_generated/server"
+import { internalQuery, mutation } from "./_generated/server"
 import { requireAdminWriteSession } from "./lib/adminSession"
 import { defaultEvaluationCases } from "./lib/evaluationSeed"
 import { severityValidator } from "./lib/validators"
@@ -17,7 +17,7 @@ const evaluationCaseValidator = v.object({
   slug: v.string()
 })
 
-export const list = query({
+export const list = internalQuery({
   args: {},
   returns: v.array(evaluationCaseValidator),
   handler: async (ctx) => {

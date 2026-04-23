@@ -97,4 +97,29 @@ describe("buildDocumentPayload", () => {
 
     expect(ocr).not.toHaveBeenCalled()
   })
+
+  it("signals before embedding begins", async () => {
+    const order: string[] = []
+    const embed = vi.fn().mockImplementation(async () => {
+      order.push("embed")
+      return [[0.1, 0.2]]
+    })
+    const onBeforeEmbed = vi.fn().mockImplementation(() => {
+      order.push("before")
+    })
+
+    await buildDocumentPayload({
+      embed,
+      onBeforeEmbed,
+      parsedPages: [
+        {
+          markdown: "Recovered controller wiring instructions with enough text to be chunked safely.",
+          pageNumber: 1
+        }
+      ]
+    } as never)
+
+    expect(onBeforeEmbed).toHaveBeenCalledTimes(1)
+    expect(order).toEqual(["before", "embed"])
+  })
 })

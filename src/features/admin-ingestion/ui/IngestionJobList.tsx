@@ -1,7 +1,9 @@
 import type { Id } from "@convex/_generated/dataModel"
 
 export type IngestionJob = {
+  _creationTime: number
   _id: Id<"ingestionJobs">
+  createdAt: number
   documentId: Id<"documents">
   errorMessage?: string
   providerErrorCode?: number
@@ -42,6 +44,38 @@ function statusLabel(status: string) {
   }
 
   return status
+}
+
+function compareJobRecency(left: IngestionJob, right: IngestionJob) {
+  if (left._creationTime !== right._creationTime) {
+    return left._creationTime - right._creationTime
+  }
+
+  if (left.createdAt !== right.createdAt) {
+    return left.createdAt - right.createdAt
+  }
+
+  return String(left._id).localeCompare(String(right._id))
+}
+
+function canRetryJob(job: IngestionJob, jobs: IngestionJob[]) {
+  if (job.status !== "failed") {
+    return false
+  }
+
+  const latestDocumentJob = jobs.reduce<IngestionJob | null>((latest, candidate) => {
+    if (candidate.documentId !== job.documentId) {
+      return latest
+    }
+
+    if (!latest || compareJobRecency(candidate, latest) > 0) {
+      return candidate
+    }
+
+    return latest
+  }, null)
+
+  return latestDocumentJob?._id === job._id
 }
 
 export default function IngestionJobList({ jobs, onRetry }: IngestionJobListProps) {
@@ -92,15 +126,17 @@ export default function IngestionJobList({ jobs, onRetry }: IngestionJobListProp
                 ) : null}
               </div>
 
-              <button
-                className="inline-flex items-center justify-center rounded-2xl border border-slate-700 px-4 py-2 text-sm font-medium text-slate-200 transition hover:border-slate-500 hover:text-white active:translate-y-px"
-                type="button"
-                onClick={() => {
-                  void onRetry(job._id)
-                }}
-              >
-                Retry
-              </button>
+              {canRetryJob(job, jobs) ? (
+                <button
+                  className="inline-flex items-center justify-center rounded-2xl border border-slate-700 px-4 py-2 text-sm font-medium text-slate-200 transition hover:border-slate-500 hover:text-white active:translate-y-px"
+                  type="button"
+                  onClick={() => {
+                    void onRetry(job._id)
+                  }}
+                >
+                  Retry
+                </button>
+              ) : null}
             </article>
           ))}
         </div>

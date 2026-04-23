@@ -23,7 +23,9 @@ import { embedTexts, ocrPdfPage } from "./lib/mistral"
 import { ingestionStatusValidator } from "./lib/validators"
 
 const listJobValidator = v.object({
+  _creationTime: v.number(),
   _id: v.id("ingestionJobs"),
+  createdAt: v.number(),
   documentId: v.id("documents"),
   errorMessage: v.optional(v.string()),
   providerErrorCode: v.optional(v.number()),
@@ -64,6 +66,46 @@ const jobByIdValidator = v.union(
     updatedAt: v.number()
   })
 )
+
+type RetryableIngestionJob = {
+  _creationTime: number
+  _id: Id<"ingestionJobs">
+  createdAt: number
+  documentId: Id<"documents">
+  status: IngestionStatus
+}
+
+function compareJobRecency(left: RetryableIngestionJob, right: RetryableIngestionJob) {
+  if (left._creationTime !== right._creationTime) {
+    return left._creationTime - right._creationTime
+  }
+
+  if (left.createdAt !== right.createdAt) {
+    return left.createdAt - right.createdAt
+  }
+
+  return String(left._id).localeCompare(String(right._id))
+}
+
+export function isRetryableJob(job: RetryableIngestionJob, jobs: RetryableIngestionJob[]) {
+  if (job.status !== "failed") {
+    return false
+  }
+
+  const latestDocumentJob = jobs.reduce<RetryableIngestionJob | null>((latest, candidate) => {
+    if (candidate.documentId !== job.documentId) {
+      return latest
+    }
+
+    if (!latest || compareJobRecency(candidate, latest) > 0) {
+      return candidate
+    }
+
+    return latest
+  }, null)
+
+  return latestDocumentJob?._id === job._id
+}
 
 function selectBackoffDelay(status: IngestionStatus) {
   if (status === "processing_provider") {
@@ -122,7 +164,9 @@ export const listJobs = query({
     await requireAdminQuerySession(ctx, args.sessionToken)
     const jobs = await ctx.db.query("ingestionJobs").collect()
     return jobs.map((job) => ({
+      _creationTime: job._creationTime,
       _id: job._id,
+      createdAt: job.createdAt,
       documentId: job.documentId,
       ...(job.errorMessage === undefined ? {} : { errorMessage: job.errorMessage }),
       ...(job.providerErrorCode === undefined ? {} : { providerErrorCode: job.providerErrorCode }),
@@ -165,6 +209,14 @@ export const retry = mutation({
     const existing = await ctx.db.get(args.jobId)
     if (!existing) {
       throw new ConvexError("Ingestion job not found")
+    }
+
+    const documentJobs = await ctx.db
+      .query("ingestionJobs")
+      .withIndex("by_document", (q) => q.eq("documentId", existing.documentId))
+      .collect()
+    if (!isRetryableJob(existing, documentJobs)) {
+      throw new ConvexError("Only the latest failed ingestion job can be retried")
     }
 
     const now = Date.now()
@@ -555,14 +607,15 @@ export const finalizeProviderResult = internalAction({
       const normalized = normalizeMineruDocument(middleJson)
       const payload = await buildDocumentPayload({
         embed: (inputs) => embedTexts(inputs),
+        onBeforeEmbed: async () => {
+          await ctx.runMutation(internal.ingestion.updateJobStatus, {
+            jobId: args.jobId,
+            status: "embedding"
+          })
+        },
         ocr: (sourceUrl, pageNumber) => ocrPdfPage(sourceUrl, pageNumber),
         parsedPages: normalized.pages,
         sourceUrl: document.sourceUrl
-      })
-
-      await ctx.runMutation(internal.ingestion.updateJobStatus, {
-        jobId: args.jobId,
-        status: "embedding"
       })
 
       await ctx.runMutation(internal.documents.replaceParsedContent, {

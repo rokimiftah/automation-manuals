@@ -1,3 +1,5 @@
+import { randomBytes } from "node:crypto"
+
 import { argon2id } from "hash-wasm"
 
 const password = process.argv[2]?.trim()
@@ -9,7 +11,7 @@ if (!password) {
 
 const hash = await argon2id({
   password: new TextEncoder().encode(password),
-  salt: new Uint8Array(16),
+  salt: randomBytes(16),
   iterations: 2,
   memorySize: 19_456,
   parallelism: 1,

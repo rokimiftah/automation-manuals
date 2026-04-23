@@ -121,6 +121,7 @@ export default defineSchema({
     embedding: v.array(v.float64())
   })
     .index("by_chunk", ["chunkId"])
+    .index("by_document_and_current", ["documentId", "isCurrent"])
     .vectorIndex("by_embedding", {
       vectorField: "embedding",
       dimensions: 1024,

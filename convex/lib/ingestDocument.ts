@@ -4,6 +4,7 @@ import { normalizeParsedPages } from "./normalize"
 
 type LegacyBuildDocumentPayloadArgs = {
   embed: (inputs: string[]) => Promise<number[][]>
+  onBeforeEmbed?: () => Promise<void> | void
   ocr: (sourceUrl: string, pageNumber: number) => Promise<string>
   parse: () => Promise<ParsedPage[]>
   sourceUrl: string
@@ -11,6 +12,7 @@ type LegacyBuildDocumentPayloadArgs = {
 
 type ParsedPagesBuildDocumentPayloadArgs = {
   embed: (inputs: string[]) => Promise<number[][]>
+  onBeforeEmbed?: () => Promise<void> | void
   ocr?: (sourceUrl: string, pageNumber: number) => Promise<string>
   parsedPages: ParsedPage[]
   sourceUrl?: string
@@ -42,6 +44,10 @@ export async function buildDocumentPayload(args: BuildDocumentPayloadArgs) {
   )
 
   const normalized = normalizeParsedPages(pages)
+  if (normalized.chunks.length > 0) {
+    await args.onBeforeEmbed?.()
+  }
+
   const embeddings = normalized.chunks.length === 0 ? [] : await args.embed(normalized.chunks.map((chunk) => chunk.content))
 
   if (embeddings.length !== normalized.chunks.length) {

@@ -57,8 +57,15 @@ export default function DocumentRegistrationForm({ onSubmit }: DocumentRegistrat
             sourceUrl: values.sourceUrl.trim()
           }
 
-          if (!normalizedValues.title || !normalizedValues.sourceUrl) {
-            setError("Title and source URL are required.")
+          if (
+            !normalizedValues.vendorName ||
+            !normalizedValues.productName ||
+            !normalizedValues.title ||
+            !normalizedValues.version ||
+            !normalizedValues.language ||
+            !normalizedValues.sourceUrl
+          ) {
+            setError("Vendor name, product name, title, version, language, and source URL are required.")
             return
           }
 
@@ -154,7 +161,7 @@ export default function DocumentRegistrationForm({ onSubmit }: DocumentRegistrat
           >
             {isDisabled ? "Queueing..." : "Queue document"}
           </button>
-          <p className="text-xs leading-5 text-slate-400">Title and source URL are required before the manual can be queued.</p>
+          <p className="text-xs leading-5 text-slate-400">Every registration field is required before the manual can be queued.</p>
         </div>
       </form>
     </section>

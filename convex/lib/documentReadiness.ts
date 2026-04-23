@@ -2,6 +2,7 @@ import type { GenericId } from "convex/values"
 
 export function assertReadyDocumentArtifacts(input: {
   chunkCount: number
+  hasAlignedEmbeddings: boolean
   hasSourceAsset: boolean
   pageCount: number
 }) {
@@ -15,6 +16,10 @@ export function assertReadyDocumentArtifacts(input: {
 
   if (input.chunkCount < 1) {
     throw new Error("At least one searchable chunk is required before a document can become ready")
+  }
+
+  if (!input.hasAlignedEmbeddings) {
+    throw new Error("Current chunk embeddings must align one-to-one with current chunks before a document can become ready")
   }
 }
 

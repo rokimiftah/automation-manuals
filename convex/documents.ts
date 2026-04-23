@@ -143,6 +143,7 @@ export const replaceParsedContent = internalMutation({
 
     assertReadyDocumentArtifacts({
       chunkCount: args.chunks.length,
+      hasAlignedEmbeddings: args.embeddings.length === args.chunks.length,
       hasSourceAsset: true,
       pageCount: args.pages.length
     })
@@ -169,13 +170,14 @@ export const replaceParsedContent = internalMutation({
       .collect()
     for (const chunk of currentChunks) {
       await ctx.db.patch(chunk._id, { isCurrent: false })
-      const currentEmbeddings = await ctx.db
-        .query("chunkEmbeddings")
-        .withIndex("by_chunk", (q) => q.eq("chunkId", chunk._id))
-        .collect()
-      for (const embedding of currentEmbeddings) {
-        await ctx.db.patch(embedding._id, { isCurrent: false })
-      }
+    }
+
+    const currentEmbeddings = await ctx.db
+      .query("chunkEmbeddings")
+      .withIndex("by_document_and_current", (q) => q.eq("documentId", args.documentId).eq("isCurrent", true))
+      .collect()
+    for (const embedding of currentEmbeddings) {
+      await ctx.db.delete(embedding._id)
     }
 
     const sourceAssetId = await ctx.db.insert("documentAssets", {
@@ -273,8 +275,23 @@ export const markReady = internalMutation({
       .withIndex("by_document_and_current", (q) => q.eq("documentId", args.documentId).eq("isCurrent", true))
       .collect()
 
+    const currentEmbeddings = await ctx.db
+      .query("chunkEmbeddings")
+      .withIndex("by_document_and_current", (q) => q.eq("documentId", args.documentId).eq("isCurrent", true))
+      .collect()
+    const embeddingCountByChunkId = new Map<string, number>()
+    for (const embedding of currentEmbeddings) {
+      embeddingCountByChunkId.set(embedding.chunkId, (embeddingCountByChunkId.get(embedding.chunkId) ?? 0) + 1)
+    }
+    const currentChunkIds = new Set(currentChunks.map((chunk) => chunk._id))
+    const hasAlignedEmbeddings =
+      currentEmbeddings.length === currentChunks.length &&
+      currentEmbeddings.every((embedding) => currentChunkIds.has(embedding.chunkId)) &&
+      currentChunks.every((chunk) => embeddingCountByChunkId.get(chunk._id) === 1)
+
     assertReadyDocumentArtifacts({
       chunkCount: currentChunks.length,
+      hasAlignedEmbeddings,
       hasSourceAsset: sourceAssetId !== undefined,
       pageCount: currentPages.length
     })

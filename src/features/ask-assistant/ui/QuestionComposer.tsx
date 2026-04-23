@@ -22,8 +22,14 @@ export default function QuestionComposer({ disabled, onSubmit }: QuestionCompose
           return
         }
 
-        void onSubmit(submittedValue)
-        setValue("")
+        void (async () => {
+          try {
+            await onSubmit(submittedValue)
+            setValue("")
+          } catch {
+            // The parent renders the error state. Keep the draft intact.
+          }
+        })()
       }}
     >
       <div className="space-y-2">

@@ -27,11 +27,11 @@ export default function EngineerWorkspace() {
         <div className="space-y-6">
           <QuestionComposer
             disabled={isSubmitting}
-            onSubmit={(question) => {
-              setError(undefined)
-              setIsSubmitting(true)
+            onSubmit={(question) =>
+              (async () => {
+                setError(undefined)
+                setIsSubmitting(true)
 
-              void (async () => {
                 try {
                   const result = await ask({ question, sessionId: sessionId ?? undefined })
 
@@ -41,12 +41,14 @@ export default function EngineerWorkspace() {
                     setActiveAsset(result.supportingAssets[0] ?? null)
                   })
                 } catch (submitError) {
-                  setError(submitError instanceof Error ? submitError.message : "Unable to answer the question.")
+                  const error = submitError instanceof Error ? submitError : new Error("Unable to answer the question.")
+                  setError(error.message)
+                  throw error
                 } finally {
                   setIsSubmitting(false)
                 }
               })()
-            }}
+            }
           />
 
           {error ? (

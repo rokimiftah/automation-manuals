@@ -7,6 +7,7 @@ describe("assertReadyDocumentArtifacts", () => {
     expect(() =>
       assertReadyDocumentArtifacts({
         chunkCount: 1,
+        hasAlignedEmbeddings: true,
         hasSourceAsset: false,
         pageCount: 1
       })
@@ -17,6 +18,7 @@ describe("assertReadyDocumentArtifacts", () => {
     expect(() =>
       assertReadyDocumentArtifacts({
         chunkCount: 1,
+        hasAlignedEmbeddings: true,
         hasSourceAsset: true,
         pageCount: 0
       })
@@ -27,10 +29,22 @@ describe("assertReadyDocumentArtifacts", () => {
     expect(() =>
       assertReadyDocumentArtifacts({
         chunkCount: 0,
+        hasAlignedEmbeddings: false,
         hasSourceAsset: true,
         pageCount: 1
-      })
+      } as never)
     ).toThrow("At least one searchable chunk is required before a document can become ready")
+  })
+
+  it("throws when current chunk embeddings are missing or misaligned", () => {
+    expect(() =>
+      assertReadyDocumentArtifacts({
+        chunkCount: 1,
+        hasAlignedEmbeddings: false,
+        hasSourceAsset: true,
+        pageCount: 1
+      } as never)
+    ).toThrow("Current chunk embeddings must align one-to-one with current chunks before a document can become ready")
   })
 })
 

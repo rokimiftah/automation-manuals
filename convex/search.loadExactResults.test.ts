@@ -1,0 +1,312 @@
+import { describe, expect, it, vi } from "vitest"
+
+import { GLOBAL_EXACT_MATCH_LIMIT, GLOBAL_EXACT_MATCH_SCAN_LIMIT, loadExactResults } from "./search"
+
+const loadExactResultsHandler = loadExactResults as typeof loadExactResults & {
+  _handler: (
+    ctx: unknown,
+    args: { documentId?: never; exactContent: string }
+  ) => Promise<
+    Array<{
+      assetId?: never
+      citationLabel: string
+      chunkId: never
+      content: string
+      pageNumber: number
+      score: number
+    }>
+  >
+}
+
+function makeQueryResult(rows: Array<Record<string, unknown>>, pages: Array<Array<Record<string, unknown>>> = [rows]) {
+  const cursorToPage = new Map<string | null, number>()
+  cursorToPage.set(null, 0)
+
+  const result = {
+    collect: vi.fn(async () => rows),
+    paginate: vi.fn(async ({ cursor }: { cursor: string | null }) => {
+      const pageIndex = cursorToPage.get(cursor) ?? 0
+      const page = pages[pageIndex] ?? []
+      const nextCursor = pageIndex + 1 < pages.length ? `cursor_${pageIndex + 1}` : ""
+      if (pageIndex + 1 < pages.length) {
+        cursorToPage.set(nextCursor, pageIndex + 1)
+      }
+
+      return {
+        continueCursor: nextCursor,
+        isDone: pageIndex + 1 >= pages.length,
+        page
+      }
+    }),
+    take: vi.fn(async (limit: number) => rows.slice(0, limit))
+  }
+
+  return result
+}
+
+function makeDb(rows: Array<Record<string, unknown>>, pages: Array<Array<Record<string, unknown>>> = [rows]) {
+  const rangeBuilder = {
+    eq: vi.fn(() => rangeBuilder)
+  }
+
+  const queryResult = makeQueryResult(rows, pages)
+  const withIndex = vi.fn((_indexName: string, rangeBuilderFn: (builder: typeof rangeBuilder) => void) => {
+    rangeBuilderFn(rangeBuilder)
+    return queryResult
+  })
+
+  const query = vi.fn(() => ({ withIndex }))
+
+  return { query, withIndex, rangeBuilder, queryResult }
+}
+
+describe("loadExactResults", () => {
+  it("returns current literal matches from a ready document", async () => {
+    const db = makeDb([
+      {
+        _id: "chunks_2" as never,
+        citationLabel: "Page 4",
+        content: "Install the module beside the controller.",
+        documentId: "documents_1" as never,
+        isCurrent: true,
+        pageNumber: 4
+      },
+      {
+        _id: "chunks_1" as never,
+        citationLabel: "Page 2",
+        content: "Install the module beside the controller.",
+        documentId: "documents_1" as never,
+        isCurrent: true,
+        pageNumber: 2
+      }
+    ])
+
+    const get = vi
+      .fn()
+      .mockResolvedValueOnce({
+        sourceAssetId: "documentAssets_1" as never,
+        status: "ready"
+      })
+      .mockResolvedValueOnce({
+        sourceAssetId: "documentAssets_1" as never,
+        status: "ready"
+      })
+
+    const results = await loadExactResultsHandler._handler(
+      {
+        db: { ...db, get }
+      } as never,
+      {
+        exactContent: "Install the module beside the controller."
+      }
+    )
+
+    expect(db.withIndex).toHaveBeenCalledWith("by_current_and_content", expect.any(Function))
+    expect(db.rangeBuilder.eq).toHaveBeenNthCalledWith(1, "isCurrent", true)
+    expect(db.rangeBuilder.eq).toHaveBeenNthCalledWith(2, "content", "Install the module beside the controller.")
+    expect(results).toEqual([
+      {
+        assetId: "documentAssets_1",
+        citationLabel: "Page 2",
+        chunkId: "chunks_1",
+        content: "Install the module beside the controller.",
+        pageNumber: 2,
+        score: 1
+      },
+      {
+        assetId: "documentAssets_1",
+        citationLabel: "Page 4",
+        chunkId: "chunks_2",
+        content: "Install the module beside the controller.",
+        pageNumber: 4,
+        score: 1
+      }
+    ])
+  })
+
+  it("skips chunks whose documents are not ready", async () => {
+    const db = makeDb([
+      {
+        _id: "chunks_1" as never,
+        citationLabel: "Page 7",
+        content: "Use the safety latch.",
+        documentId: "documents_1" as never,
+        isCurrent: true,
+        pageNumber: 7
+      },
+      {
+        _id: "chunks_2" as never,
+        citationLabel: "Page 8",
+        content: "Use the safety latch.",
+        documentId: "documents_2" as never,
+        isCurrent: true,
+        pageNumber: 8
+      }
+    ])
+
+    const get = vi
+      .fn()
+      .mockResolvedValueOnce({
+        sourceAssetId: "documentAssets_1" as never,
+        status: "ready"
+      })
+      .mockResolvedValueOnce({
+        sourceAssetId: "documentAssets_2" as never,
+        status: "processing"
+      })
+
+    const results = await loadExactResultsHandler._handler(
+      {
+        db: { ...db, get }
+      } as never,
+      {
+        exactContent: "Use the safety latch."
+      }
+    )
+
+    expect(results).toEqual([
+      {
+        assetId: "documentAssets_1",
+        citationLabel: "Page 7",
+        chunkId: "chunks_1",
+        content: "Use the safety latch.",
+        pageNumber: 7,
+        score: 1
+      }
+    ])
+  })
+
+  it("limits global scans with an explicit constant", async () => {
+    const db = makeDb(
+      Array.from({ length: GLOBAL_EXACT_MATCH_LIMIT + 8 }, (_, index) => ({
+        _id: `chunks_${index + 1}` as never,
+        citationLabel: `Page ${index + 1}`,
+        content: "Global exact match.",
+        documentId: "documents_1" as never,
+        isCurrent: true,
+        pageNumber: index + 1
+      })),
+      [
+        Array.from({ length: GLOBAL_EXACT_MATCH_SCAN_LIMIT }, (_, index) => ({
+          _id: `chunks_stale_${index + 1}` as never,
+          citationLabel: `Page ${index + 1}`,
+          content: "Global exact match.",
+          documentId: `documents_stale_${index + 1}` as never,
+          isCurrent: true,
+          pageNumber: index + 1
+        })),
+        Array.from({ length: GLOBAL_EXACT_MATCH_LIMIT + 8 }, (_, index) => ({
+          _id: `chunks_ready_${index + 1}` as never,
+          citationLabel: `Page ${index + 1}`,
+          content: "Global exact match.",
+          documentId: "documents_1" as never,
+          isCurrent: true,
+          pageNumber: index + 1
+        }))
+      ]
+    )
+
+    const get = vi
+      .fn()
+      .mockResolvedValueOnce({
+        sourceAssetId: "documentAssets_stale" as never,
+        status: "processing"
+      })
+      .mockResolvedValue({
+        sourceAssetId: "documentAssets_1" as never,
+        status: "ready"
+      })
+
+    const results = await loadExactResultsHandler._handler(
+      {
+        db: { ...db, get }
+      } as never,
+      {
+        exactContent: "Global exact match."
+      }
+    )
+
+    expect(db.query).toHaveBeenCalledWith("chunks")
+    expect(db.withIndex).toHaveBeenCalledWith("by_current_and_content", expect.any(Function))
+    expect(db.queryResult.paginate).toHaveBeenNthCalledWith(1, { cursor: null, numItems: GLOBAL_EXACT_MATCH_SCAN_LIMIT })
+    expect(db.queryResult.paginate).toHaveBeenNthCalledWith(2, { cursor: "cursor_1", numItems: GLOBAL_EXACT_MATCH_SCAN_LIMIT })
+    expect(results).toHaveLength(GLOBAL_EXACT_MATCH_LIMIT)
+  })
+
+  it("limits document-scoped lookups to the document's current chunks", async () => {
+    const db = makeDb([
+      {
+        _id: "chunks_1" as never,
+        citationLabel: "Page 3",
+        content: "Document scoped exact match.",
+        documentId: "documents_1" as never,
+        isCurrent: true,
+        pageNumber: 3
+      }
+    ])
+
+    const get = vi.fn().mockResolvedValueOnce({
+      sourceAssetId: "documentAssets_1" as never,
+      status: "ready"
+    })
+
+    await loadExactResultsHandler._handler(
+      {
+        db: { ...db, get }
+      } as never,
+      {
+        documentId: "documents_1" as never,
+        exactContent: "Document scoped exact match."
+      }
+    )
+
+    expect(db.withIndex).toHaveBeenCalledWith("by_document_and_current_and_content", expect.any(Function))
+    expect(db.rangeBuilder.eq).toHaveBeenNthCalledWith(1, "documentId", "documents_1")
+    expect(db.rangeBuilder.eq).toHaveBeenNthCalledWith(2, "isCurrent", true)
+    expect(db.rangeBuilder.eq).toHaveBeenNthCalledWith(3, "content", "Document scoped exact match.")
+    expect(get).toHaveBeenCalledTimes(1)
+  })
+
+  it("returns no rows when the document is missing", async () => {
+    const db = makeDb([])
+
+    const get = vi.fn().mockResolvedValueOnce(null)
+
+    const results = await loadExactResultsHandler._handler(
+      {
+        db: { ...db, get }
+      } as never,
+      {
+        documentId: "documents_missing" as never,
+        exactContent: "Missing document match."
+      }
+    )
+
+    expect(results).toEqual([])
+    expect(db.query).not.toHaveBeenCalled()
+    expect(get).toHaveBeenCalledTimes(1)
+  })
+
+  it("returns no rows when the document is not ready", async () => {
+    const db = makeDb([])
+
+    const get = vi.fn().mockResolvedValueOnce({
+      sourceAssetId: "documentAssets_1" as never,
+      status: "processing"
+    })
+
+    const results = await loadExactResultsHandler._handler(
+      {
+        db: { ...db, get }
+      } as never,
+      {
+        documentId: "documents_processing" as never,
+        exactContent: "Processing document match."
+      }
+    )
+
+    expect(results).toEqual([])
+    expect(db.query).not.toHaveBeenCalled()
+    expect(get).toHaveBeenCalledTimes(1)
+  })
+})

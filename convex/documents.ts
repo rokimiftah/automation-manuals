@@ -221,6 +221,7 @@ export const replaceParsedContent = internalMutation({
       await ctx.db.insert("chunkEmbeddings", {
         chunkId,
         chunkType: chunk.chunkType,
+        documentCurrentKey: `${args.documentId}:current`,
         documentId: args.documentId,
         embedding,
         isCurrent: true,
@@ -310,60 +311,84 @@ export const deleteDocument = mutation({
       return null
     }
 
-    const [allAssets, allPages, allChunks, allEmbeddings, allJobs, allEvidence, allMessages] = await Promise.all([
-      ctx.db.query("documentAssets").collect(),
-      ctx.db.query("documentPages").collect(),
-      ctx.db.query("chunks").collect(),
-      ctx.db.query("chunkEmbeddings").collect(),
-      ctx.db.query("ingestionJobs").collect(),
-      ctx.db.query("answerEvidence").collect(),
-      ctx.db.query("chatMessages").collect()
+    const [documentAssets, documentPages, documentChunks, documentEmbeddings, documentJobs] = await Promise.all([
+      ctx.db
+        .query("documentAssets")
+        .withIndex("by_document_and_current", (q) => q.eq("documentId", args.documentId).eq("isCurrent", true))
+        .collect(),
+      ctx.db
+        .query("documentPages")
+        .withIndex("by_document_and_current", (q) => q.eq("documentId", args.documentId).eq("isCurrent", true))
+        .collect(),
+      ctx.db
+        .query("chunks")
+        .withIndex("by_document_and_current", (q) => q.eq("documentId", args.documentId).eq("isCurrent", true))
+        .collect(),
+      ctx.db
+        .query("chunkEmbeddings")
+        .withIndex("by_document_and_current", (q) => q.eq("documentId", args.documentId).eq("isCurrent", true))
+        .collect(),
+      ctx.db
+        .query("ingestionJobs")
+        .withIndex("by_document", (q) => q.eq("documentId", args.documentId))
+        .collect()
     ])
 
-    const documentAssets = allAssets.filter((asset) => asset.documentId === args.documentId)
-    const documentPages = allPages.filter((page) => page.documentId === args.documentId)
-    const documentChunks = allChunks.filter((chunk) => chunk.documentId === args.documentId)
-    const documentEmbeddings = allEmbeddings.filter((embedding) => embedding.documentId === args.documentId)
-    const documentJobs = allJobs.filter((job) => job.documentId === args.documentId)
+    const documentEvidence = await ctx.db
+      .query("answerEvidence")
+      .withIndex("by_document", (q) => q.eq("documentId", args.documentId))
+      .collect()
 
-    const documentAssetIds = new Set<GenericId<"documentAssets">>(documentAssets.map((asset) => asset._id))
-    const documentChunkIds = new Set<GenericId<"chunks">>(documentChunks.map((chunk) => chunk._id))
-
-    const relatedSessions = new Set<GenericId<"chatSessions">>()
-    for (const evidence of allEvidence) {
-      const isDocumentEvidence =
-        documentChunkIds.has(evidence.chunkId) || (evidence.assetId !== undefined && documentAssetIds.has(evidence.assetId))
-
-      if (!isDocumentEvidence) {
-        continue
+    const relatedSessionIds = new Set<GenericId<"chatSessions">>()
+    for (const evidence of documentEvidence) {
+      const message = await ctx.db.get(evidence.messageId)
+      if (message) {
+        relatedSessionIds.add(message.sessionId)
       }
-
-      const message = allMessages.find((candidate) => candidate._id === evidence.messageId)
-      if (!message) {
-        continue
-      }
-
-      relatedSessions.add(message.sessionId)
     }
 
-    const relatedSessionMessages = allMessages.filter((message) => relatedSessions.has(message.sessionId))
-    const relatedSessionMessageIds = new Set<GenericId<"chatMessages">>(relatedSessionMessages.map((message) => message._id))
+    const sessionsToDelete = new Set<GenericId<"chatSessions">>()
+    const messagesToDelete = new Set<GenericId<"chatMessages">>()
+
+    for (const sessionId of relatedSessionIds) {
+      const sessionMessages = await ctx.db
+        .query("chatMessages")
+        .withIndex("by_session", (q) => q.eq("sessionId", sessionId))
+        .collect()
+      let hasForeignEvidence = false
+
+      for (const message of sessionMessages) {
+        const evidenceForMessage = await ctx.db
+          .query("answerEvidence")
+          .withIndex("by_message", (q) => q.eq("messageId", message._id))
+          .collect()
+        if (evidenceForMessage.some((evidence) => evidence.documentId !== args.documentId)) {
+          hasForeignEvidence = true
+          break
+        }
+      }
+
+      if (hasForeignEvidence) {
+        continue
+      }
+
+      sessionsToDelete.add(sessionId)
+      for (const message of sessionMessages) {
+        messagesToDelete.add(message._id)
+      }
+    }
 
     await Promise.all(documentAssets.map((asset) => ctx.storage.delete(asset.storageId)))
 
-    for (const evidence of allEvidence) {
-      if (!relatedSessionMessageIds.has(evidence.messageId)) {
-        continue
-      }
-
+    for (const evidence of documentEvidence) {
       await ctx.db.delete("answerEvidence", evidence._id)
     }
 
-    for (const message of relatedSessionMessages) {
-      await ctx.db.delete("chatMessages", message._id)
+    for (const messageId of messagesToDelete) {
+      await ctx.db.delete("chatMessages", messageId)
     }
 
-    for (const sessionId of relatedSessions) {
+    for (const sessionId of sessionsToDelete) {
       await ctx.db.delete("chatSessions", sessionId)
     }
 

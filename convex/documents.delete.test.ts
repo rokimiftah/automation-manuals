@@ -18,6 +18,45 @@ const deleteDocumentHandler = deleteDocument as typeof deleteDocument & {
   _handler: (ctx: unknown, args: { documentId: never; sessionToken: string }) => Promise<null>
 }
 
+function makeDeleteQuery(collections: Record<string, Array<Record<string, unknown>>>) {
+  return vi.fn((table: string) => {
+    return {
+      collect: vi.fn(async () => collections[table] ?? []),
+      withIndex: vi.fn((indexName: string, rangeBuilderFn: (builder: { eq: (field: string, value: string) => void }) => void) => {
+        const calls: Array<[string, string]> = []
+        const builder = {
+          eq: vi.fn((field: string, value: string) => {
+            calls.push([field, value])
+            return builder
+          })
+        }
+
+        rangeBuilderFn(builder)
+
+        const rows = (collections[table] ?? []).filter((row) => {
+          if (table === "answerEvidence" && indexName === "by_document") {
+            return row.documentId === calls.find(([field]) => field === "documentId")?.[1]
+          }
+
+          if (table === "answerEvidence" && indexName === "by_message") {
+            return row.messageId === calls.find(([field]) => field === "messageId")?.[1]
+          }
+
+          if (table === "chatMessages" && indexName === "by_session") {
+            return row.sessionId === calls.find(([field]) => field === "sessionId")?.[1]
+          }
+
+          return true
+        })
+
+        return {
+          collect: vi.fn(async () => rows)
+        }
+      })
+    }
+  })
+}
+
 describe("deleteDocument", () => {
   beforeEach(() => {
     requireAdminWriteSession.mockReset()
@@ -50,6 +89,7 @@ describe("deleteDocument", () => {
     const answerEvidence = [
       {
         _id: "answerEvidence_1" as never,
+        documentId: "documents_1" as never,
         assetId: "documentAssets_1" as never,
         chunkId: "chunks_1" as never,
         messageId: "chatMessages_2" as never,
@@ -72,22 +112,32 @@ describe("deleteDocument", () => {
       }
     ]
 
-    const query = vi.fn((table: string) => {
-      const collections: Record<string, unknown[]> = {
-        answerEvidence,
-        chatMessages,
-        chunkEmbeddings,
-        chunks,
-        documentAssets,
-        documentPages,
-        ingestionJobs
+    const query = makeDeleteQuery({
+      answerEvidence,
+      chatMessages,
+      chunkEmbeddings,
+      chunks,
+      documentAssets,
+      documentPages,
+      ingestionJobs
+    })
+    const get = vi.fn(async (...args: Array<string>) => {
+      const id = args.length === 2 ? args[1] : args[0]
+
+      if (id === "documents_1") {
+        return document
       }
 
-      return {
-        collect: vi.fn().mockResolvedValue(collections[table] ?? [])
+      if (id === "chatMessages_1") {
+        return chatMessages[0]
       }
+
+      if (id === "chatMessages_2") {
+        return chatMessages[1]
+      }
+
+      return null
     })
-    const get = vi.fn().mockResolvedValue(document)
     const deleteRow = vi.fn().mockResolvedValue(undefined)
     const insert = vi.fn().mockResolvedValue("auditEvents_1")
     const storageDelete = vi.fn().mockResolvedValue(undefined)
@@ -129,5 +179,113 @@ describe("deleteDocument", () => {
         targetTable: "documents"
       })
     )
+  })
+
+  it("preserves mixed chat history that also references other documents", async () => {
+    const document = {
+      _id: "documents_1" as never,
+      productId: "products_1" as never,
+      sourceAssetId: "documentAssets_1" as never,
+      status: "ready"
+    }
+
+    const documentAssets = [
+      {
+        _id: "documentAssets_1" as never,
+        documentId: "documents_1" as never,
+        storageId: "_storage_1" as never
+      }
+    ]
+
+    const documentPages = [{ _id: "documentPages_1" as never, documentId: "documents_1" as never }]
+    const chunks = [{ _id: "chunks_1" as never, documentId: "documents_1" as never }]
+    const chunkEmbeddings = [{ _id: "chunkEmbeddings_1" as never, documentId: "documents_1" as never }]
+    const ingestionJobs = [{ _id: "ingestionJobs_1" as never, documentId: "documents_1" as never }]
+    const answerEvidence = [
+      {
+        _id: "answerEvidence_1" as never,
+        documentId: "documents_1" as never,
+        assetId: "documentAssets_1" as never,
+        chunkId: "chunks_1" as never,
+        messageId: "chatMessages_2" as never,
+        pageNumber: 12,
+        score: 0.91
+      },
+      {
+        _id: "answerEvidence_2" as never,
+        documentId: "documents_2" as never,
+        assetId: "documentAssets_2" as never,
+        chunkId: "chunks_2" as never,
+        messageId: "chatMessages_2" as never,
+        pageNumber: 18,
+        score: 0.83
+      }
+    ]
+    const chatMessages = [
+      {
+        _id: "chatMessages_1" as never,
+        content: "Where is Rockwell mentioned?",
+        role: "user",
+        sessionId: "chatSessions_1" as never
+      },
+      {
+        _id: "chatMessages_2" as never,
+        content: "Rockwell is on page 12 and also in another document.",
+        role: "assistant",
+        sessionId: "chatSessions_1" as never
+      }
+    ]
+
+    const query = makeDeleteQuery({
+      answerEvidence,
+      chatMessages,
+      chunkEmbeddings,
+      chunks,
+      documentAssets,
+      documentPages,
+      ingestionJobs
+    })
+    const get = vi.fn(async (...args: Array<string>) => {
+      const id = args.length === 2 ? args[1] : args[0]
+
+      if (id === "documents_1") {
+        return document
+      }
+
+      if (id === "chatMessages_1") {
+        return chatMessages[0]
+      }
+
+      if (id === "chatMessages_2") {
+        return chatMessages[1]
+      }
+
+      return null
+    })
+    const deleteRow = vi.fn().mockResolvedValue(undefined)
+    const insert = vi.fn().mockResolvedValue("auditEvents_1")
+    const storageDelete = vi.fn().mockResolvedValue(undefined)
+
+    await deleteDocumentHandler._handler(
+      {
+        db: {
+          delete: deleteRow,
+          get,
+          insert,
+          query
+        },
+        storage: {
+          delete: storageDelete
+        }
+      } as never,
+      {
+        documentId: "documents_1" as never,
+        sessionToken: "token-123"
+      }
+    )
+
+    expect(deleteRow).toHaveBeenCalledWith("answerEvidence", "answerEvidence_1")
+    expect(deleteRow).not.toHaveBeenCalledWith("chatMessages", "chatMessages_2")
+    expect(deleteRow).not.toHaveBeenCalledWith("chatSessions", "chatSessions_1")
   })
 })

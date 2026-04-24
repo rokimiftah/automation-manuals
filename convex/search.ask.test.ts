@@ -47,7 +47,7 @@ describe("ask", () => {
     })
   })
 
-  it("keeps a document-grounded answer even when evidence scores are below the old cutoff", async () => {
+  it("runs exact fallback for weak vector evidence without losing grounding", async () => {
     const runQuery = vi
       .fn()
       .mockResolvedValueOnce({
@@ -66,6 +66,7 @@ describe("ask", () => {
           score: 0.4
         }
       ])
+      .mockResolvedValueOnce([])
 
     const runMutation = vi
       .fn()
@@ -87,6 +88,7 @@ describe("ask", () => {
       }
     )
 
+    expect(runQuery).toHaveBeenCalledTimes(3)
     expect(vectorSearch).toHaveBeenCalledWith(
       "chunkEmbeddings",
       "by_embedding",
@@ -98,5 +100,277 @@ describe("ask", () => {
     expect(runMutation).toHaveBeenCalledTimes(3)
     expect(packet.answerabilityStatus).toBe("grounded")
     expect(packet.answerSummary).toBe("Install the module beside the controller.")
+  })
+
+  it("grounds a lookup-style query from exact fallback when vector search misses", async () => {
+    const runQuery = vi
+      .fn()
+      .mockResolvedValueOnce({
+        _id: "chatSessions_1" as never,
+        createdAt: 1,
+        title: "Rockwell Automation",
+        updatedAt: 1
+      })
+      .mockResolvedValueOnce([])
+      .mockResolvedValueOnce([
+        {
+          assetId: "documentAssets_1" as never,
+          citationLabel: "Page 12",
+          chunkId: "chunks_1" as never,
+          content: "Rockwell Automation",
+          pageNumber: 12,
+          score: 1
+        }
+      ])
+
+    const runMutation = vi
+      .fn()
+      .mockResolvedValueOnce("chatMessages_1")
+      .mockResolvedValueOnce("chatMessages_2")
+      .mockResolvedValueOnce(null)
+
+    const vectorSearch = vi.fn().mockResolvedValue([])
+
+    const packet = await askHandler._handler(
+      {
+        runMutation,
+        runQuery,
+        vectorSearch
+      } as never,
+      {
+        question: "Rockwell Automation",
+        sessionId: "chatSessions_1" as never
+      }
+    )
+
+    expect(runQuery).toHaveBeenCalledTimes(3)
+    expect(generateGroundedAnswer).toHaveBeenCalledTimes(1)
+    expect(packet.answerabilityStatus).toBe("grounded")
+    expect(packet.citations).toEqual([
+      {
+        assetId: "documentAssets_1",
+        citationLabel: "Page 12",
+        chunkId: "chunks_1",
+        pageNumber: 12
+      }
+    ])
+  })
+
+  it("merges vector and exact candidates without duplicates", async () => {
+    const runQuery = vi
+      .fn()
+      .mockResolvedValueOnce({
+        _id: "chatSessions_1" as never,
+        createdAt: 1,
+        title: "Rockwell Automation",
+        updatedAt: 1
+      })
+      .mockResolvedValueOnce([
+        {
+          assetId: "documentAssets_1" as never,
+          citationLabel: "Page 12",
+          chunkId: "chunks_1" as never,
+          content: "vector result",
+          pageNumber: 12,
+          score: 0.42
+        },
+        {
+          assetId: "documentAssets_2" as never,
+          citationLabel: "Page 18",
+          chunkId: "chunks_2" as never,
+          content: "vector-only result",
+          pageNumber: 18,
+          score: 0.4
+        }
+      ])
+      .mockResolvedValueOnce([
+        {
+          assetId: "documentAssets_1" as never,
+          citationLabel: "Page 12",
+          chunkId: "chunks_1" as never,
+          content: "exact result",
+          pageNumber: 12,
+          score: 1
+        }
+      ])
+
+    const runMutation = vi
+      .fn()
+      .mockResolvedValueOnce("chatMessages_1")
+      .mockResolvedValueOnce("chatMessages_2")
+      .mockResolvedValueOnce(null)
+
+    const vectorSearch = vi.fn().mockResolvedValue([
+      { _id: "chunkEmbeddings_1" as never, _score: 0.42 },
+      { _id: "chunkEmbeddings_2" as never, _score: 0.4 }
+    ])
+
+    await askHandler._handler(
+      {
+        runMutation,
+        runQuery,
+        vectorSearch
+      } as never,
+      {
+        question: "Rockwell Automation",
+        sessionId: "chatSessions_1" as never
+      }
+    )
+
+    expect(runQuery).toHaveBeenCalledTimes(3)
+    expect(generateGroundedAnswer).toHaveBeenCalledTimes(1)
+
+    const context = generateGroundedAnswer.mock.calls[0]?.[1] as string
+    expect(context).toContain("[E1] Page 12: exact result")
+    expect(context).not.toContain("vector result")
+    expect(context.match(/Page 12/g)).toHaveLength(1)
+  })
+
+  it("keeps the stronger vector candidate when exact fallback is weaker", async () => {
+    const runQuery = vi
+      .fn()
+      .mockResolvedValueOnce({
+        _id: "chatSessions_1" as never,
+        createdAt: 1,
+        title: "Rockwell Automation",
+        updatedAt: 1
+      })
+      .mockResolvedValueOnce([
+        {
+          assetId: "documentAssets_1" as never,
+          citationLabel: "Page 12",
+          chunkId: "chunks_1" as never,
+          content: "vector result",
+          pageNumber: 12,
+          score: 0.99
+        }
+      ])
+      .mockResolvedValueOnce([
+        {
+          assetId: "documentAssets_1" as never,
+          citationLabel: "Page 12",
+          chunkId: "chunks_1" as never,
+          content: "exact result",
+          pageNumber: 12,
+          score: 0.5
+        }
+      ])
+
+    const runMutation = vi
+      .fn()
+      .mockResolvedValueOnce("chatMessages_1")
+      .mockResolvedValueOnce("chatMessages_2")
+      .mockResolvedValueOnce(null)
+
+    const vectorSearch = vi.fn().mockResolvedValue([{ _id: "chunkEmbeddings_1" as never, _score: 0.99 }])
+
+    await askHandler._handler(
+      {
+        runMutation,
+        runQuery,
+        vectorSearch
+      } as never,
+      {
+        question: "Rockwell Automation",
+        sessionId: "chatSessions_1" as never
+      }
+    )
+
+    const context = generateGroundedAnswer.mock.calls[0]?.[1] as string
+    expect(context).toContain("vector result")
+    expect(context).not.toContain("exact result")
+  })
+
+  it("returns a refusal packet when neither path finds evidence", async () => {
+    const runQuery = vi
+      .fn()
+      .mockResolvedValueOnce({
+        _id: "chatSessions_1" as never,
+        createdAt: 1,
+        title: "Where should the module go?",
+        updatedAt: 1
+      })
+      .mockResolvedValueOnce([])
+      .mockResolvedValueOnce([])
+
+    const runMutation = vi.fn().mockResolvedValueOnce("chatMessages_1").mockResolvedValueOnce("chatMessages_2")
+
+    const vectorSearch = vi.fn().mockResolvedValue([])
+
+    const packet = await askHandler._handler(
+      {
+        runMutation,
+        runQuery,
+        vectorSearch
+      } as never,
+      {
+        question: "Where should the module go?",
+        sessionId: "chatSessions_1" as never
+      }
+    )
+
+    expect(runQuery).toHaveBeenCalledTimes(3)
+    expect(packet.answerabilityStatus).toBe("insufficient_evidence")
+    expect(generateGroundedAnswer).not.toHaveBeenCalled()
+    expect(runMutation).toHaveBeenCalledTimes(2)
+  })
+
+  it("filters vector search to the current document scope when documentId is provided", async () => {
+    const runQuery = vi
+      .fn()
+      .mockResolvedValueOnce({
+        _id: "chatSessions_1" as never,
+        createdAt: 1,
+        title: "Where should the module go?",
+        updatedAt: 1
+      })
+      .mockResolvedValueOnce([
+        {
+          assetId: "documentAssets_1" as never,
+          citationLabel: "Page 12",
+          chunkId: "chunks_1" as never,
+          content: "Install the module beside the controller.",
+          pageNumber: 12,
+          score: 0.4
+        }
+      ])
+      .mockResolvedValueOnce([])
+
+    const runMutation = vi
+      .fn()
+      .mockResolvedValueOnce("chatMessages_1")
+      .mockResolvedValueOnce("chatMessages_2")
+      .mockResolvedValueOnce(null)
+
+    const vectorSearch = vi.fn().mockResolvedValue([{ _id: "chunkEmbeddings_1" as never, _score: 0.4 }])
+
+    await askHandler._handler(
+      {
+        runMutation,
+        runQuery,
+        vectorSearch
+      } as never,
+      {
+        documentId: "documents_1" as never,
+        question: "Rockwell Automation",
+        sessionId: "chatSessions_1" as never
+      }
+    )
+
+    expect(runQuery).toHaveBeenCalledTimes(3)
+    expect(vectorSearch).toHaveBeenCalledWith(
+      "chunkEmbeddings",
+      "by_embedding",
+      expect.objectContaining({
+        limit: 24
+      })
+    )
+
+    const options = vectorSearch.mock.calls[0][2] as { filter: (builder: { eq: (field: string, value: string) => void }) => void }
+    const eq = vi.fn()
+
+    options.filter({ eq })
+
+    expect(eq).toHaveBeenCalledWith("documentCurrentKey", "documents_1:current")
   })
 })

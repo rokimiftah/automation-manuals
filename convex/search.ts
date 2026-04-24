@@ -6,6 +6,7 @@ import { ConvexError, v } from "convex/values"
 import { api, internal } from "./_generated/api"
 import { action, internalMutation, internalQuery } from "./_generated/server"
 import { answerPacketValidator, buildGroundedPacket, buildRefusalPacket, selectEvidenceByCitationIds } from "./lib/answerPacket"
+import { isLookupLikeQuery, mergeCandidates } from "./lib/hybridRetrieval"
 import { embedTexts, generateGroundedAnswer } from "./lib/mistral"
 
 type SearchResult = {
@@ -20,6 +21,12 @@ type SearchResult = {
 export const DEFAULT_VECTOR_LIMIT = 6
 
 export const DOCUMENT_SCOPED_VECTOR_LIMIT = 24
+
+export const GLOBAL_EXACT_MATCH_LIMIT = 32
+
+export const GLOBAL_EXACT_MATCH_SCAN_LIMIT = 128
+
+const WEAK_VECTOR_EVIDENCE_THRESHOLD = 0.5
 
 export function getVectorSearchLimit(documentId?: GenericId<"documents">) {
   return documentId ? DOCUMENT_SCOPED_VECTOR_LIMIT : DEFAULT_VECTOR_LIMIT
@@ -43,6 +50,83 @@ const savedEvidenceValidator = v.object({
   chunkId: v.id("chunks"),
   pageNumber: v.number(),
   score: v.number()
+})
+
+function sortSearchResults(a: SearchResult, b: SearchResult) {
+  return a.pageNumber - b.pageNumber || a.chunkId.localeCompare(b.chunkId)
+}
+
+export const loadExactResults = internalQuery({
+  args: {
+    documentId: v.optional(v.id("documents")),
+    exactContent: v.string()
+  },
+  returns: v.array(searchResultValidator),
+  handler: async (ctx, args) => {
+    const documentId = args.documentId
+
+    const results: SearchResult[] = []
+
+    if (documentId) {
+      const document = await ctx.db.get(documentId)
+      if (!document || document.status !== "ready") {
+        return []
+      }
+
+      const chunks = await ctx.db
+        .query("chunks")
+        .withIndex("by_document_and_current_and_content", (q) =>
+          q.eq("documentId", documentId).eq("isCurrent", true).eq("content", args.exactContent)
+        )
+        .collect()
+
+      for (const chunk of chunks) {
+        results.push({
+          assetId: document.sourceAssetId,
+          citationLabel: chunk.citationLabel,
+          chunkId: chunk._id,
+          content: chunk.content,
+          pageNumber: chunk.pageNumber,
+          score: 1
+        })
+      }
+    } else {
+      const exactQuery = ctx.db
+        .query("chunks")
+        .withIndex("by_current_and_content", (q) => q.eq("isCurrent", true).eq("content", args.exactContent))
+
+      let cursor: string | null = null
+      let isDone = false
+
+      while (!isDone) {
+        const page = await exactQuery.paginate({
+          cursor,
+          numItems: GLOBAL_EXACT_MATCH_SCAN_LIMIT
+        })
+
+        cursor = page.continueCursor
+        isDone = page.isDone
+
+        for (const chunk of page.page) {
+          const document = await ctx.db.get(chunk.documentId)
+          if (!document || document.status !== "ready") {
+            continue
+          }
+
+          results.push({
+            assetId: document.sourceAssetId,
+            citationLabel: chunk.citationLabel,
+            chunkId: chunk._id,
+            content: chunk.content,
+            pageNumber: chunk.pageNumber,
+            score: 1
+          })
+        }
+      }
+    }
+
+    return results.sort(sortSearchResults).slice(0, GLOBAL_EXACT_MATCH_LIMIT)
+  }
 })
 
 export const loadSearchResults = internalQuery({
@@ -105,7 +189,13 @@ export const saveEvidence = internalMutation({
   returns: v.null(),
   handler: async (ctx, args) => {
     for (const item of args.evidence) {
+      const chunk = await ctx.db.get(item.chunkId)
+      if (!chunk) {
+        continue
+      }
+
       await ctx.db.insert("answerEvidence", {
+        documentId: chunk.documentId,
         assetId: item.assetId,
         chunkId: item.chunkId,
         messageId: args.messageId,
@@ -156,18 +246,27 @@ export const ask = action({
     const [embedding] = await embedTexts([question])
     const matches = embedding
       ? await ctx.vectorSearch("chunkEmbeddings", "by_embedding", {
-          filter: (q) => (args.documentId ? q.eq("documentId", args.documentId) : q.eq("isCurrent", true)),
+          filter: (q) => (args.documentId ? q.eq("documentCurrentKey", `${args.documentId}:current`) : q.eq("isCurrent", true)),
           limit: getVectorSearchLimit(args.documentId),
           vector: embedding
         })
       : []
 
     const evidence: SearchResult[] = await ctx.runQuery(internal.search.loadSearchResults, { matches })
-    const evidenceWithIds = evidence.map((item, index) => ({
+    const shouldRunExactFallback = isLookupLikeQuery(question) || getTopEvidenceScore(evidence) < WEAK_VECTOR_EVIDENCE_THRESHOLD
+    const exactEvidence: SearchResult[] = shouldRunExactFallback
+      ? await ctx.runQuery(internal.search.loadExactResults, {
+          documentId: args.documentId,
+          exactContent: question
+        })
+      : []
+
+    const mergedEvidence = mergeCandidates(evidence, exactEvidence) as SearchResult[]
+    const evidenceWithIds = mergedEvidence.map((item, index) => ({
       ...item,
       evidenceId: `E${index + 1}`
     }))
-    if (evidence.length === 0) {
+    if (mergedEvidence.length === 0) {
       const packet = buildRefusalPacket(sessionId)
 
       await ctx.runMutation(internal.chats.appendMessage, {

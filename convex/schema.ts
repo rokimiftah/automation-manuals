@@ -107,10 +107,13 @@ export default defineSchema({
     isCurrent: v.boolean()
   })
     .index("by_document_and_current", ["documentId", "isCurrent"])
+    .index("by_document_and_current_and_content", ["documentId", "isCurrent", "content"])
+    .index("by_current_and_content", ["isCurrent", "content"])
     .index("by_document_and_page", ["documentId", "pageNumber"]),
   chunkEmbeddings: defineTable({
     chunkId: v.id("chunks"),
     documentId: v.id("documents"),
+    documentCurrentKey: v.string(),
     vendorSlug: v.string(),
     productSlug: v.string(),
     chunkType: chunkTypeValidator,
@@ -122,7 +125,7 @@ export default defineSchema({
     .vectorIndex("by_embedding", {
       vectorField: "embedding",
       dimensions: 1024,
-      filterFields: ["documentId", "vendorSlug", "productSlug", "chunkType", "isCurrent"]
+      filterFields: ["documentCurrentKey", "documentId", "vendorSlug", "productSlug", "chunkType", "isCurrent"]
     }),
   chatSessions: defineTable({
     title: v.string(),
@@ -137,12 +140,15 @@ export default defineSchema({
     createdAt: v.number()
   }).index("by_session", ["sessionId"]),
   answerEvidence: defineTable({
+    documentId: v.id("documents"),
     messageId: v.id("chatMessages"),
     chunkId: v.id("chunks"),
     assetId: v.optional(v.id("documentAssets")),
     pageNumber: v.number(),
     score: v.number()
-  }).index("by_message", ["messageId"]),
+  })
+    .index("by_document", ["documentId"])
+    .index("by_message", ["messageId"]),
   evaluationCases: defineTable({
     slug: v.string(),
     question: v.string(),

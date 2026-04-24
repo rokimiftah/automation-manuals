@@ -34,6 +34,14 @@ const askHandler = ask as typeof ask & {
   }>
 }
 
+function exactPage<T>(page: T[], overrides?: Partial<{ continueCursor: string; isDone: boolean }>) {
+  return {
+    continueCursor: overrides?.continueCursor ?? "",
+    isDone: overrides?.isDone ?? true,
+    page
+  }
+}
+
 describe("ask", () => {
   beforeEach(() => {
     embedTexts.mockReset()
@@ -66,7 +74,7 @@ describe("ask", () => {
           score: 0.4
         }
       ])
-      .mockResolvedValueOnce([])
+      .mockResolvedValueOnce(exactPage([]))
 
     const runMutation = vi
       .fn()
@@ -112,16 +120,17 @@ describe("ask", () => {
         updatedAt: 1
       })
       .mockResolvedValueOnce([])
-      .mockResolvedValueOnce([
-        {
-          assetId: "documentAssets_1" as never,
-          citationLabel: "Page 12",
-          chunkId: "chunks_1" as never,
-          content: "Rockwell Automation",
-          pageNumber: 12,
-          score: 1
-        }
-      ])
+      .mockResolvedValueOnce(
+        exactPage([
+          {
+            assetId: "documentAssets_1" as never,
+            citationLabel: "Page 12",
+            chunkId: "chunks_1" as never,
+            content: "Rockwell Automation",
+            pageNumber: 12
+          }
+        ])
+      )
 
     const runMutation = vi
       .fn()
@@ -183,16 +192,17 @@ describe("ask", () => {
           score: 0.4
         }
       ])
-      .mockResolvedValueOnce([
-        {
-          assetId: "documentAssets_1" as never,
-          citationLabel: "Page 12",
-          chunkId: "chunks_1" as never,
-          content: "exact result",
-          pageNumber: 12,
-          score: 1
-        }
-      ])
+      .mockResolvedValueOnce(
+        exactPage([
+          {
+            assetId: "documentAssets_1" as never,
+            citationLabel: "Page 12",
+            chunkId: "chunks_1" as never,
+            content: "Rockwell Automation exact result",
+            pageNumber: 12
+          }
+        ])
+      )
 
     const runMutation = vi
       .fn()
@@ -221,7 +231,7 @@ describe("ask", () => {
     expect(generateGroundedAnswer).toHaveBeenCalledTimes(1)
 
     const context = generateGroundedAnswer.mock.calls[0]?.[1] as string
-    expect(context).toContain("[E1] Page 12: exact result")
+    expect(context).toContain("[E1] Page 12: Rockwell Automation exact result")
     expect(context).not.toContain("vector result")
     expect(context.match(/Page 12/g)).toHaveLength(1)
   })
@@ -232,7 +242,7 @@ describe("ask", () => {
       .mockResolvedValueOnce({
         _id: "chatSessions_1" as never,
         createdAt: 1,
-        title: "Rockwell Automation",
+        title: "Page 12,",
         updatedAt: 1
       })
       .mockResolvedValueOnce([
@@ -245,16 +255,17 @@ describe("ask", () => {
           score: 0.99
         }
       ])
-      .mockResolvedValueOnce([
-        {
-          assetId: "documentAssets_1" as never,
-          citationLabel: "Page 12",
-          chunkId: "chunks_1" as never,
-          content: "exact result",
-          pageNumber: 12,
-          score: 0.5
-        }
-      ])
+      .mockResolvedValueOnce(
+        exactPage([
+          {
+            assetId: "documentAssets_1" as never,
+            citationLabel: "Page 12",
+            chunkId: "chunks_1" as never,
+            content: "Reference note",
+            pageNumber: 12
+          }
+        ])
+      )
 
     const runMutation = vi
       .fn()
@@ -271,7 +282,7 @@ describe("ask", () => {
         vectorSearch
       } as never,
       {
-        question: "Rockwell Automation",
+        question: "Page 12,",
         sessionId: "chatSessions_1" as never
       }
     )
@@ -291,7 +302,7 @@ describe("ask", () => {
         updatedAt: 1
       })
       .mockResolvedValueOnce([])
-      .mockResolvedValueOnce([])
+      .mockResolvedValueOnce(exactPage([]))
 
     const runMutation = vi.fn().mockResolvedValueOnce("chatMessages_1").mockResolvedValueOnce("chatMessages_2")
 
@@ -313,6 +324,77 @@ describe("ask", () => {
     expect(packet.answerabilityStatus).toBe("insufficient_evidence")
     expect(generateGroundedAnswer).not.toHaveBeenCalled()
     expect(runMutation).toHaveBeenCalledTimes(2)
+  })
+
+  it("loads multiple global exact pages through the action", async () => {
+    generateGroundedAnswer.mockResolvedValueOnce({
+      answerSteps: ["Open the drive settings."],
+      answerSummary: "PowerFlex 755 guidance found.",
+      citationIds: ["E1"]
+    })
+
+    const runQuery = vi
+      .fn()
+      .mockResolvedValueOnce({
+        _id: "chatSessions_1" as never,
+        createdAt: 1,
+        title: "powerflex 755",
+        updatedAt: 1
+      })
+      .mockResolvedValueOnce([])
+      .mockResolvedValueOnce(
+        exactPage(
+          [
+            {
+              assetId: "documentAssets_1" as never,
+              citationLabel: "Page 3",
+              chunkId: "chunks_1" as never,
+              content: "PowerFlex 755 drives support this workflow.",
+              pageNumber: 3
+            }
+          ],
+          { continueCursor: "cursor_1", isDone: false }
+        )
+      )
+      .mockResolvedValueOnce(
+        exactPage([
+          {
+            assetId: "documentAssets_1" as never,
+            citationLabel: "Page 4",
+            chunkId: "chunks_2" as never,
+            content: "More PowerFlex 755 guidance.",
+            pageNumber: 4
+          }
+        ])
+      )
+
+    const runMutation = vi
+      .fn()
+      .mockResolvedValueOnce("chatMessages_1")
+      .mockResolvedValueOnce("chatMessages_2")
+      .mockResolvedValueOnce(null)
+
+    const vectorSearch = vi.fn().mockResolvedValue([])
+
+    const packet = await askHandler._handler(
+      {
+        runMutation,
+        runQuery,
+        vectorSearch
+      } as never,
+      {
+        question: "powerflex 755",
+        sessionId: "chatSessions_1" as never
+      }
+    )
+
+    expect(runQuery).toHaveBeenCalledTimes(4)
+    expect(generateGroundedAnswer).toHaveBeenCalledTimes(1)
+    expect(packet.answerabilityStatus).toBe("grounded")
+
+    const context = generateGroundedAnswer.mock.calls.at(-1)?.[1] as string
+    expect(context).toContain("Page 3")
+    expect(context).toContain("Page 4")
   })
 
   it("filters vector search to the current document scope when documentId is provided", async () => {

@@ -1,6 +1,7 @@
 import type { AnswerPacket } from "./lib/answerPacket"
 import type { GenericId } from "convex/values"
 
+import { paginationOptsValidator } from "convex/server"
 import { ConvexError, v } from "convex/values"
 
 import { api, internal } from "./_generated/api"
@@ -18,6 +19,14 @@ type SearchResult = {
   score: number
 }
 
+type ExactSearchCandidate = Omit<SearchResult, "score">
+
+type ExactSearchPage = {
+  continueCursor: string
+  isDone: boolean
+  page: ExactSearchCandidate[]
+}
+
 export const DEFAULT_VECTOR_LIMIT = 6
 
 export const DOCUMENT_SCOPED_VECTOR_LIMIT = 24
@@ -25,6 +34,8 @@ export const DOCUMENT_SCOPED_VECTOR_LIMIT = 24
 export const GLOBAL_EXACT_MATCH_LIMIT = 32
 
 export const GLOBAL_EXACT_MATCH_SCAN_LIMIT = 128
+
+export const GLOBAL_EXACT_MATCH_PAGE_SIZE = 32
 
 const WEAK_VECTOR_EVIDENCE_THRESHOLD = 0.5
 
@@ -45,12 +56,43 @@ const searchResultValidator = v.object({
   score: v.number()
 })
 
+const exactSearchCandidateValidator = v.object({
+  assetId: v.optional(v.id("documentAssets")),
+  citationLabel: v.string(),
+  chunkId: v.id("chunks"),
+  content: v.string(),
+  pageNumber: v.number()
+})
+
 const savedEvidenceValidator = v.object({
   assetId: v.optional(v.id("documentAssets")),
   chunkId: v.id("chunks"),
   pageNumber: v.number(),
   score: v.number()
 })
+
+function rankExactSearchResults(question: string, candidates: ExactSearchCandidate[]) {
+  const assetIdByChunkId = new Map<string, GenericId<"documentAssets"> | undefined>()
+  for (const candidate of candidates) {
+    assetIdByChunkId.set(String(candidate.chunkId), candidate.assetId)
+  }
+
+  return rankExactCandidates(
+    question,
+    candidates.map(({ assetId: _assetId, ...candidate }) => candidate)
+  )
+    .slice(0, GLOBAL_EXACT_MATCH_LIMIT)
+    .map((candidate) => {
+      const chunkId = candidate.chunkId as GenericId<"chunks">
+      const assetId = assetIdByChunkId.get(String(candidate.chunkId))
+
+      return {
+        ...candidate,
+        chunkId,
+        ...(assetId === undefined ? {} : { assetId })
+      }
+    })
+}
 
 export const loadExactResults = internalQuery({
   args: {
@@ -60,74 +102,69 @@ export const loadExactResults = internalQuery({
   returns: v.array(searchResultValidator),
   handler: async (ctx, args) => {
     const documentId = args.documentId
-
-    const candidates: Array<Omit<SearchResult, "score" | "assetId">> = []
-    const assetIdByChunkId = new Map<string, GenericId<"documentAssets"> | undefined>()
-
-    if (documentId) {
-      const document = await ctx.db.get(documentId)
-      if (!document || document.status !== "ready") {
-        return []
-      }
-
-      const chunks = await ctx.db
-        .query("chunks")
-        .withIndex("by_document_and_current", (q) => q.eq("documentId", documentId).eq("isCurrent", true))
-        .collect()
-
-      for (const chunk of chunks) {
-        assetIdByChunkId.set(String(chunk._id), document.sourceAssetId)
-        candidates.push({
-          citationLabel: chunk.citationLabel,
-          chunkId: chunk._id,
-          content: chunk.content,
-          pageNumber: chunk.pageNumber
-        })
-      }
-    } else {
-      const exactQuery = ctx.db.query("chunks").withIndex("by_current_and_content", (q) => q.eq("isCurrent", true))
-
-      let cursor: string | null = null
-      let isDone = false
-
-      while (!isDone) {
-        const page = await exactQuery.paginate({
-          cursor,
-          numItems: GLOBAL_EXACT_MATCH_SCAN_LIMIT
-        })
-
-        cursor = page.continueCursor
-        isDone = page.isDone
-
-        for (const chunk of page.page) {
-          const document = await ctx.db.get(chunk.documentId)
-          if (!document || document.status !== "ready") {
-            continue
-          }
-
-          assetIdByChunkId.set(String(chunk._id), document.sourceAssetId)
-          candidates.push({
-            citationLabel: chunk.citationLabel,
-            chunkId: chunk._id,
-            content: chunk.content,
-            pageNumber: chunk.pageNumber
-          })
-        }
-      }
+    if (!documentId) {
+      return []
     }
 
-    return rankExactCandidates(args.exactContent, candidates)
-      .slice(0, GLOBAL_EXACT_MATCH_LIMIT)
-      .map((candidate) => {
-        const chunkId = candidate.chunkId as GenericId<"chunks">
-        const assetId = assetIdByChunkId.get(String(candidate.chunkId))
+    const document = await ctx.db.get(documentId)
+    if (!document || document.status !== "ready") {
+      return []
+    }
 
-        return {
-          ...candidate,
-          chunkId,
-          ...(assetId === undefined ? {} : { assetId })
-        }
+    const chunks = await ctx.db
+      .query("chunks")
+      .withIndex("by_document_and_current", (q) => q.eq("documentId", documentId).eq("isCurrent", true))
+      .collect()
+
+    return rankExactSearchResults(
+      args.exactContent,
+      chunks.map((chunk) => ({
+        ...(document.sourceAssetId === undefined ? {} : { assetId: document.sourceAssetId }),
+        citationLabel: chunk.citationLabel,
+        chunkId: chunk._id,
+        content: chunk.content,
+        pageNumber: chunk.pageNumber
+      }))
+    )
+  }
+})
+
+export const loadGlobalExactResultsPage = internalQuery({
+  args: {
+    paginationOpts: paginationOptsValidator
+  },
+  returns: v.object({
+    continueCursor: v.string(),
+    isDone: v.boolean(),
+    page: v.array(exactSearchCandidateValidator)
+  }),
+  handler: async (ctx, args) => {
+    const { continueCursor, isDone, page } = await ctx.db
+      .query("chunks")
+      .withIndex("by_current_and_content", (q) => q.eq("isCurrent", true))
+      .paginate(args.paginationOpts)
+
+    const candidates: ExactSearchCandidate[] = []
+    for (const chunk of page) {
+      const document = await ctx.db.get(chunk.documentId)
+      if (!document || document.status !== "ready") {
+        continue
+      }
+
+      candidates.push({
+        ...(document.sourceAssetId === undefined ? {} : { assetId: document.sourceAssetId }),
+        citationLabel: chunk.citationLabel,
+        chunkId: chunk._id,
+        content: chunk.content,
+        pageNumber: chunk.pageNumber
       })
+    }
+
+    return {
+      continueCursor,
+      isDone,
+      page: candidates
+    }
   }
 })
 
@@ -257,10 +294,34 @@ export const ask = action({
     const evidence: SearchResult[] = await ctx.runQuery(internal.search.loadSearchResults, { matches })
     const shouldRunExactFallback = isLookupLikeQuery(question) || getTopEvidenceScore(evidence) < WEAK_VECTOR_EVIDENCE_THRESHOLD
     const exactEvidence: SearchResult[] = shouldRunExactFallback
-      ? await ctx.runQuery(internal.search.loadExactResults, {
-          documentId: args.documentId,
-          exactContent: question
-        })
+      ? args.documentId
+        ? await ctx.runQuery(internal.search.loadExactResults, {
+            documentId: args.documentId,
+            exactContent: question
+          })
+        : await (async () => {
+            let cursor: string | null = null
+            let isDone = false
+            let remaining = GLOBAL_EXACT_MATCH_SCAN_LIMIT
+            const candidates: ExactSearchCandidate[] = []
+
+            while (!isDone && remaining > 0) {
+              const numItems = Math.min(GLOBAL_EXACT_MATCH_PAGE_SIZE, remaining)
+              const page: ExactSearchPage = await ctx.runQuery(internal.search.loadGlobalExactResultsPage, {
+                paginationOpts: {
+                  cursor,
+                  numItems
+                }
+              })
+
+              cursor = page.continueCursor
+              isDone = page.isDone
+              remaining -= numItems
+              candidates.push(...page.page)
+            }
+
+            return rankExactSearchResults(question, candidates)
+          })()
       : []
 
     const mergedEvidence = mergeCandidates(evidence, exactEvidence) as SearchResult[]

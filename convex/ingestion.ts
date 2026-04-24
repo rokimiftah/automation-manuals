@@ -5,8 +5,8 @@ import { ConvexError, v } from "convex/values"
 
 import { unzipSync } from "fflate"
 
-import { internal } from "./_generated/api"
-import { httpAction, internalAction, internalMutation, internalQuery, mutation, query } from "./_generated/server"
+import { api, internal } from "./_generated/api"
+import { action, httpAction, internalAction, internalMutation, internalQuery, mutation, query } from "./_generated/server"
 import { insertAdminAuditEvent, requireAdminQuerySession, requireAdminWriteSession } from "./lib/adminSession"
 import { getProviderEnv } from "./lib/env"
 import { buildDocumentPayload } from "./lib/ingestDocument"
@@ -62,6 +62,11 @@ const jobByIdValidator = v.union(
     updatedAt: v.number()
   })
 )
+
+const prepareMineruUploadValidator = v.object({
+  batchId: v.string(),
+  traceId: v.optional(v.string())
+})
 
 type RetryableIngestionJob = {
   _creationTime: number
@@ -124,14 +129,17 @@ function selectSingleResult(results: Awaited<ReturnType<typeof getMineruBatchRes
   return result
 }
 
-function decodeArchiveJson(buffer: ArrayBuffer, filePattern: RegExp) {
-  const files = unzipSync(new Uint8Array(buffer))
-  const match = Object.entries(files).find(([fileName]) => filePattern.test(fileName))
+export function selectMineruArchiveJson(files: Record<string, Uint8Array>) {
+  const match = Object.entries(files).find(([fileName]) => /(?:layout|middle)\.json$/.test(fileName))
   if (!match) {
     throw new Error("MinerU result archive is missing the expected JSON payload")
   }
 
   return JSON.parse(new TextDecoder().decode(match[1]))
+}
+
+export function decodeMineruArchiveJson(buffer: ArrayBuffer) {
+  return selectMineruArchiveJson(unzipSync(new Uint8Array(buffer)))
 }
 
 function parseCallbackEnvelope(payload: unknown) {
@@ -175,18 +183,50 @@ export const listJobs = query({
 })
 
 export const enqueue = mutation({
-  args: { documentId: v.id("documents"), sessionToken: v.string() },
+  args: {
+    documentId: v.id("documents"),
+    sessionToken: v.string(),
+    providerBatchId: v.optional(v.string()),
+    providerTraceId: v.optional(v.string()),
+    sourceFileName: v.string(),
+    sourceMimeType: v.string(),
+    sourceStorageId: v.id("_storage")
+  },
   returns: v.id("ingestionJobs"),
   handler: async (ctx, args) => {
     const adminSession = await requireAdminWriteSession(ctx, args.sessionToken)
     const now = Date.now()
-    const jobId = await ctx.db.insert("ingestionJobs", {
-      createdAt: now,
-      documentId: args.documentId,
-      requestedByAdmin: adminSession.username,
-      status: "queued",
-      updatedAt: now
-    })
+    let jobId: Id<"ingestionJobs">
+
+    if (args.providerBatchId === undefined) {
+      jobId = await ctx.db.insert("ingestionJobs", {
+        createdAt: now,
+        documentId: args.documentId,
+        requestedByAdmin: adminSession.username,
+        sourceFileName: args.sourceFileName,
+        sourceMimeType: args.sourceMimeType,
+        sourceStorageId: args.sourceStorageId,
+        status: "queued",
+        updatedAt: now
+      })
+    } else {
+      jobId = await ctx.db.insert("ingestionJobs", {
+        createdAt: now,
+        documentId: args.documentId,
+        priorityQuotaBucket: "unknown",
+        provider: "mineru",
+        providerBatchId: args.providerBatchId,
+        ...(args.providerTraceId === undefined ? {} : { providerTraceId: args.providerTraceId }),
+        providerState: "pending",
+        providerSubmittedAt: now,
+        requestedByAdmin: adminSession.username,
+        sourceFileName: args.sourceFileName,
+        sourceMimeType: args.sourceMimeType,
+        sourceStorageId: args.sourceStorageId,
+        status: "waiting_provider",
+        updatedAt: now
+      })
+    }
 
     await insertAdminAuditEvent(ctx, adminSession, {
       action: "ingestion.enqueue",
@@ -195,12 +235,42 @@ export const enqueue = mutation({
       summary: `Queued ingestion for ${args.documentId}`
     })
 
-    await ctx.scheduler.runAfter(0, internal.ingestion.runDocumentJob, {
-      documentId: args.documentId,
-      jobId
-    })
+    if (args.providerBatchId === undefined) {
+      await ctx.scheduler.runAfter(0, internal.ingestion.runDocumentJob, {
+        documentId: args.documentId,
+        jobId
+      })
+    } else {
+      await ctx.scheduler.runAfter(0, internal.ingestion.reconcileProviderJob, {
+        jobId
+      })
+    }
 
     return jobId
+  }
+})
+
+export const prepareMineruUpload = action({
+  args: {
+    fileName: v.string(),
+    sessionToken: v.string(),
+    sourceStorageId: v.id("_storage")
+  },
+  returns: prepareMineruUploadValidator,
+  handler: async (ctx, args) => {
+    await ctx.runQuery(api.documents.listAdmin, { sessionToken: args.sessionToken })
+    const sourceBlob = await ctx.storage.get(args.sourceStorageId)
+    if (!sourceBlob) {
+      throw new Error("Source file not found in storage")
+    }
+
+    return await submitMineruBatch({
+      file: sourceBlob,
+      fileName: args.fileName,
+      ...(getProviderEnv().mineruCallbackSeed === undefined ? {} : { callbackSeed: getProviderEnv().mineruCallbackSeed }),
+      ...(getProviderEnv().mineruCallbackUrl === undefined ? {} : { callbackUrl: getProviderEnv().mineruCallbackUrl }),
+      token: getProviderEnv().mineruApiToken
+    })
   }
 })
 
@@ -410,7 +480,18 @@ export const runDocumentJob = internalAction({
       return null
     }
 
+    const job = await ctx.runQuery(internal.ingestion.getJobById, { jobId: args.jobId })
+    if (!job) {
+      await ctx.runMutation(internal.documents.markFailed, {
+        errorMessage: "Ingestion job not found",
+        jobId: args.jobId,
+        documentId: args.documentId
+      })
+      return null
+    }
+
     let sourceStorageId: Id<"_storage"> | null = null
+    let createdSourceStorageId: Id<"_storage"> | null = null
     let submissionRecorded = false
 
     try {
@@ -419,15 +500,31 @@ export const runDocumentJob = internalAction({
         status: "downloading"
       })
 
-      const response = await fetch(document.sourceUrl)
-      if (!response.ok) {
-        throw new Error(`Failed to fetch source PDF: ${response.status} ${response.statusText}`)
+      let sourceBlob: Blob | null = null
+      sourceStorageId = job.sourceStorageId ?? null
+
+      if (sourceStorageId) {
+        sourceBlob = await ctx.storage.get(sourceStorageId)
+        if (!sourceBlob) {
+          throw new Error("Source file not found in storage")
+        }
+      } else {
+        const response = await fetch(document.sourceUrl)
+        if (!response.ok) {
+          throw new Error(`Failed to fetch source PDF: ${response.status} ${response.statusText}`)
+        }
+
+        sourceBlob = await response.blob()
+        createdSourceStorageId = await ctx.storage.store(sourceBlob)
+        sourceStorageId = createdSourceStorageId
       }
 
-      const sourceBlob = await response.blob()
-      sourceStorageId = await ctx.storage.store(sourceBlob)
-      const sourceMimeType = response.headers.get("content-type")?.trim() || "application/pdf"
-      const sourceFileName = `${document.productSlug}-${document.version}.pdf`
+      if (!sourceBlob || !sourceStorageId) {
+        throw new Error("Source file is not available")
+      }
+
+      const sourceMimeType = job.sourceMimeType || sourceBlob.type || "application/pdf"
+      const sourceFileName = job.sourceFileName || `${document.productSlug}-${document.version}.pdf`
 
       await ctx.runMutation(internal.ingestion.updateJobStatus, {
         jobId: args.jobId,
@@ -467,9 +564,9 @@ export const runDocumentJob = internalAction({
         documentId: args.documentId
       })
 
-      if (sourceStorageId && !submissionRecorded) {
+      if (createdSourceStorageId && !submissionRecorded) {
         try {
-          await ctx.storage.delete(sourceStorageId)
+          await ctx.storage.delete(createdSourceStorageId)
         } catch {
           // Best-effort cleanup only.
         }
@@ -613,8 +710,13 @@ export const finalizeProviderResult = internalAction({
       }
 
       const archive = await response.arrayBuffer()
-      const middleJson = decodeArchiveJson(archive, /middle\.json$/)
-      const normalized = normalizeMineruDocument(middleJson)
+      const structuredJson = decodeMineruArchiveJson(archive)
+      const normalized = normalizeMineruDocument(structuredJson)
+      const sourceUrl = await ctx.storage.getUrl(job.sourceStorageId)
+      if (!sourceUrl) {
+        throw new Error("Source file is no longer available")
+      }
+
       const payload = await buildDocumentPayload({
         embed: (inputs) => embedTexts(inputs),
         onBeforeEmbed: async () => {
@@ -623,9 +725,9 @@ export const finalizeProviderResult = internalAction({
             status: "embedding"
           })
         },
-        ocr: (sourceUrl, pageNumber) => ocrPdfPage(sourceUrl, pageNumber),
+        ocr: (documentUrl, pageNumber) => ocrPdfPage(documentUrl, pageNumber),
         parsedPages: normalized.pages,
-        sourceUrl: document.sourceUrl
+        sourceUrl
       })
 
       await ctx.runMutation(internal.documents.replaceParsedContent, {

@@ -45,13 +45,10 @@ export default defineSchema({
     sourceUrl: v.string(),
     sourceAssetId: v.optional(v.id("documentAssets")),
     status: documentStatusValidator,
-    isActive: v.boolean(),
     createdAt: v.number(),
     updatedAt: v.number(),
     createdByAdmin: v.string()
-  })
-    .index("by_product", ["productId"])
-    .index("by_product_and_active", ["productId", "isActive"]),
+  }).index("by_product", ["productId"]),
   ingestionJobs: defineTable({
     documentId: v.id("documents"),
     requestedByAdmin: v.string(),

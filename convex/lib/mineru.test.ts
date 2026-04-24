@@ -1,6 +1,6 @@
 import { describe, expect, it, vi } from "vitest"
 
-import { getMineruBatchResult, mapMineruBatchState, submitMineruBatch } from "./mineru"
+import { getMineruBatchResult, mapMineruBatchState, prepareMineruBatchUpload, submitMineruBatch } from "./mineru"
 
 describe("submitMineruBatch", () => {
   it("creates a batch and uploads exactly one file", async () => {
@@ -47,10 +47,11 @@ describe("submitMineruBatch", () => {
       2,
       "https://upload.example/file.pdf",
       expect.objectContaining({
-        body: expect.any(Blob),
+        body: expect.any(ArrayBuffer),
         method: "PUT"
       })
     )
+    expect(request.mock.calls[1]?.[1]).not.toHaveProperty("headers")
   })
 
   it("includes callback configuration when provided", async () => {
@@ -88,6 +89,49 @@ describe("submitMineruBatch", () => {
           model_version: "vlm",
           seed: "seed-1"
         })
+      })
+    )
+  })
+})
+
+describe("prepareMineruBatchUpload", () => {
+  it("creates a batch and returns the upload url", async () => {
+    const request = vi.fn().mockResolvedValue(
+      new Response(
+        JSON.stringify({
+          code: 0,
+          data: { batch_id: "batch-1", file_urls: ["https://upload.example/file.pdf"] },
+          msg: "ok",
+          trace_id: "trace-1"
+        }),
+        { status: 200 }
+      )
+    )
+
+    const result = await prepareMineruBatchUpload({
+      fileName: "manual.pdf",
+      fetch: request,
+      token: "token"
+    })
+
+    expect(result).toEqual({
+      batchId: "batch-1",
+      traceId: "trace-1",
+      uploadUrl: "https://upload.example/file.pdf"
+    })
+    expect(request).toHaveBeenCalledTimes(1)
+    expect(request).toHaveBeenCalledWith(
+      "https://mineru.net/api/v4/file-urls/batch",
+      expect.objectContaining({
+        body: JSON.stringify({
+          files: [{ name: "manual.pdf" }],
+          model_version: "vlm"
+        }),
+        headers: expect.objectContaining({
+          Authorization: "Bearer token",
+          "Content-Type": "application/json"
+        }),
+        method: "POST"
       })
     )
   })

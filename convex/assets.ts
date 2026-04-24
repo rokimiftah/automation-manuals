@@ -2,8 +2,8 @@ import { v } from "convex/values"
 
 import { query } from "./_generated/server"
 
-export function canResolveViewerAsset(input: { asset: { isCurrent: boolean } | null; document: { isActive: boolean } | null }) {
-  return input.asset?.isCurrent === true && input.document?.isActive === true
+export function canResolveViewerAsset(input: { asset: { isCurrent: boolean } | null; document: { status: string } | null }) {
+  return input.asset?.isCurrent === true && input.document?.status === "ready"
 }
 
 export const resolveViewerAsset = query({

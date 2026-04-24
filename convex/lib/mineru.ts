@@ -10,6 +10,14 @@ type SubmitMineruBatchArgs = {
   token: string
 }
 
+type PrepareMineruBatchUploadArgs = {
+  callbackSeed?: string
+  callbackUrl?: string
+  fetch?: typeof fetch
+  fileName: string
+  token: string
+}
+
 type GetMineruBatchResultArgs = {
   batchId: string
   fetch?: typeof fetch
@@ -57,7 +65,7 @@ function requireOk(code: number | undefined, message: string | undefined) {
   throw new Error(message?.trim() || "MinerU request failed")
 }
 
-function buildSubmitBody(args: SubmitMineruBatchArgs) {
+function _buildSubmitBody(args: SubmitMineruBatchArgs) {
   return {
     ...(args.callbackUrl === undefined ? {} : { callback: args.callbackUrl }),
     files: [{ name: args.fileName }],
@@ -66,10 +74,19 @@ function buildSubmitBody(args: SubmitMineruBatchArgs) {
   }
 }
 
-export async function submitMineruBatch(args: SubmitMineruBatchArgs) {
+function buildPrepareBody(args: PrepareMineruBatchUploadArgs) {
+  return {
+    ...(args.callbackUrl === undefined ? {} : { callback: args.callbackUrl }),
+    files: [{ name: args.fileName }],
+    model_version: "vlm",
+    ...(args.callbackSeed === undefined ? {} : { seed: args.callbackSeed })
+  }
+}
+
+export async function prepareMineruBatchUpload(args: PrepareMineruBatchUploadArgs) {
   const request = getRequest(args.fetch)
   const response = await request("https://mineru.net/api/v4/file-urls/batch", {
-    body: JSON.stringify(buildSubmitBody(args)),
+    body: JSON.stringify(buildPrepareBody(args)),
     headers: {
       Authorization: `Bearer ${args.token}`,
       "Content-Type": "application/json"
@@ -86,8 +103,20 @@ export async function submitMineruBatch(args: SubmitMineruBatchArgs) {
     throw new Error("MinerU batch submission did not return upload details")
   }
 
+  return {
+    batchId,
+    ...(payload.trace_id?.trim() ? { traceId: payload.trace_id.trim() } : {}),
+    uploadUrl
+  }
+}
+
+export async function submitMineruBatch(args: SubmitMineruBatchArgs) {
+  const request = getRequest(args.fetch)
+  const { batchId, uploadUrl, traceId } = await prepareMineruBatchUpload(args)
+
+  const uploadBody = await args.file.arrayBuffer()
   const uploadResponse = await request(uploadUrl, {
-    body: args.file,
+    body: uploadBody,
     method: "PUT"
   })
   if (!uploadResponse.ok) {
@@ -96,7 +125,7 @@ export async function submitMineruBatch(args: SubmitMineruBatchArgs) {
 
   return {
     batchId,
-    traceId: payload.trace_id?.trim()
+    ...(traceId === undefined ? {} : { traceId })
   }
 }
 

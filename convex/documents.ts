@@ -26,22 +26,6 @@ function requireText(field: string, value: string) {
   return trimmed
 }
 
-function requireHttpUrl(field: string, value: string) {
-  const trimmed = requireText(field, value)
-  let parsed: URL
-  try {
-    parsed = new URL(trimmed)
-  } catch {
-    throw new ConvexError(`${field} must be a valid URL`)
-  }
-
-  if (parsed.protocol !== "http:" && parsed.protocol !== "https:") {
-    throw new ConvexError(`${field} must use http or https`)
-  }
-
-  return parsed.toString()
-}
-
 async function upsertVendor(ctx: MutationCtx, name: string) {
   const slug = toSlug(name)
   const existing = await ctx.db
@@ -75,7 +59,6 @@ const documentByIdValidator = v.union(
     _id: v.id("documents"),
     createdAt: v.number(),
     createdByAdmin: v.string(),
-    isActive: v.boolean(),
     language: v.string(),
     productId: v.id("products"),
     productSlug: v.string(),
@@ -95,6 +78,15 @@ export const getById = internalQuery({
   returns: documentByIdValidator,
   handler: async (ctx, args) => {
     return await ctx.db.get("documents", args.documentId)
+  }
+})
+
+export const generateSourceUploadUrl = mutation({
+  args: { sessionToken: v.string() },
+  returns: v.string(),
+  handler: async (ctx, args) => {
+    await requireAdminWriteSession(ctx, args.sessionToken)
+    return await ctx.storage.generateUploadUrl()
   }
 })
 
@@ -305,10 +297,9 @@ export const markReady = internalMutation({
   }
 })
 
-export const setActive = mutation({
+export const deleteDocument = mutation({
   args: {
     documentId: v.id("documents"),
-    isActive: v.boolean(),
     sessionToken: v.string()
   },
   returns: v.null(),
@@ -316,42 +307,93 @@ export const setActive = mutation({
     const adminSession = await requireAdminWriteSession(ctx, args.sessionToken)
     const document = await ctx.db.get("documents", args.documentId)
     if (!document) {
-      throw new ConvexError("Document not found")
+      return null
     }
 
-    if (args.isActive && document.status !== "ready") {
-      throw new ConvexError("Only ready documents can be activated")
-    }
+    const [allAssets, allPages, allChunks, allEmbeddings, allJobs, allEvidence, allMessages] = await Promise.all([
+      ctx.db.query("documentAssets").collect(),
+      ctx.db.query("documentPages").collect(),
+      ctx.db.query("chunks").collect(),
+      ctx.db.query("chunkEmbeddings").collect(),
+      ctx.db.query("ingestionJobs").collect(),
+      ctx.db.query("answerEvidence").collect(),
+      ctx.db.query("chatMessages").collect()
+    ])
 
-    const now = Date.now()
-    if (args.isActive) {
-      const activeSiblings = await ctx.db
-        .query("documents")
-        .withIndex("by_product_and_active", (q) => q.eq("productId", document.productId).eq("isActive", true))
-        .collect()
+    const documentAssets = allAssets.filter((asset) => asset.documentId === args.documentId)
+    const documentPages = allPages.filter((page) => page.documentId === args.documentId)
+    const documentChunks = allChunks.filter((chunk) => chunk.documentId === args.documentId)
+    const documentEmbeddings = allEmbeddings.filter((embedding) => embedding.documentId === args.documentId)
+    const documentJobs = allJobs.filter((job) => job.documentId === args.documentId)
 
-      for (const sibling of activeSiblings) {
-        if (sibling._id === document._id) {
-          continue
-        }
+    const documentAssetIds = new Set<GenericId<"documentAssets">>(documentAssets.map((asset) => asset._id))
+    const documentChunkIds = new Set<GenericId<"chunks">>(documentChunks.map((chunk) => chunk._id))
 
-        await ctx.db.patch("documents", sibling._id, {
-          isActive: false,
-          updatedAt: now
-        })
+    const relatedSessions = new Set<GenericId<"chatSessions">>()
+    for (const evidence of allEvidence) {
+      const isDocumentEvidence =
+        documentChunkIds.has(evidence.chunkId) || (evidence.assetId !== undefined && documentAssetIds.has(evidence.assetId))
+
+      if (!isDocumentEvidence) {
+        continue
       }
+
+      const message = allMessages.find((candidate) => candidate._id === evidence.messageId)
+      if (!message) {
+        continue
+      }
+
+      relatedSessions.add(message.sessionId)
     }
 
-    await ctx.db.patch("documents", args.documentId, {
-      isActive: args.isActive,
-      updatedAt: now
-    })
+    const relatedSessionMessages = allMessages.filter((message) => relatedSessions.has(message.sessionId))
+    const relatedSessionMessageIds = new Set<GenericId<"chatMessages">>(relatedSessionMessages.map((message) => message._id))
+
+    await Promise.all(documentAssets.map((asset) => ctx.storage.delete(asset.storageId)))
+
+    for (const evidence of allEvidence) {
+      if (!relatedSessionMessageIds.has(evidence.messageId)) {
+        continue
+      }
+
+      await ctx.db.delete("answerEvidence", evidence._id)
+    }
+
+    for (const message of relatedSessionMessages) {
+      await ctx.db.delete("chatMessages", message._id)
+    }
+
+    for (const sessionId of relatedSessions) {
+      await ctx.db.delete("chatSessions", sessionId)
+    }
+
+    for (const embedding of documentEmbeddings) {
+      await ctx.db.delete("chunkEmbeddings", embedding._id)
+    }
+
+    for (const chunk of documentChunks) {
+      await ctx.db.delete("chunks", chunk._id)
+    }
+
+    for (const page of documentPages) {
+      await ctx.db.delete("documentPages", page._id)
+    }
+
+    for (const asset of documentAssets) {
+      await ctx.db.delete("documentAssets", asset._id)
+    }
+
+    for (const job of documentJobs) {
+      await ctx.db.delete("ingestionJobs", job._id)
+    }
+
+    await ctx.db.delete("documents", args.documentId)
 
     await insertAdminAuditEvent(ctx, adminSession, {
-      action: "document.set_active",
+      action: "document.delete",
       targetId: args.documentId,
       targetTable: "documents",
-      summary: `${args.isActive ? "Activated" : "Deactivated"} ${document.title} ${document.version}`
+      summary: `Deleted ${document.title} ${document.version}`
     })
 
     return null
@@ -391,7 +433,6 @@ export const listAdmin = query({
   returns: v.array(
     v.object({
       _id: v.id("documents"),
-      isActive: v.boolean(),
       productSlug: v.string(),
       status: documentStatusValidator,
       title: v.string(),
@@ -404,7 +445,6 @@ export const listAdmin = query({
     const documents = await ctx.db.query("documents").collect()
     return documents.map((doc) => ({
       _id: doc._id,
-      isActive: doc.isActive,
       productSlug: doc.productSlug,
       status: doc.status,
       title: doc.title,
@@ -419,7 +459,7 @@ export const create = mutation({
     language: v.string(),
     productName: v.string(),
     sessionToken: v.string(),
-    sourceUrl: v.string(),
+    sourceStorageId: v.id("_storage"),
     title: v.string(),
     vendorName: v.string(),
     version: v.string()
@@ -432,7 +472,11 @@ export const create = mutation({
     const title = requireText("title", args.title)
     const version = requireText("version", args.version)
     const language = requireText("language", args.language)
-    const sourceUrl = requireHttpUrl("sourceUrl", args.sourceUrl)
+    const sourceUrl = await ctx.storage.getUrl(args.sourceStorageId)
+    if (!sourceUrl) {
+      throw new ConvexError("Source file is no longer available")
+    }
+
     const now = Date.now()
     const vendorId = await upsertVendor(ctx, vendorName)
     const productId = await upsertProduct(ctx, vendorId, productName)
@@ -447,7 +491,6 @@ export const create = mutation({
       sourceUrl,
       status: "draft",
       createdByAdmin: adminSession.username,
-      isActive: false,
       createdAt: now,
       updatedAt: now
     })

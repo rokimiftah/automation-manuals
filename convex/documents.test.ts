@@ -1,6 +1,6 @@
 import { beforeEach, describe, expect, it, vi } from "vitest"
 
-import { setActive } from "./documents"
+import { create, generateSourceUploadUrl } from "./documents"
 
 const { requireAdminWriteSession } = vi.hoisted(() => ({
   requireAdminWriteSession: vi.fn()
@@ -14,11 +14,26 @@ vi.mock("./lib/adminSession", async () => {
   }
 })
 
-const setActiveHandler = setActive as typeof setActive & {
-  _handler: (ctx: unknown, args: { documentId: unknown; isActive: boolean; sessionToken: string }) => Promise<null>
+const createHandler = create as typeof create & {
+  _handler: (
+    ctx: unknown,
+    args: {
+      language: string
+      productName: string
+      sessionToken: string
+      sourceStorageId: unknown
+      title: string
+      vendorName: string
+      version: string
+    }
+  ) => Promise<unknown>
 }
 
-describe("setActive", () => {
+const generateSourceUploadUrlHandler = generateSourceUploadUrl as typeof generateSourceUploadUrl & {
+  _handler: (ctx: unknown, args: { sessionToken: string }) => Promise<string>
+}
+
+describe("create", () => {
   beforeEach(() => {
     requireAdminWriteSession.mockReset()
     requireAdminWriteSession.mockResolvedValue({
@@ -27,73 +42,75 @@ describe("setActive", () => {
     })
   })
 
-  it("deactivates active sibling versions when activating a ready document", async () => {
-    const targetDocument = {
-      _id: "documents_2" as never,
-      isActive: false,
-      productId: "products_1" as never,
-      status: "ready"
-    }
-    const activeSibling = {
-      _id: "documents_1" as never,
-      isActive: true,
-      productId: "products_1" as never,
-      status: "ready"
-    }
-    const patch = vi.fn().mockResolvedValue(undefined)
-    const insert = vi.fn().mockResolvedValue("auditEvents_1")
+  it("stores the uploaded source file when creating a document", async () => {
+    const insert = vi
+      .fn()
+      .mockResolvedValueOnce("vendors_1")
+      .mockResolvedValueOnce("products_1")
+      .mockResolvedValueOnce("documents_1")
+      .mockResolvedValueOnce("auditEvents_1")
+    const query = vi.fn().mockReturnValue({
+      withIndex: vi.fn().mockReturnValue({
+        unique: vi.fn().mockResolvedValue(null)
+      })
+    })
+    const storageGetUrl = vi.fn().mockResolvedValue("https://convex.example/api/storage/source")
 
-    await setActiveHandler._handler(
+    await createHandler._handler(
       {
         db: {
-          get: vi.fn().mockResolvedValue(targetDocument),
           insert,
-          patch,
-          query: vi.fn().mockReturnValue({
-            withIndex: vi.fn().mockReturnValue({
-              collect: vi.fn().mockResolvedValue([activeSibling])
-            })
-          })
+          query
+        },
+        storage: {
+          getUrl: storageGetUrl
         }
       } as never,
       {
-        documentId: "documents_2" as never,
-        isActive: true,
+        language: "English",
+        productName: "GuardLogix 5570 Controllers",
+        sessionToken: "token-123",
+        sourceStorageId: "_storage_1" as never,
+        title: "GuardLogix 5570 Controllers User Manual",
+        vendorName: "Rockwell Automation",
+        version: "20.01"
+      }
+    )
+
+    expect(storageGetUrl).toHaveBeenCalledWith("_storage_1")
+    expect(insert).toHaveBeenCalledWith(
+      "documents",
+      expect.objectContaining({
+        sourceUrl: "https://convex.example/api/storage/source"
+      })
+    )
+  })
+})
+
+describe("generateSourceUploadUrl", () => {
+  beforeEach(() => {
+    requireAdminWriteSession.mockReset()
+    requireAdminWriteSession.mockResolvedValue({
+      _id: "adminSessions_1",
+      username: "admin"
+    })
+  })
+
+  it("generates an upload url for the admin upload flow", async () => {
+    const generateUploadUrl = vi.fn().mockResolvedValue("https://upload.example/source")
+
+    const result = await generateSourceUploadUrlHandler._handler(
+      {
+        storage: {
+          generateUploadUrl
+        }
+      } as never,
+      {
         sessionToken: "token-123"
       }
     )
 
-    expect(patch).toHaveBeenNthCalledWith(1, "documents", "documents_1", expect.objectContaining({ isActive: false }))
-    expect(patch).toHaveBeenNthCalledWith(2, "documents", "documents_2", expect.objectContaining({ isActive: true }))
-    expect(insert).toHaveBeenCalledWith(
-      "auditEvents",
-      expect.objectContaining({
-        action: "document.set_active",
-        targetId: "documents_2",
-        targetTable: "documents"
-      })
-    )
-  })
-
-  it("rejects activation when the document is not ready", async () => {
-    await expect(
-      setActiveHandler._handler(
-        {
-          db: {
-            get: vi.fn().mockResolvedValue({
-              _id: "documents_2" as never,
-              isActive: false,
-              productId: "products_1" as never,
-              status: "draft"
-            })
-          }
-        } as never,
-        {
-          documentId: "documents_2" as never,
-          isActive: true,
-          sessionToken: "token-123"
-        }
-      )
-    ).rejects.toThrow("Only ready documents can be activated")
+    expect(result).toBe("https://upload.example/source")
+    expect(generateUploadUrl).toHaveBeenCalledTimes(1)
   })
 })

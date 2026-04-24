@@ -1,4 +1,4 @@
-import { useState, useTransition } from "react"
+import { useRef, useState, useTransition } from "react"
 
 export type DocumentFormValues = {
   vendorName: string
@@ -6,7 +6,7 @@ export type DocumentFormValues = {
   title: string
   version: string
   language: string
-  sourceUrl: string
+  sourceFile: File | null
 }
 
 const initialValues: DocumentFormValues = {
@@ -15,7 +15,7 @@ const initialValues: DocumentFormValues = {
   title: "",
   version: "",
   language: "English",
-  sourceUrl: ""
+  sourceFile: null
 }
 
 type DocumentRegistrationFormProps = {
@@ -30,6 +30,7 @@ export default function DocumentRegistrationForm({ onSubmit }: DocumentRegistrat
   const [error, setError] = useState<string>()
   const [isPending, startTransition] = useTransition()
   const [isSubmitting, setIsSubmitting] = useState(false)
+  const fileInputRef = useRef<HTMLInputElement>(null)
 
   const isDisabled = isPending || isSubmitting
 
@@ -50,7 +51,7 @@ export default function DocumentRegistrationForm({ onSubmit }: DocumentRegistrat
             title: values.title.trim(),
             version: values.version.trim(),
             language: values.language.trim(),
-            sourceUrl: values.sourceUrl.trim()
+            sourceFile: values.sourceFile
           }
 
           if (
@@ -59,7 +60,7 @@ export default function DocumentRegistrationForm({ onSubmit }: DocumentRegistrat
             !normalizedValues.title ||
             !normalizedValues.version ||
             !normalizedValues.language ||
-            !normalizedValues.sourceUrl
+            !normalizedValues.sourceFile
           ) {
             setError("Validation Err: Incomplete parameters.")
             return
@@ -72,6 +73,9 @@ export default function DocumentRegistrationForm({ onSubmit }: DocumentRegistrat
             await onSubmit(normalizedValues)
             startTransition(() => {
               setValues(initialValues)
+              if (fileInputRef.current) {
+                fileInputRef.current.value = ""
+              }
             })
           } catch (submitError) {
             setError(submitError instanceof Error ? submitError.message : "Ingestion fault.")
@@ -134,14 +138,22 @@ export default function DocumentRegistrationForm({ onSubmit }: DocumentRegistrat
           </div>
 
           <label className="flex flex-col gap-3">
-            <span className="font-mono text-[11px] tracking-widest text-[#000000] uppercase">Blob URL</span>
+            <span className="font-mono text-[11px] tracking-widest text-[#000000] uppercase">Source PDF</span>
             <input
+              ref={fileInputRef}
+              accept="application/pdf,.pdf"
               className={inputClassName}
-              placeholder="https://.../manual.pdf"
-              type="url"
-              value={values.sourceUrl}
-              onChange={(event) => setValues((current) => ({ ...current, sourceUrl: event.target.value }))}
+              type="file"
+              onChange={(event) =>
+                setValues((current) => ({
+                  ...current,
+                  sourceFile: event.target.files?.[0] ?? null
+                }))
+              }
             />
+            <span className="font-mono text-[11px] tracking-widest text-[#555555] uppercase">
+              {values.sourceFile ? values.sourceFile.name : "No file selected"}
+            </span>
           </label>
 
           {error ? (

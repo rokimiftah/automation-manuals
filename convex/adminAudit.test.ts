@@ -30,7 +30,16 @@ vi.mock("./lib/evaluationSeed", () => ({
 }))
 
 const enqueueHandler = enqueue as typeof enqueue & {
-  _handler: (ctx: unknown, args: { documentId: unknown; sessionToken: string }) => Promise<unknown>
+  _handler: (
+    ctx: unknown,
+    args: {
+      documentId: unknown
+      sessionToken: string
+      sourceFileName: string
+      sourceMimeType: string
+      sourceStorageId: unknown
+    }
+  ) => Promise<unknown>
 }
 
 const retryHandler = retry as typeof retry & {
@@ -61,10 +70,22 @@ describe("admin audit coverage", () => {
       } as never,
       {
         documentId: "documents_1" as never,
-        sessionToken: "token-123"
+        sessionToken: "token-123",
+        sourceFileName: "manual.pdf",
+        sourceMimeType: "application/pdf",
+        sourceStorageId: "_storage_1" as never
       }
     )
 
+    expect(insert).toHaveBeenNthCalledWith(
+      1,
+      "ingestionJobs",
+      expect.objectContaining({
+        sourceFileName: "manual.pdf",
+        sourceMimeType: "application/pdf",
+        sourceStorageId: "_storage_1"
+      })
+    )
     expect(insert).toHaveBeenCalledWith(
       "auditEvents",
       expect.objectContaining({

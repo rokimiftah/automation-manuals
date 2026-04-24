@@ -79,7 +79,7 @@ export const loadSearchResults = internalQuery({
       if (!document) {
         continue
       }
-      if (!document.isActive) {
+      if (document.status !== "ready") {
         continue
       }
 
@@ -167,9 +167,7 @@ export const ask = action({
       ...item,
       evidenceId: `E${index + 1}`
     }))
-    const topScore = getTopEvidenceScore(evidence)
-
-    if (evidence.length === 0 || topScore < 0.55) {
+    if (evidence.length === 0) {
       const packet = buildRefusalPacket(sessionId)
 
       await ctx.runMutation(internal.chats.appendMessage, {

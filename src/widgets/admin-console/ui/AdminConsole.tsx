@@ -1,4 +1,6 @@
-import { useMutation, useQuery } from "convex/react"
+import type { Id } from "@convex/_generated/dataModel"
+
+import { useAction, useMutation, useQuery } from "convex/react"
 
 import { api } from "@convex/_generated/api"
 
@@ -19,10 +21,12 @@ export default function AdminConsole({
 }) {
   const documents = useQuery(api.documents.listAdmin, { sessionToken })
   const jobs = useQuery(api.ingestion.listJobs, { sessionToken })
+  const generateSourceUploadUrl = useMutation(api.documents.generateSourceUploadUrl)
+  const prepareMineruUpload = useAction(api.ingestion.prepareMineruUpload)
   const createDocument = useMutation(api.documents.create)
   const enqueue = useMutation(api.ingestion.enqueue)
   const retryJob = useMutation(api.ingestion.retry)
-  const setDocumentActive = useMutation(api.documents.setActive)
+  const deleteDocument = useMutation(api.documents.deleteDocument)
 
   async function runProtectedMutation<T>(work: () => Promise<T>) {
     try {
@@ -34,6 +38,27 @@ export default function AdminConsole({
 
       throw error
     }
+  }
+
+  async function uploadSourceFile(sourceFile: File) {
+    const uploadUrl = await generateSourceUploadUrl({ sessionToken })
+    const response = await fetch(uploadUrl, {
+      body: sourceFile,
+      headers: { "Content-Type": sourceFile.type || "application/pdf" },
+      method: "POST"
+    })
+
+    if (!response.ok) {
+      throw new Error(`Source upload failed with status ${response.status}`)
+    }
+
+    const payload = (await response.json()) as { storageId?: string }
+    const storageId = payload.storageId?.trim()
+    if (!storageId) {
+      throw new Error("Source upload did not return a storage ID")
+    }
+
+    return storageId as Id<"_storage">
   }
 
   return (
@@ -57,7 +82,7 @@ export default function AdminConsole({
             style={{ animationDelay: "0.05s" }}
           >
             <div className="wire-border-b flex items-center justify-between bg-[#FAFAFA] p-6 md:p-8">
-              <h2 className="text-[20px] font-medium tracking-tight text-[#000000] uppercase">Active Search Set</h2>
+              <h2 className="text-[20px] font-medium tracking-tight text-[#000000] uppercase">Searchable Manuals</h2>
             </div>
             <div className="flex flex-col gap-4 p-6 md:p-8">
               {documents === undefined ? (
@@ -68,10 +93,6 @@ export default function AdminConsole({
                 </div>
               ) : (
                 documents.map((document) => {
-                  const canActivate = document.status === "ready"
-                  const nextActiveState = !document.isActive
-                  const actionLabel = document.isActive ? `Deactivate ${document.version}` : `Set active ${document.version}`
-
                   return (
                     <article key={document._id} className="wire-border flex flex-col gap-4 bg-white p-4">
                       <div className="flex items-start justify-between gap-4">
@@ -82,25 +103,26 @@ export default function AdminConsole({
                           </p>
                         </div>
                         <span className="wire-border px-3 py-1 font-mono text-[10px] tracking-widest uppercase">
-                          {document.isActive ? "Active" : document.status}
+                          {document.status}
                         </span>
                       </div>
                       <div className="flex justify-end">
                         <button
-                          className="wire-border px-4 py-2 font-mono text-[10px] tracking-widest uppercase transition-colors hover:bg-[#000000] hover:text-white disabled:cursor-not-allowed disabled:opacity-50"
-                          disabled={!document.isActive && !canActivate}
+                          className="wire-border px-4 py-2 font-mono text-[10px] tracking-widest uppercase transition-colors hover:bg-[#991b1b] hover:text-white disabled:cursor-not-allowed disabled:opacity-50"
                           type="button"
                           onClick={() => {
-                            void runProtectedMutation(() =>
-                              setDocumentActive({
-                                documentId: document._id,
-                                isActive: nextActiveState,
-                                sessionToken
-                              })
-                            )
+                            if (
+                              !window.confirm(
+                                `Delete ${document.title} ${document.version}? This will permanently remove the document, related history, and storage.`
+                              )
+                            ) {
+                              return
+                            }
+
+                            void runProtectedMutation(() => deleteDocument({ documentId: document._id, sessionToken }))
                           }}
                         >
-                          {actionLabel}
+                          Delete {document.version}
                         </button>
                       </div>
                     </article>
@@ -115,8 +137,35 @@ export default function AdminConsole({
               <DocumentRegistrationForm
                 onSubmit={async (values) => {
                   await runProtectedMutation(async () => {
-                    const documentId = await createDocument({ ...values, sessionToken })
-                    await enqueue({ documentId, sessionToken })
+                    const sourceFile = values.sourceFile
+                    if (!sourceFile) {
+                      throw new Error("Source PDF is required.")
+                    }
+
+                    const sourceStorageId = await uploadSourceFile(sourceFile)
+                    const mineruUpload = await prepareMineruUpload({
+                      fileName: sourceFile.name,
+                      sessionToken,
+                      sourceStorageId
+                    })
+                    const documentId = await createDocument({
+                      language: values.language,
+                      productName: values.productName,
+                      sessionToken,
+                      sourceStorageId,
+                      title: values.title,
+                      vendorName: values.vendorName,
+                      version: values.version
+                    })
+                    await enqueue({
+                      documentId,
+                      providerBatchId: mineruUpload.batchId,
+                      ...(mineruUpload.traceId === undefined ? {} : { providerTraceId: mineruUpload.traceId }),
+                      sessionToken,
+                      sourceFileName: sourceFile.name,
+                      sourceMimeType: sourceFile.type || "application/pdf",
+                      sourceStorageId
+                    })
                   })
                 }}
               />

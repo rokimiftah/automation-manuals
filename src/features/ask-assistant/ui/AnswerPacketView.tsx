@@ -15,22 +15,10 @@ export type AnswerPacketViewProps = {
 }
 
 export default function AnswerPacketView({ packet, onSelectCitation }: AnswerPacketViewProps) {
-  const isGrounded = packet.answerabilityStatus === "grounded"
+  const _isGrounded = packet.answerabilityStatus === "grounded"
 
   return (
-    <section className="wire-border relative flex flex-col bg-white">
-      <div className="wire-border-b flex items-center justify-between bg-[#FAFAFA] p-4 md:p-6">
-        <h3 className="text-[14px] font-medium tracking-wide text-[#000000] uppercase">Output Matrix</h3>
-        <span className="wire-border flex items-center gap-2 px-3 py-1 font-mono text-[10px] font-medium tracking-widest text-[#000000] uppercase">
-          {isGrounded ? (
-            <span className="block h-1.5 w-1.5 bg-[#000000]"></span>
-          ) : (
-            <span className="wire-border block h-1.5 w-1.5"></span>
-          )}
-          {isGrounded ? "Grounded" : "Unverified"}
-        </span>
-      </div>
-
+    <section className="relative flex flex-col bg-white">
       <div className="space-y-10 p-6 md:p-8">
         <p className="font-mono text-[16px] leading-[1.8] whitespace-pre-wrap text-[#000000]">{packet.answerSummary}</p>
 

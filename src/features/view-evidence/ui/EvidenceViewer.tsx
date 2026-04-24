@@ -59,9 +59,6 @@ export default function EvidenceViewer({ asset }: { asset: SupportingAsset | nul
           <span className="h-1.5 w-1.5 shrink-0 bg-[#000000]"></span>
           <h3 className="truncate text-[14px] font-medium tracking-wide text-[#000000] uppercase">{asset.label}</h3>
         </div>
-        <span className="wire-border shrink-0 bg-white px-3 py-1 font-mono text-[10px] font-medium tracking-widest text-[#000000] uppercase">
-          Pg. {asset.pageNumber}
-        </span>
       </div>
       <div className="min-h-0 flex-1 p-4 md:p-6">
         <iframe

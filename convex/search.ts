@@ -6,7 +6,7 @@ import { ConvexError, v } from "convex/values"
 import { api, internal } from "./_generated/api"
 import { action, internalMutation, internalQuery } from "./_generated/server"
 import { answerPacketValidator, buildGroundedPacket, buildRefusalPacket, selectEvidenceByCitationIds } from "./lib/answerPacket"
-import { isLookupLikeQuery, mergeCandidates } from "./lib/hybridRetrieval"
+import { isLookupLikeQuery, mergeCandidates, rankExactCandidates } from "./lib/hybridRetrieval"
 import { embedTexts, generateGroundedAnswer } from "./lib/mistral"
 
 type SearchResult = {
@@ -52,10 +52,6 @@ const savedEvidenceValidator = v.object({
   score: v.number()
 })
 
-function sortSearchResults(a: SearchResult, b: SearchResult) {
-  return a.pageNumber - b.pageNumber || a.chunkId.localeCompare(b.chunkId)
-}
-
 export const loadExactResults = internalQuery({
   args: {
     documentId: v.optional(v.id("documents")),
@@ -65,7 +61,8 @@ export const loadExactResults = internalQuery({
   handler: async (ctx, args) => {
     const documentId = args.documentId
 
-    const results: SearchResult[] = []
+    const candidates: Array<Omit<SearchResult, "score" | "assetId">> = []
+    const assetIdByChunkId = new Map<string, GenericId<"documentAssets"> | undefined>()
 
     if (documentId) {
       const document = await ctx.db.get(documentId)
@@ -75,25 +72,20 @@ export const loadExactResults = internalQuery({
 
       const chunks = await ctx.db
         .query("chunks")
-        .withIndex("by_document_and_current_and_content", (q) =>
-          q.eq("documentId", documentId).eq("isCurrent", true).eq("content", args.exactContent)
-        )
+        .withIndex("by_document_and_current", (q) => q.eq("documentId", documentId).eq("isCurrent", true))
         .collect()
 
       for (const chunk of chunks) {
-        results.push({
-          assetId: document.sourceAssetId,
+        assetIdByChunkId.set(String(chunk._id), document.sourceAssetId)
+        candidates.push({
           citationLabel: chunk.citationLabel,
           chunkId: chunk._id,
           content: chunk.content,
-          pageNumber: chunk.pageNumber,
-          score: 1
+          pageNumber: chunk.pageNumber
         })
       }
     } else {
-      const exactQuery = ctx.db
-        .query("chunks")
-        .withIndex("by_current_and_content", (q) => q.eq("isCurrent", true).eq("content", args.exactContent))
+      const exactQuery = ctx.db.query("chunks").withIndex("by_current_and_content", (q) => q.eq("isCurrent", true))
 
       let cursor: string | null = null
       let isDone = false
@@ -113,19 +105,29 @@ export const loadExactResults = internalQuery({
             continue
           }
 
-          results.push({
-            assetId: document.sourceAssetId,
+          assetIdByChunkId.set(String(chunk._id), document.sourceAssetId)
+          candidates.push({
             citationLabel: chunk.citationLabel,
             chunkId: chunk._id,
             content: chunk.content,
-            pageNumber: chunk.pageNumber,
-            score: 1
+            pageNumber: chunk.pageNumber
           })
         }
       }
     }
 
-    return results.sort(sortSearchResults).slice(0, GLOBAL_EXACT_MATCH_LIMIT)
+    return rankExactCandidates(args.exactContent, candidates)
+      .slice(0, GLOBAL_EXACT_MATCH_LIMIT)
+      .map((candidate) => {
+        const chunkId = candidate.chunkId as GenericId<"chunks">
+        const assetId = assetIdByChunkId.get(String(candidate.chunkId))
+
+        return {
+          ...candidate,
+          chunkId,
+          ...(assetId === undefined ? {} : { assetId })
+        }
+      })
   }
 })
 

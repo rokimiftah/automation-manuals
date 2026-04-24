@@ -61,6 +61,76 @@ function makeDb(rows: Array<Record<string, unknown>>, pages: Array<Array<Record<
 }
 
 describe("loadExactResults", () => {
+  it("matches a literal phrase inside a merged heading chunk", async () => {
+    const rangeBuilder = {
+      eq(field: string, value: unknown) {
+        filters.push([field, value])
+        return rangeBuilder
+      }
+    }
+    const filters: Array<[string, unknown]> = []
+    const collect = vi.fn(async () => {
+      const contentFilter = filters.find(([field]) => field === "content")?.[1]
+      if (contentFilter === mergedChunk.content) {
+        return [mergedChunk]
+      }
+
+      const isDocumentCurrentQuery =
+        filters.some(([field, value]) => field === "documentId" && value === "documents_1") &&
+        filters.some(([field, value]) => field === "isCurrent" && value === true) &&
+        !filters.some(([field]) => field === "content")
+
+      return isDocumentCurrentQuery ? [mergedChunk] : []
+    })
+    const mergedChunk = {
+      _id: "chunks_1" as never,
+      citationLabel: "Page 16",
+      content:
+        "# Add a User to the Sudoers List\n\nAdding a user to the sudoers list allows to perform administrative tasks without logging in as root.",
+      documentId: "documents_1" as never,
+      isCurrent: true,
+      pageNumber: 16
+    }
+    const withIndex = vi.fn((_indexName: string, rangeBuilderFn: (builder: typeof rangeBuilder) => void) => {
+      filters.length = 0
+      rangeBuilderFn(rangeBuilder)
+      return {
+        collect,
+        paginate: vi.fn(),
+        take: vi.fn()
+      }
+    })
+    const get = vi.fn().mockResolvedValueOnce({
+      sourceAssetId: "documentAssets_1" as never,
+      status: "ready"
+    })
+
+    const results = await loadExactResultsHandler._handler(
+      {
+        db: {
+          get,
+          query: vi.fn(() => ({ withIndex }))
+        }
+      } as never,
+      {
+        documentId: "documents_1" as never,
+        exactContent: "Add a User to the Sudoers List"
+      }
+    )
+
+    expect(results).toEqual([
+      {
+        assetId: "documentAssets_1",
+        citationLabel: "Page 16",
+        chunkId: "chunks_1",
+        content:
+          "# Add a User to the Sudoers List\n\nAdding a user to the sudoers list allows to perform administrative tasks without logging in as root.",
+        pageNumber: 16,
+        score: 1
+      }
+    ])
+  })
+
   it("returns current literal matches from a ready document", async () => {
     const db = makeDb([
       {
@@ -103,7 +173,6 @@ describe("loadExactResults", () => {
 
     expect(db.withIndex).toHaveBeenCalledWith("by_current_and_content", expect.any(Function))
     expect(db.rangeBuilder.eq).toHaveBeenNthCalledWith(1, "isCurrent", true)
-    expect(db.rangeBuilder.eq).toHaveBeenNthCalledWith(2, "content", "Install the module beside the controller.")
     expect(results).toEqual([
       {
         assetId: "documentAssets_1",
@@ -260,10 +329,9 @@ describe("loadExactResults", () => {
       }
     )
 
-    expect(db.withIndex).toHaveBeenCalledWith("by_document_and_current_and_content", expect.any(Function))
+    expect(db.withIndex).toHaveBeenCalledWith("by_document_and_current", expect.any(Function))
     expect(db.rangeBuilder.eq).toHaveBeenNthCalledWith(1, "documentId", "documents_1")
     expect(db.rangeBuilder.eq).toHaveBeenNthCalledWith(2, "isCurrent", true)
-    expect(db.rangeBuilder.eq).toHaveBeenNthCalledWith(3, "content", "Document scoped exact match.")
     expect(get).toHaveBeenCalledTimes(1)
   })
 

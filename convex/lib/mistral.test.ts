@@ -29,6 +29,37 @@ describe("embedTexts", () => {
       model: "mistral-embed"
     })
   })
+
+  it("splits large embedding requests into smaller batches", async () => {
+    const client = {
+      embeddings: {
+        create: vi
+          .fn()
+          .mockResolvedValueOnce({
+            data: [{ embedding: [0.1, 0.2] }, { embedding: [0.3, 0.4] }]
+          })
+          .mockResolvedValueOnce({
+            data: [{ embedding: [0.5, 0.6] }]
+          })
+      }
+    }
+
+    await expect(
+      embedTexts(["first chunk", "second chunk", "third chunk"], { batchSize: 2, client, model: "mistral-embed" })
+    ).resolves.toEqual([
+      [0.1, 0.2],
+      [0.3, 0.4],
+      [0.5, 0.6]
+    ])
+    expect(client.embeddings.create).toHaveBeenNthCalledWith(1, {
+      inputs: ["first chunk", "second chunk"],
+      model: "mistral-embed"
+    })
+    expect(client.embeddings.create).toHaveBeenNthCalledWith(2, {
+      inputs: ["third chunk"],
+      model: "mistral-embed"
+    })
+  })
 })
 
 describe("ocrPdfPage", () => {

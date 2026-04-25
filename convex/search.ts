@@ -1,3 +1,4 @@
+import type { MutationCtx } from "./_generated/server"
 import type { AnswerPacket } from "./lib/answerPacket"
 import type { GenericId } from "convex/values"
 
@@ -23,6 +24,22 @@ type SearchResult = {
 
 type ExactSearchCandidate = Omit<SearchResult, "score">
 
+type ExactTermBackfillChunk = {
+  _id: GenericId<"chunks">
+  citationLabel: string
+  content: string
+  documentId: GenericId<"documents">
+  ingestionJobId: GenericId<"ingestionJobs">
+}
+
+type ExactTermCleanupChunk = {
+  _id: GenericId<"chunks">
+}
+
+type ExactTermInsertCtx = Pick<MutationCtx, "db">
+
+type ExactTermCleanupCtx = Pick<MutationCtx, "db">
+
 type ExactSearchPage = {
   continueCursor: string
   isDone: boolean
@@ -40,6 +57,9 @@ export const GLOBAL_EXACT_MATCH_SCAN_LIMIT = 128
 export const GLOBAL_EXACT_MATCH_PAGE_SIZE = 32
 
 const GLOBAL_EXACT_TERM_LIMIT = 64
+const EXACT_TERM_BACKFILL_CHUNK_BATCH_SIZE = 50
+const EXACT_TERM_BACKFILL_PHASE_CLEANUP = "cleanup" as const
+const EXACT_TERM_BACKFILL_PHASE_BACKFILL = "backfill" as const
 
 const SEARCH_RATE_WINDOW_MS = 60_000
 
@@ -108,6 +128,127 @@ function rankExactSearchResults(question: string, candidates: ExactSearchCandida
       }
     })
 }
+
+async function insertExactTermsForChunkBatch(ctx: ExactTermInsertCtx, chunks: ExactTermBackfillChunk[]) {
+  let inserted = 0
+
+  for (const chunk of chunks) {
+    const existingTerms = await ctx.db
+      .query("chunkTerms")
+      .withIndex("by_chunk", (q) => q.eq("chunkId", chunk._id))
+      .take(1)
+    if (existingTerms.length > 0) {
+      continue
+    }
+
+    for (const term of buildChunkTerms({ citationLabel: chunk.citationLabel, content: chunk.content })) {
+      await ctx.db.insert("chunkTerms", {
+        chunkId: chunk._id,
+        documentId: chunk.documentId,
+        term
+      })
+      inserted += 1
+    }
+  }
+
+  return inserted
+}
+
+async function deleteExactTermsForChunkBatch(ctx: ExactTermCleanupCtx, chunks: ExactTermCleanupChunk[]) {
+  let deleted = 0
+
+  for (const chunk of chunks) {
+    const existingTerms = await ctx.db
+      .query("chunkTerms")
+      .withIndex("by_chunk", (q) => q.eq("chunkId", chunk._id))
+      .collect()
+
+    for (const term of existingTerms) {
+      await ctx.db.delete("chunkTerms", term._id)
+      deleted += 1
+    }
+  }
+
+  return deleted
+}
+
+export const backfillDocumentExactTermsBatch = internalMutation({
+  args: {
+    documentId: v.id("documents"),
+    jobId: v.id("ingestionJobs"),
+    offset: v.optional(v.number()),
+    phase: v.optional(v.union(v.literal(EXACT_TERM_BACKFILL_PHASE_CLEANUP), v.literal(EXACT_TERM_BACKFILL_PHASE_BACKFILL)))
+  },
+  returns: v.null(),
+  handler: async (ctx, args) => {
+    const offset = args.offset ?? 0
+    const phase = args.phase ?? EXACT_TERM_BACKFILL_PHASE_CLEANUP
+
+    if (phase === EXACT_TERM_BACKFILL_PHASE_CLEANUP) {
+      const staleChunks = await ctx.db
+        .query("chunks")
+        .withIndex("by_document_and_current", (q) => q.eq("documentId", args.documentId).eq("isCurrent", false))
+        .collect()
+      const chunkBatch = staleChunks.slice(offset, offset + EXACT_TERM_BACKFILL_CHUNK_BATCH_SIZE)
+
+      await deleteExactTermsForChunkBatch(ctx, chunkBatch)
+
+      if (offset + EXACT_TERM_BACKFILL_CHUNK_BATCH_SIZE < staleChunks.length) {
+        await ctx.scheduler.runAfter(0, internal.search.backfillDocumentExactTermsBatch, {
+          documentId: args.documentId,
+          jobId: args.jobId,
+          offset: offset + EXACT_TERM_BACKFILL_CHUNK_BATCH_SIZE,
+          phase
+        })
+        return null
+      }
+
+      await ctx.scheduler.runAfter(0, internal.search.backfillDocumentExactTermsBatch, {
+        documentId: args.documentId,
+        jobId: args.jobId,
+        offset: 0,
+        phase: EXACT_TERM_BACKFILL_PHASE_BACKFILL
+      })
+      return null
+    }
+
+    const currentChunks = await ctx.db
+      .query("chunks")
+      .withIndex("by_document_and_current", (q) => q.eq("documentId", args.documentId).eq("isCurrent", true))
+      .collect()
+    const jobChunks = currentChunks.filter((chunk) => chunk.ingestionJobId === args.jobId)
+    if (jobChunks.length === 0 || jobChunks.length !== currentChunks.length) {
+      await ctx.runMutation(internal.documents.markFailed, {
+        documentId: args.documentId,
+        errorMessage: "Exact-term indexing was superseded by a newer ingestion job.",
+        jobId: args.jobId
+      })
+      return null
+    }
+
+    const chunkBatch = jobChunks.slice(offset, offset + EXACT_TERM_BACKFILL_CHUNK_BATCH_SIZE)
+
+    await insertExactTermsForChunkBatch(ctx, chunkBatch)
+
+    if (offset + EXACT_TERM_BACKFILL_CHUNK_BATCH_SIZE < jobChunks.length) {
+      await ctx.scheduler.runAfter(0, internal.search.backfillDocumentExactTermsBatch, {
+        documentId: args.documentId,
+        jobId: args.jobId,
+        offset: offset + EXACT_TERM_BACKFILL_CHUNK_BATCH_SIZE,
+        phase
+      })
+      return null
+    }
+
+    await ctx.runMutation(internal.documents.markReady, { documentId: args.documentId })
+    await ctx.runMutation(internal.ingestion.updateJobStatus, {
+      jobId: args.jobId,
+      status: "ready"
+    })
+
+    return null
+  }
+})
 
 export const loadExactResults = internalQuery({
   args: {
@@ -380,27 +521,7 @@ export const backfillExactTerms = mutation({
       .withIndex("by_current_and_content", (q) => q.eq("isCurrent", true))
       .collect()
 
-    let inserted = 0
-    for (const chunk of currentChunks) {
-      const existingTerms = await ctx.db
-        .query("chunkTerms")
-        .withIndex("by_chunk", (q) => q.eq("chunkId", chunk._id))
-        .take(1)
-      if (existingTerms.length > 0) {
-        continue
-      }
-
-      for (const term of buildChunkTerms({ citationLabel: chunk.citationLabel, content: chunk.content })) {
-        await ctx.db.insert("chunkTerms", {
-          chunkId: chunk._id,
-          documentId: chunk.documentId,
-          term
-        })
-        inserted += 1
-      }
-    }
-
-    return inserted
+    return await insertExactTermsForChunkBatch(ctx, currentChunks.slice(0, EXACT_TERM_BACKFILL_CHUNK_BATCH_SIZE))
   }
 })
 

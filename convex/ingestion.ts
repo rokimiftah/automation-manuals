@@ -9,12 +9,9 @@ import { api, internal } from "./_generated/api"
 import { action, httpAction, internalAction, internalMutation, internalQuery, mutation, query } from "./_generated/server"
 import { insertAdminAuditEvent, requireAdminQuerySession, requireAdminWriteSession } from "./lib/adminSession"
 import { getProviderEnv } from "./lib/env"
-import { buildDocumentPayload } from "./lib/ingestDocument"
 import { assertNextIngestionStatus } from "./lib/ingestionState"
 import { getMineruBatchResult, mapMineruBatchState, submitMineruBatch } from "./lib/mineru"
 import { verifyMineruChecksum } from "./lib/mineruCallback"
-import { normalizeMineruDocument } from "./lib/mineruResult"
-import { embedTexts, ocrPdfPage } from "./lib/mistral"
 import { buildProviderProgressPatch, getProviderFailureMessage, getProviderReconcileDecision } from "./lib/providerRetry"
 import { ingestionStatusValidator } from "./lib/validators"
 
@@ -28,7 +25,10 @@ const listJobValidator = v.object({
   providerErrorMessage: v.optional(v.string()),
   providerLastCheckedAt: v.optional(v.number()),
   providerState: v.optional(v.string()),
-  status: ingestionStatusValidator
+  recoverableAt: v.optional(v.number()),
+  serverNow: v.number(),
+  status: ingestionStatusValidator,
+  updatedAt: v.number()
 })
 
 const jobByIdValidator = v.union(
@@ -76,6 +76,13 @@ type RetryableIngestionJob = {
   status: IngestionStatus
 }
 
+type RecoverableIngestionJob = RetryableIngestionJob & {
+  updatedAt: number
+}
+
+const STUCK_JOB_RECOVERY_WINDOW_MS = 15 * 60 * 1000
+const STUCK_JOB_RECOVERY_ERROR_MESSAGE = "Admin recovery marked this stuck ingestion job as failed."
+
 function compareJobRecency(left: RetryableIngestionJob, right: RetryableIngestionJob) {
   if (left._creationTime !== right._creationTime) {
     return left._creationTime - right._creationTime
@@ -94,6 +101,34 @@ export function isRetryableJob(job: RetryableIngestionJob, jobs: RetryableIngest
   }
 
   const latestDocumentJob = jobs.reduce<RetryableIngestionJob | null>((latest, candidate) => {
+    if (candidate.documentId !== job.documentId) {
+      return latest
+    }
+
+    if (!latest || compareJobRecency(candidate, latest) > 0) {
+      return candidate
+    }
+
+    return latest
+  }, null)
+
+  return latestDocumentJob?._id === job._id
+}
+
+function isRecoverableStatus(status: IngestionStatus) {
+  return status === "submitting" || status === "normalizing"
+}
+
+export function isRecoverableStuckJob(job: RecoverableIngestionJob, jobs: RecoverableIngestionJob[], now = Date.now()) {
+  if (!isRecoverableStatus(job.status)) {
+    return false
+  }
+
+  if (now - job.updatedAt < STUCK_JOB_RECOVERY_WINDOW_MS) {
+    return false
+  }
+
+  const latestDocumentJob = jobs.reduce<RecoverableIngestionJob | null>((latest, candidate) => {
     if (candidate.documentId !== job.documentId) {
       return latest
     }
@@ -167,6 +202,7 @@ export const listJobs = query({
   handler: async (ctx, args) => {
     await requireAdminQuerySession(ctx, args.sessionToken)
     const jobs = await ctx.db.query("ingestionJobs").collect()
+    const now = Date.now()
     return jobs.map((job) => ({
       _creationTime: job._creationTime,
       _id: job._id,
@@ -177,7 +213,26 @@ export const listJobs = query({
       ...(job.providerErrorMessage === undefined ? {} : { providerErrorMessage: job.providerErrorMessage }),
       ...(job.providerLastCheckedAt === undefined ? {} : { providerLastCheckedAt: job.providerLastCheckedAt }),
       ...(job.providerState === undefined ? {} : { providerState: job.providerState }),
-      status: job.status
+      ...(isRecoverableStatus(job.status) &&
+      compareJobRecency(
+        job,
+        jobs.reduce<RetryableIngestionJob | null>((latest, candidate) => {
+          if (candidate.documentId !== job.documentId) {
+            return latest
+          }
+
+          if (!latest || compareJobRecency(candidate, latest) > 0) {
+            return candidate
+          }
+
+          return latest
+        }, null) ?? job
+      ) === 0
+        ? { recoverableAt: job.updatedAt + STUCK_JOB_RECOVERY_WINDOW_MS }
+        : {}),
+      serverNow: now,
+      status: job.status,
+      updatedAt: job.updatedAt
     }))
   }
 })
@@ -236,7 +291,7 @@ export const enqueue = mutation({
     })
 
     if (args.providerBatchId === undefined) {
-      await ctx.scheduler.runAfter(0, internal.ingestion.runDocumentJob, {
+      await ctx.scheduler.runAfter(0, internal.ingestionNode.runDocumentJob, {
         documentId: args.documentId,
         jobId
       })
@@ -311,12 +366,62 @@ export const retry = mutation({
       summary: `Retried ingestion for ${existing.documentId}`
     })
 
-    await ctx.scheduler.runAfter(0, internal.ingestion.runDocumentJob, {
+    await ctx.scheduler.runAfter(0, internal.ingestionNode.runDocumentJob, {
       documentId: existing.documentId,
       jobId: retryJobId
     })
 
     return retryJobId
+  }
+})
+
+export const recoverStuckJob = mutation({
+  args: { jobId: v.id("ingestionJobs"), sessionToken: v.string() },
+  returns: v.null(),
+  handler: async (ctx, args) => {
+    const adminSession = await requireAdminWriteSession(ctx, args.sessionToken)
+    const existing = await ctx.db.get("ingestionJobs", args.jobId)
+    if (!existing) {
+      throw new ConvexError("Ingestion job not found")
+    }
+
+    if (existing.status === "failed" && existing.errorMessage === STUCK_JOB_RECOVERY_ERROR_MESSAGE) {
+      return null
+    }
+
+    const documentJobs = await ctx.db
+      .query("ingestionJobs")
+      .withIndex("by_document", (q) => q.eq("documentId", existing.documentId))
+      .collect()
+    if (!isRecoverableStuckJob(existing, documentJobs)) {
+      throw new ConvexError("Only the latest stale ingestion job can be recovered")
+    }
+
+    assertNextIngestionStatus(existing.status, "failed")
+
+    const now = Date.now()
+    await ctx.db.patch("ingestionJobs", args.jobId, {
+      errorMessage: STUCK_JOB_RECOVERY_ERROR_MESSAGE,
+      status: "failed",
+      updatedAt: now
+    })
+
+    const document = await ctx.db.get("documents", existing.documentId)
+    if (document) {
+      await ctx.db.patch("documents", existing.documentId, {
+        status: "failed",
+        updatedAt: now
+      })
+    }
+
+    await insertAdminAuditEvent(ctx, adminSession, {
+      action: "ingestion.recover",
+      targetId: args.jobId,
+      targetTable: "ingestionJobs",
+      summary: `Recovered stuck ingestion for ${existing.documentId}`
+    })
+
+    return null
   }
 })
 
@@ -466,120 +571,6 @@ export const claimProviderFinalization = internalMutation({
   }
 })
 
-export const runDocumentJob = internalAction({
-  args: {
-    documentId: v.id("documents"),
-    jobId: v.id("ingestionJobs")
-  },
-  returns: v.null(),
-  handler: async (ctx, args) => {
-    const document = await ctx.runQuery(internal.documents.getById, { documentId: args.documentId })
-    if (!document) {
-      await ctx.runMutation(internal.ingestion.updateJobStatus, {
-        errorMessage: "Document not found",
-        jobId: args.jobId,
-        status: "failed"
-      })
-      return null
-    }
-
-    const job = await ctx.runQuery(internal.ingestion.getJobById, { jobId: args.jobId })
-    if (!job) {
-      await ctx.runMutation(internal.documents.markFailed, {
-        errorMessage: "Ingestion job not found",
-        jobId: args.jobId,
-        documentId: args.documentId
-      })
-      return null
-    }
-
-    let sourceStorageId: Id<"_storage"> | null = null
-    let createdSourceStorageId: Id<"_storage"> | null = null
-    let submissionRecorded = false
-
-    try {
-      await ctx.runMutation(internal.ingestion.updateJobStatus, {
-        jobId: args.jobId,
-        status: "downloading"
-      })
-
-      let sourceBlob: Blob | null = null
-      sourceStorageId = job.sourceStorageId ?? null
-
-      if (sourceStorageId) {
-        sourceBlob = await ctx.storage.get(sourceStorageId)
-        if (!sourceBlob) {
-          throw new Error("Source file not found in storage")
-        }
-      } else {
-        const response = await fetch(document.sourceUrl)
-        if (!response.ok) {
-          throw new Error(`Failed to fetch source PDF: ${response.status} ${response.statusText}`)
-        }
-
-        sourceBlob = await response.blob()
-        createdSourceStorageId = await ctx.storage.store(sourceBlob)
-        sourceStorageId = createdSourceStorageId
-      }
-
-      if (!sourceBlob || !sourceStorageId) {
-        throw new Error("Source file is not available")
-      }
-
-      const sourceMimeType = job.sourceMimeType || sourceBlob.type || "application/pdf"
-      const sourceFileName = job.sourceFileName || `${document.productSlug}-${document.version}.pdf`
-
-      await ctx.runMutation(internal.ingestion.updateJobStatus, {
-        jobId: args.jobId,
-        status: "submitting"
-      })
-
-      const providerSubmission = await submitMineruBatch({
-        ...(getProviderEnv().mineruCallbackSeed === undefined ? {} : { callbackSeed: getProviderEnv().mineruCallbackSeed }),
-        ...(getProviderEnv().mineruCallbackUrl === undefined ? {} : { callbackUrl: getProviderEnv().mineruCallbackUrl }),
-        file: sourceBlob,
-        fileName: sourceFileName,
-        token: getProviderEnv().mineruApiToken
-      })
-
-      await ctx.runMutation(internal.ingestion.recordProviderSubmission, {
-        jobId: args.jobId,
-        priorityQuotaBucket: "unknown",
-        providerBatchId: providerSubmission.batchId,
-        ...(providerSubmission.traceId === undefined ? {} : { providerTraceId: providerSubmission.traceId }),
-        sourceFileName,
-        sourceMimeType,
-        sourceStorageId
-      })
-      submissionRecorded = true
-
-      await ctx.scheduler.runAfter(5_000, internal.ingestion.reconcileProviderJob, {
-        jobId: args.jobId
-      })
-
-      return null
-    } catch (error) {
-      const errorMessage = error instanceof Error ? error.message : "Unknown ingestion error"
-
-      await ctx.runMutation(internal.documents.markFailed, {
-        errorMessage,
-        jobId: args.jobId,
-        documentId: args.documentId
-      })
-
-      if (createdSourceStorageId && !submissionRecorded) {
-        try {
-          await ctx.storage.delete(createdSourceStorageId)
-        } catch {
-          // Best-effort cleanup only.
-        }
-      }
-
-      return null
-    }
-  }
-})
-
 export const reconcileProviderJob = internalAction({
   args: { jobId: v.id("ingestionJobs") },
   returns: v.null(),
@@ -632,7 +623,7 @@ export const reconcileProviderJob = internalAction({
       })
 
       if (nextStatus === "downloading_result") {
-        await ctx.scheduler.runAfter(0, internal.ingestion.finalizeProviderResult, {
+        await ctx.scheduler.runAfter(0, internal.ingestionNode.finalizeProviderResult, {
           documentId: job.documentId,
           jobId: args.jobId
         })
@@ -666,91 +657,6 @@ export const reconcileProviderJob = internalAction({
 
       await ctx.scheduler.runAfter(selectBackoffDelay(job.status), internal.ingestion.reconcileProviderJob, {
         jobId: args.jobId
-      })
-      return null
-    }
-  }
-})
-
-export const finalizeProviderResult = internalAction({
-  args: {
-    documentId: v.id("documents"),
-    jobId: v.id("ingestionJobs")
-  },
-  returns: v.null(),
-  handler: async (ctx, args) => {
-    const claimed = await ctx.runMutation(internal.ingestion.claimProviderFinalization, {
-      jobId: args.jobId
-    })
-    if (!claimed) {
-      return null
-    }
-
-    const job = await ctx.runQuery(internal.ingestion.getJobById, { jobId: args.jobId })
-    if (!job?.providerResultUrl || !job.sourceStorageId || !job.sourceFileName || !job.sourceMimeType) {
-      await ctx.runMutation(internal.documents.markFailed, {
-        errorMessage: "MinerU job is missing the result or source file metadata",
-        jobId: args.jobId,
-        documentId: args.documentId
-      })
-      return null
-    }
-
-    const document = await ctx.runQuery(internal.documents.getById, { documentId: args.documentId })
-    if (!document) {
-      await ctx.runMutation(internal.documents.markFailed, {
-        errorMessage: "Document not found",
-        jobId: args.jobId,
-        documentId: args.documentId
-      })
-      return null
-    }
-
-    try {
-      const response = await fetch(job.providerResultUrl)
-      if (!response.ok) {
-        throw new Error(`Failed to download MinerU result: ${response.status} ${response.statusText}`)
-      }
-
-      const archive = await response.arrayBuffer()
-      const structuredJson = decodeMineruArchiveJson(archive)
-      const normalized = normalizeMineruDocument(structuredJson)
-      const sourceUrl = await ctx.storage.getUrl(job.sourceStorageId)
-      if (!sourceUrl) {
-        throw new Error("Source file is no longer available")
-      }
-
-      const payload = await buildDocumentPayload({
-        embed: (inputs) => embedTexts(inputs),
-        onBeforeEmbed: async () => {
-          await ctx.runMutation(internal.ingestion.updateJobStatus, {
-            jobId: args.jobId,
-            status: "embedding"
-          })
-        },
-        ocr: (documentUrl, pageNumber) => ocrPdfPage(documentUrl, pageNumber),
-        parsedPages: normalized.pages,
-        sourceUrl
-      })
-
-      await ctx.runMutation(internal.documents.replaceParsedContent, {
-        chunks: payload.chunks,
-        documentId: args.documentId,
-        embeddings: payload.embeddings,
-        jobId: args.jobId,
-        pages: payload.pages,
-        sourceFileName: job.sourceFileName,
-        sourceMimeType: job.sourceMimeType,
-        sourceStorageId: job.sourceStorageId
-      })
-
-      return null
-    } catch (error) {
-      const errorMessage = error instanceof Error ? error.message : "Unknown MinerU finalization error"
-      await ctx.runMutation(internal.documents.markFailed, {
-        errorMessage,
-        jobId: args.jobId,
-        documentId: args.documentId
       })
       return null
     }

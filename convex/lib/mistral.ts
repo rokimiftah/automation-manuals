@@ -49,9 +49,12 @@ type MistralClientLike = {
 }
 
 type ProviderOptions = {
+  batchSize?: number
   client?: Partial<MistralClientLike>
   model?: string
 }
+
+const DEFAULT_EMBED_BATCH_SIZE = 50
 
 function getMistralClient(): MistralClientLike {
   return new Mistral({ apiKey: getProviderEnv().mistralApiKey }) as unknown as MistralClientLike
@@ -110,8 +113,16 @@ export async function embedTexts(inputs: string[], options: ProviderOptions = {}
 
   const client = (options.client ?? getMistralClient()) as MistralClientLike
   const model = options.model ?? getProviderEnv().mistralEmbedModel
-  const result = await client.embeddings.create({ inputs, model })
-  return result.data.map((item) => item.embedding)
+  const batchSize = Math.max(1, Math.floor(options.batchSize ?? DEFAULT_EMBED_BATCH_SIZE))
+  const embeddings: number[][] = []
+
+  for (let index = 0; index < inputs.length; index += batchSize) {
+    const batch = inputs.slice(index, index + batchSize)
+    const result = await client.embeddings.create({ inputs: batch, model })
+    embeddings.push(...result.data.map((item) => item.embedding))
+  }
+
+  return embeddings
 }
 
 export async function ocrPdfPage(sourceUrl: string, pageNumber: number, options: ProviderOptions = {}) {

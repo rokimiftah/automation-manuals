@@ -56,6 +56,7 @@ function AdminConsoleContent({
   const generateSourceUploadUrl = useMutation(api.documents.generateSourceUploadUrl)
   const createDocument = useMutation(api.documents.create)
   const enqueue = useMutation(api.ingestion.enqueue)
+  const recoverStuckJob = useMutation(api.ingestion.recoverStuckJob)
   const retryJob = useMutation(api.ingestion.retry)
   const deleteDocument = useMutation(api.documents.deleteDocument)
 
@@ -231,8 +232,19 @@ function AdminConsoleContent({
           ) : (
             <IngestionJobList
               jobs={safeJobs}
+              onRecover={(jobId) => {
+                void runProtectedMutation(() => recoverStuckJob({ jobId, sessionToken })).catch((error) => {
+                  if (!isAdminSessionError(error)) {
+                    window.alert(error instanceof Error ? error.message : "Unable to recover ingestion job.")
+                  }
+                })
+              }}
               onRetry={(jobId) => {
-                void runProtectedMutation(() => retryJob({ jobId, sessionToken }))
+                void runProtectedMutation(() => retryJob({ jobId, sessionToken })).catch((error) => {
+                  if (!isAdminSessionError(error)) {
+                    window.alert(error instanceof Error ? error.message : "Unable to retry ingestion job.")
+                  }
+                })
               }}
             />
           )}

@@ -1,5 +1,9 @@
 import type { Id } from "@convex/_generated/dataModel"
 
+import { useEffect, useState } from "react"
+
+const RECOVERY_REFRESH_INTERVAL_MS = 5_000
+
 export type IngestionJob = {
   _creationTime: number
   _id: Id<"ingestionJobs">
@@ -10,11 +14,15 @@ export type IngestionJob = {
   providerErrorMessage?: string
   providerLastCheckedAt?: number
   providerState?: string
+  recoverableAt?: number
+  serverNow: number
   status: string
+  updatedAt: number
 }
 
 type IngestionJobListProps = {
   jobs: IngestionJob[]
+  onRecover: (jobId: Id<"ingestionJobs">) => void | Promise<void>
   onRetry: (jobId: Id<"ingestionJobs">) => void | Promise<void>
 }
 
@@ -78,7 +86,38 @@ function canRetryJob(job: IngestionJob, jobs: IngestionJob[]) {
   return latestDocumentJob?._id === job._id
 }
 
-export default function IngestionJobList({ jobs, onRetry }: IngestionJobListProps) {
+function canRecoverJob(job: IngestionJob, approxServerNow: number) {
+  return job.recoverableAt !== undefined && approxServerNow >= job.recoverableAt
+}
+
+export default function IngestionJobList({ jobs, onRecover, onRetry }: IngestionJobListProps) {
+  const [clientNow, setClientNow] = useState(() => Date.now())
+  const [clockAnchor, setClockAnchor] = useState(() => ({
+    clientNow: Date.now(),
+    serverNow: jobs[0]?.serverNow ?? Date.now()
+  }))
+
+  useEffect(() => {
+    const nextClientNow = Date.now()
+    setClientNow(nextClientNow)
+    setClockAnchor({
+      clientNow: nextClientNow,
+      serverNow: jobs[0]?.serverNow ?? nextClientNow
+    })
+  }, [jobs])
+
+  useEffect(() => {
+    const intervalId = window.setInterval(() => {
+      setClientNow(Date.now())
+    }, RECOVERY_REFRESH_INTERVAL_MS)
+
+    return () => {
+      window.clearInterval(intervalId)
+    }
+  }, [])
+
+  const approxServerNow = clockAnchor.serverNow + (clientNow - clockAnchor.clientNow)
+
   return (
     <section className="wire-border relative flex h-full max-h-200 flex-col overflow-hidden bg-white">
       <div className="wire-border-b flex shrink-0 items-center justify-between bg-[#FAFAFA] p-6 md:p-8">
@@ -137,6 +176,18 @@ export default function IngestionJobList({ jobs, onRetry }: IngestionJobListProp
                     </div>
                   ) : null}
                 </div>
+
+                {canRecoverJob(job, approxServerNow) ? (
+                  <button
+                    className="wire-border w-full shrink-0 bg-white px-6 py-2.5 font-mono text-[11px] font-medium tracking-widest text-[#000000] uppercase transition-colors hover:bg-[#000000] hover:text-white active:scale-[0.98] sm:w-auto"
+                    type="button"
+                    onClick={() => {
+                      void onRecover(job._id)
+                    }}
+                  >
+                    [ Recover ]
+                  </button>
+                ) : null}
 
                 {canRetryJob(job, jobs) ? (
                   <button

@@ -3,10 +3,10 @@ import type { GenericId } from "convex/values"
 
 import { ConvexError, v } from "convex/values"
 
+import { internal } from "./_generated/api"
 import { internalMutation, internalQuery, mutation, query } from "./_generated/server"
 import { insertAdminAuditEvent, requireAdminQuerySession, requireAdminWriteSession } from "./lib/adminSession"
 import { assertReadyDocumentArtifacts, buildReadyDocumentPatch } from "./lib/documentReadiness"
-import { buildChunkTerms } from "./lib/exactTerms"
 import { assertNextIngestionStatus } from "./lib/ingestionState"
 import { chunkTypeValidator, documentStatusValidator } from "./lib/validators"
 
@@ -25,6 +25,25 @@ function requireText(field: string, value: string) {
   }
 
   return trimmed
+}
+
+type DocumentJobRef = {
+  _creationTime: number
+  _id: GenericId<"ingestionJobs">
+  createdAt: number
+  documentId: GenericId<"documents">
+}
+
+function compareDocumentJobRecency(left: DocumentJobRef, right: DocumentJobRef) {
+  if (left._creationTime !== right._creationTime) {
+    return left._creationTime - right._creationTime
+  }
+
+  if (left.createdAt !== right.createdAt) {
+    return left.createdAt - right.createdAt
+  }
+
+  return String(left._id).localeCompare(String(right._id))
 }
 
 async function upsertVendor(ctx: MutationCtx, name: string) {
@@ -133,6 +152,28 @@ export const replaceParsedContent = internalMutation({
     }
 
     const now = Date.now()
+    const documentJobs = await ctx.db
+      .query("ingestionJobs")
+      .withIndex("by_document", (q) => q.eq("documentId", args.documentId))
+      .collect()
+    const latestDocumentJob = documentJobs.reduce<DocumentJobRef | null>((latest, candidate) => {
+      if (!latest || compareDocumentJobRecency(candidate, latest) > 0) {
+        return candidate
+      }
+
+      return latest
+    }, null)
+    if (latestDocumentJob?._id !== args.jobId) {
+      if (job && job.status !== "failed") {
+        assertNextIngestionStatus(job.status, "failed")
+        await ctx.db.patch("ingestionJobs", args.jobId, {
+          errorMessage: "A newer ingestion job replaced this result before it could be committed.",
+          status: "failed",
+          updatedAt: now
+        })
+      }
+      return null
+    }
 
     assertReadyDocumentArtifacts({
       chunkCount: args.chunks.length,
@@ -161,15 +202,6 @@ export const replaceParsedContent = internalMutation({
       .query("chunks")
       .withIndex("by_document_and_current", (q) => q.eq("documentId", args.documentId).eq("isCurrent", true))
       .collect()
-    for (const chunk of currentChunks) {
-      const chunkTerms = await ctx.db
-        .query("chunkTerms")
-        .withIndex("by_chunk", (q) => q.eq("chunkId", chunk._id))
-        .collect()
-      for (const term of chunkTerms) {
-        await ctx.db.delete("chunkTerms", term._id)
-      }
-    }
     for (const chunk of currentChunks) {
       await ctx.db.patch("chunks", chunk._id, { isCurrent: false })
     }
@@ -238,14 +270,23 @@ export const replaceParsedContent = internalMutation({
         productSlug: document.productSlug,
         vendorSlug: document.vendorSlug
       })
+    }
 
-      for (const term of buildChunkTerms({ citationLabel: chunk.citationLabel, content: chunk.content })) {
-        await ctx.db.insert("chunkTerms", {
-          chunkId,
-          documentId: args.documentId,
-          term
-        })
-      }
+    if (args.chunks.length > 0) {
+      await ctx.db.patch("documents", args.documentId, {
+        status: "processing",
+        updatedAt: now
+      })
+
+      // Keep the document in processing until exact-term indexing finishes, so
+      // global exact search and document readiness become visible together.
+      await ctx.scheduler.runAfter(0, internal.search.backfillDocumentExactTermsBatch, {
+        documentId: args.documentId,
+        jobId: args.jobId,
+        offset: 0,
+        phase: "cleanup"
+      })
+      return null
     }
 
     await ctx.db.patch("documents", args.documentId, buildReadyDocumentPatch({ now, sourceAssetId }))
@@ -461,14 +502,17 @@ export const markFailed = internalMutation({
   },
   returns: v.null(),
   handler: async (ctx, args) => {
+    const now = Date.now()
     const job = await ctx.db.get("ingestionJobs", args.jobId)
     if (job) {
-      assertNextIngestionStatus(job.status, "failed")
-      await ctx.db.patch("ingestionJobs", args.jobId, {
-        errorMessage: args.errorMessage,
-        status: "failed",
-        updatedAt: Date.now()
-      })
+      if (job.status !== "failed") {
+        assertNextIngestionStatus(job.status, "failed")
+        await ctx.db.patch("ingestionJobs", args.jobId, {
+          errorMessage: args.errorMessage,
+          status: "failed",
+          updatedAt: now
+        })
+      }
     }
 
     const document = await ctx.db.get("documents", args.documentId)
@@ -476,7 +520,22 @@ export const markFailed = internalMutation({
       return null
     }
 
-    await ctx.db.patch("documents", args.documentId, { status: "failed", updatedAt: Date.now() })
+    const documentJobs = await ctx.db
+      .query("ingestionJobs")
+      .withIndex("by_document", (q) => q.eq("documentId", args.documentId))
+      .collect()
+    const latestDocumentJob = documentJobs.reduce<DocumentJobRef | null>((latest, candidate) => {
+      if (!latest || compareDocumentJobRecency(candidate, latest) > 0) {
+        return candidate
+      }
+
+      return latest
+    }, null)
+    if (latestDocumentJob?._id !== args.jobId) {
+      return null
+    }
+
+    await ctx.db.patch("documents", args.documentId, { status: "failed", updatedAt: now })
     return null
   }
 })

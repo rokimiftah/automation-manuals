@@ -12,6 +12,7 @@ const enqueue = vi.fn()
 const generateSourceUploadUrl = vi.fn()
 const deleteDocument = vi.fn()
 const prepareMineruUpload = vi.fn()
+const recoverJob = vi.fn()
 const retryJob = vi.fn()
 const useAction = vi.fn()
 const useMutation = vi.fn()
@@ -50,10 +51,21 @@ vi.mock("@features/admin-ingestion/ui", () => ({
       Queue document
     </button>
   ),
-  IngestionJobList: ({ onRetry }: { onRetry: (jobId: never) => void | Promise<void> }) => (
-    <button type="button" onClick={() => void onRetry("ingestionJobs_1" as never)}>
-      Retry job
-    </button>
+  IngestionJobList: ({
+    onRecover,
+    onRetry
+  }: {
+    onRecover: (jobId: never) => void | Promise<void>
+    onRetry: (jobId: never) => void | Promise<void>
+  }) => (
+    <>
+      <button type="button" onClick={() => void onRecover("ingestionJobs_1" as never)}>
+        Recover job
+      </button>
+      <button type="button" onClick={() => void onRetry("ingestionJobs_1" as never)}>
+        Retry job
+      </button>
+    </>
   )
 }))
 
@@ -65,6 +77,7 @@ describe("AdminConsole", () => {
     generateSourceUploadUrl.mockReset()
     deleteDocument.mockReset()
     prepareMineruUpload.mockReset()
+    recoverJob.mockReset()
     retryJob.mockReset()
     useAction.mockReset()
     useMutation.mockReset()
@@ -75,6 +88,7 @@ describe("AdminConsole", () => {
       .mockReturnValueOnce(generateSourceUploadUrl)
       .mockReturnValueOnce(createDocument)
       .mockReturnValueOnce(enqueue)
+      .mockReturnValueOnce(recoverJob)
       .mockReturnValueOnce(retryJob)
       .mockReturnValueOnce(deleteDocument)
     useAction.mockReturnValue(prepareMineruUpload)
@@ -149,6 +163,45 @@ describe("AdminConsole", () => {
       })
     )
     expect(prepareMineruUpload).not.toHaveBeenCalled()
+  })
+
+  it("routes recover requests through the protected recovery mutation", async () => {
+    recoverJob.mockResolvedValue(null)
+
+    render(<AdminConsole onSessionInvalid={vi.fn()} sessionToken="token-123" />)
+
+    fireEvent.click(screen.getByRole("button", { name: /recover job/i }))
+
+    await waitFor(() =>
+      expect(recoverJob).toHaveBeenCalledWith({
+        jobId: "ingestionJobs_1",
+        sessionToken: "token-123"
+      })
+    )
+  })
+
+  it("surfaces recovery errors to the admin", async () => {
+    const alert = vi.fn()
+    vi.stubGlobal("alert", alert)
+    recoverJob.mockRejectedValue(new Error("Only the latest stale ingestion job can be recovered"))
+
+    render(<AdminConsole onSessionInvalid={vi.fn()} sessionToken="token-123" />)
+
+    fireEvent.click(screen.getByRole("button", { name: /recover job/i }))
+
+    await waitFor(() => expect(alert).toHaveBeenCalledWith("Only the latest stale ingestion job can be recovered"))
+  })
+
+  it("surfaces retry errors to the admin", async () => {
+    const alert = vi.fn()
+    vi.stubGlobal("alert", alert)
+    retryJob.mockRejectedValue(new Error("Only the latest failed ingestion job can be retried"))
+
+    render(<AdminConsole onSessionInvalid={vi.fn()} sessionToken="token-123" />)
+
+    fireEvent.click(screen.getByRole("button", { name: /retry job/i }))
+
+    await waitFor(() => expect(alert).toHaveBeenCalledWith("Only the latest failed ingestion job can be retried"))
   })
 
   it("does not expose session identity or sign-out controls in the admin shell", () => {

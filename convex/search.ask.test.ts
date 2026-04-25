@@ -169,6 +169,56 @@ describe("ask", () => {
     expect(packet.answerSummary).toBe("Install the module beside the controller.")
   })
 
+  it("passes Indonesian response-language instructions into grounded answer generation", async () => {
+    const runQuery = vi
+      .fn()
+      .mockResolvedValueOnce({
+        _id: "chatSessions_1" as never,
+        createdAt: 1,
+        title: "Bagaimana cara memasang modul ini?",
+        updatedAt: 1
+      })
+      .mockResolvedValueOnce([
+        {
+          assetId: "documentAssets_1" as never,
+          citationLabel: "Halaman 7",
+          chunkId: "chunks_1" as never,
+          content: "Pasang modul di samping kontroler.",
+          pageNumber: 7,
+          score: 0.97
+        }
+      ])
+
+    const runMutation = vi
+      .fn()
+      .mockResolvedValueOnce({ allowed: true })
+      .mockResolvedValueOnce("chatMessages_1")
+      .mockResolvedValueOnce("chatMessages_2")
+      .mockResolvedValueOnce(null)
+      .mockResolvedValueOnce({ sessionAccessToken: "access-token-2" })
+
+    const vectorSearch = vi.fn().mockResolvedValue([{ _id: "chunkEmbeddings_1" as never, _score: 0.97 }])
+
+    await askHandler._handler(
+      {
+        runMutation,
+        runQuery,
+        vectorSearch
+      } as never,
+      {
+        question: "Bagaimana cara memasang modul ini?",
+        sessionAccessToken: "access-token-1",
+        sessionId: "chatSessions_1" as never
+      }
+    )
+
+    expect(generateGroundedAnswer).toHaveBeenCalledWith(
+      "Bagaimana cara memasang modul ini?",
+      expect.any(String),
+      expect.objectContaining({ code: "id" })
+    )
+  })
+
   it("grounds a lookup-style query from exact fallback when vector search misses", async () => {
     const runQuery = vi
       .fn()
@@ -449,6 +499,45 @@ describe("ask", () => {
     expect(packet.answerabilityStatus).toBe("insufficient_evidence")
     expect(generateGroundedAnswer).not.toHaveBeenCalled()
     expect(runMutation).toHaveBeenCalledTimes(4)
+  })
+
+  it("returns an Indonesian refusal packet when neither path finds evidence", async () => {
+    const runQuery = vi
+      .fn()
+      .mockResolvedValueOnce({
+        _id: "chatSessions_1" as never,
+        createdAt: 1,
+        title: "Bagaimana cara memasang modul ini?",
+        updatedAt: 1
+      })
+      .mockResolvedValueOnce([])
+      .mockResolvedValueOnce([])
+      .mockResolvedValueOnce(exactPage([]))
+
+    const runMutation = vi
+      .fn()
+      .mockResolvedValueOnce({ allowed: true })
+      .mockResolvedValueOnce("chatMessages_1")
+      .mockResolvedValueOnce("chatMessages_2")
+      .mockResolvedValueOnce({ sessionAccessToken: "access-token-2" })
+
+    const vectorSearch = vi.fn().mockResolvedValue([])
+
+    const packet = await askHandler._handler(
+      {
+        runMutation,
+        runQuery,
+        vectorSearch
+      } as never,
+      {
+        question: "Bagaimana cara memasang modul ini?",
+        sessionAccessToken: "access-token-1",
+        sessionId: "chatSessions_1" as never
+      }
+    )
+
+    expect(packet.answerabilityStatus).toBe("insufficient_evidence")
+    expect(packet.answerSummary).toMatch(/Saya tidak menemukan bukti/)
   })
 
   it("loads multiple global exact pages through the action", async () => {

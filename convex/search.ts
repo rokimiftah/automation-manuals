@@ -12,6 +12,7 @@ import { answerPacketValidator, buildGroundedPacket, buildRefusalPacket, selectE
 import { buildChunkTerms, extractExactSearchTerms } from "./lib/exactTerms"
 import { isLookupLikeQuery, mergeCandidates, rankExactCandidates } from "./lib/hybridRetrieval"
 import { embedTexts, generateGroundedAnswer } from "./lib/mistral"
+import { detectQuestionLanguage } from "./lib/questionLanguage"
 
 type SearchResult = {
   assetId?: GenericId<"documentAssets">
@@ -538,6 +539,7 @@ export const ask = action({
     if (!question) {
       throw new ConvexError("Question is required")
     }
+    const responseLanguage = detectQuestionLanguage(question)
 
     const shouldRotateSessionToken = args.sessionId !== undefined
     let sessionId = args.sessionId
@@ -641,7 +643,7 @@ export const ask = action({
       evidenceId: `E${index + 1}`
     }))
     if (mergedEvidence.length === 0) {
-      const packet = buildRefusalPacket(sessionId, sessionAccessToken)
+      const packet = buildRefusalPacket(sessionId, sessionAccessToken, responseLanguage)
 
       await ctx.runMutation(internal.chats.appendMessage, {
         answerabilityStatus: packet.answerabilityStatus,
@@ -660,11 +662,11 @@ export const ask = action({
     }
 
     const context = evidenceWithIds.map((item) => `[${item.evidenceId}] ${item.citationLabel}: ${item.content}`).join("\n\n")
-    const groundedAnswer = await generateGroundedAnswer(question, context)
+    const groundedAnswer = await generateGroundedAnswer(question, context, responseLanguage)
     const selectedEvidence = selectEvidenceByCitationIds(evidenceWithIds, groundedAnswer.citationIds)
     const packet: AnswerPacket =
       groundedAnswer.answerSteps.length === 0 || selectedEvidence.length === 0
-        ? buildRefusalPacket(sessionId, sessionAccessToken)
+        ? buildRefusalPacket(sessionId, sessionAccessToken, responseLanguage)
         : buildGroundedPacket(
             sessionId,
             sessionAccessToken,

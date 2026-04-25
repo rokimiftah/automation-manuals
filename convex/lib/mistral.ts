@@ -1,3 +1,5 @@
+import type { QuestionLanguage } from "./questionLanguage"
+
 import { Mistral } from "@mistralai/mistralai"
 
 import { getProviderEnv } from "./env"
@@ -145,14 +147,18 @@ export async function ocrPdfPage(sourceUrl: string, pageNumber: number, options:
   return result.pages?.[0]?.markdown?.trim() ?? ""
 }
 
-export async function generateGroundedAnswer(question: string, context: string, options: ProviderOptions = {}) {
+export async function generateGroundedAnswer(
+  question: string,
+  context: string,
+  language: QuestionLanguage,
+  options: ProviderOptions = {}
+) {
   const client = (options.client ?? getMistralClient()) as MistralClientLike
   const model = options.model ?? getProviderEnv().mistralChatModel
   const response = await client.chat.complete({
     messages: [
       {
-        content:
-          "Use only the provided context. If the context is insufficient, say so and return an empty answerSteps array and an empty citationIds array. Return strict JSON with keys answerSummary, answerSteps, and citationIds.",
+        content: `Use only the provided context. ${language.instruction} Preserve technical identifiers, code, commands, and citation labels when translating them could change meaning. If the context is insufficient, say so and return an empty answerSteps array and an empty citationIds array. Return strict JSON with keys answerSummary, answerSteps, and citationIds.`,
         role: "system"
       },
       {

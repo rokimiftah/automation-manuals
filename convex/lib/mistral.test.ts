@@ -107,10 +107,15 @@ describe("generateGroundedAnswer", () => {
     }
 
     await expect(
-      generateGroundedAnswer("Where should the module go?", "Install it next to the controller.", {
-        client,
-        model: "mistral-small-latest"
-      })
+      generateGroundedAnswer(
+        "Where should the module go?",
+        "Install it next to the controller.",
+        { code: "en", instruction: "Answer in English." },
+        {
+          client,
+          model: "mistral-small-latest"
+        }
+      )
     ).resolves.toEqual({
       answerSteps: ["Verify the mounting rail"],
       answerSummary: "Install the module beside the controller.",
@@ -121,7 +126,7 @@ describe("generateGroundedAnswer", () => {
         messages: [
           {
             content:
-              "Use only the provided context. If the context is insufficient, say so and return an empty answerSteps array and an empty citationIds array. Return strict JSON with keys answerSummary, answerSteps, and citationIds.",
+              "Use only the provided context. Answer in English. Preserve technical identifiers, code, commands, and citation labels when translating them could change meaning. If the context is insufficient, say so and return an empty answerSteps array and an empty citationIds array. Return strict JSON with keys answerSummary, answerSteps, and citationIds.",
             role: "system"
           },
           {
@@ -133,6 +138,44 @@ describe("generateGroundedAnswer", () => {
         responseFormat: {
           type: "json_object"
         }
+      })
+    )
+  })
+
+  it("includes the response language requirement in the grounded-answer prompt", async () => {
+    const client = {
+      chat: {
+        complete: vi.fn().mockResolvedValue({
+          choices: [
+            {
+              message: {
+                content: '{"answerSummary":"Ringkas","answerSteps":["Langkah"],"citationIds":["E1"]}'
+              }
+            }
+          ]
+        })
+      }
+    }
+
+    await generateGroundedAnswer(
+      "Bagaimana cara memasang modul ini?",
+      "Pasang modul di samping kontroler.",
+      { code: "id", instruction: "Answer in Indonesian." },
+      {
+        client,
+        model: "mistral-small-latest"
+      }
+    )
+
+    expect(client.chat.complete).toHaveBeenCalledWith(
+      expect.objectContaining({
+        messages: [
+          expect.objectContaining({
+            content: expect.stringContaining("Answer in Indonesian."),
+            role: "system"
+          }),
+          expect.anything()
+        ]
       })
     )
   })

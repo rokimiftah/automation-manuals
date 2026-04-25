@@ -22,6 +22,7 @@ const askHandler = ask as typeof ask & {
     args: {
       documentId?: never
       question: string
+      sessionAccessToken?: string
       sessionId: never
     }
   ) => Promise<{
@@ -29,6 +30,7 @@ const askHandler = ask as typeof ask & {
     answerSummary: string
     answerabilityStatus: "grounded" | "insufficient_evidence"
     citations: Array<{ chunkId: never; pageNumber: number; citationLabel: string; assetId?: never }>
+    sessionAccessToken: string
     sessionId: never
     supportingAssets: Array<{ assetId: never; label: string; pageNumber: number }>
   }>
@@ -53,6 +55,34 @@ describe("ask", () => {
       answerSummary: "Install the module beside the controller.",
       citationIds: ["E1"]
     })
+  })
+
+  it("creates a new session and returns the session access token", async () => {
+    const runQuery = vi.fn().mockResolvedValueOnce([]).mockResolvedValueOnce(exactPage([]))
+    const runMutation = vi
+      .fn()
+      .mockResolvedValueOnce({ sessionAccessToken: "access-token-1", sessionId: "chatSessions_1" })
+      .mockResolvedValueOnce("chatMessages_1")
+      .mockResolvedValueOnce("chatMessages_2")
+    const vectorSearch = vi.fn().mockResolvedValue([])
+
+    const packet = await askHandler._handler(
+      {
+        runMutation,
+        runQuery,
+        vectorSearch
+      } as never,
+      {
+        question: "Where should the module go?",
+        sessionId: undefined as never
+      }
+    )
+
+    expect(runMutation).toHaveBeenNthCalledWith(1, expect.anything(), {
+      title: "Where should the module go?"
+    })
+    expect(packet.sessionId).toBe("chatSessions_1")
+    expect(packet.sessionAccessToken).toBe("access-token-1")
   })
 
   it("runs exact fallback for weak vector evidence without losing grounding", async () => {
@@ -92,6 +122,7 @@ describe("ask", () => {
       } as never,
       {
         question: "Where should the module go?",
+        sessionAccessToken: "access-token-1",
         sessionId: "chatSessions_1" as never
       }
     )
@@ -148,6 +179,7 @@ describe("ask", () => {
       } as never,
       {
         question: "Rockwell Automation",
+        sessionAccessToken: "access-token-1",
         sessionId: "chatSessions_1" as never
       }
     )
@@ -223,6 +255,7 @@ describe("ask", () => {
       } as never,
       {
         question: "Rockwell Automation",
+        sessionAccessToken: "access-token-1",
         sessionId: "chatSessions_1" as never
       }
     )
@@ -283,6 +316,7 @@ describe("ask", () => {
       } as never,
       {
         question: "Page 12,",
+        sessionAccessToken: "access-token-1",
         sessionId: "chatSessions_1" as never
       }
     )
@@ -316,6 +350,7 @@ describe("ask", () => {
       } as never,
       {
         question: "Where should the module go?",
+        sessionAccessToken: "access-token-1",
         sessionId: "chatSessions_1" as never
       }
     )
@@ -384,6 +419,7 @@ describe("ask", () => {
       } as never,
       {
         question: "powerflex 755",
+        sessionAccessToken: "access-token-1",
         sessionId: "chatSessions_1" as never
       }
     )
@@ -435,6 +471,7 @@ describe("ask", () => {
       {
         documentId: "documents_1" as never,
         question: "Rockwell Automation",
+        sessionAccessToken: "access-token-1",
         sessionId: "chatSessions_1" as never
       }
     )

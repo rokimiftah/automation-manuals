@@ -128,6 +128,7 @@ export default defineSchema({
       filterFields: ["documentCurrentKey", "documentId", "vendorSlug", "productSlug", "chunkType", "isCurrent"]
     }),
   chatSessions: defineTable({
+    accessTokenHash: v.optional(v.string()),
     title: v.string(),
     createdAt: v.number(),
     updatedAt: v.number()

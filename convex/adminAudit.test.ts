@@ -1,5 +1,6 @@
 import { beforeEach, describe, expect, it, vi } from "vitest"
 
+import { recordLoginAttempt } from "./adminAuth"
 import { seedDefaults } from "./evaluations"
 import { enqueue, retry } from "./ingestion"
 
@@ -44,6 +45,10 @@ const enqueueHandler = enqueue as typeof enqueue & {
 
 const retryHandler = retry as typeof retry & {
   _handler: (ctx: unknown, args: { jobId: unknown; sessionToken: string }) => Promise<unknown>
+}
+
+const recordLoginAttemptHandler = recordLoginAttempt as typeof recordLoginAttempt & {
+  _handler: (ctx: unknown, args: { successful: boolean; username: string }) => Promise<null>
 }
 
 const seedDefaultsHandler = seedDefaults as typeof seedDefaults & {
@@ -134,6 +139,41 @@ describe("admin audit coverage", () => {
         actorLabel: "admin",
         targetId: "ingestionJobs_2",
         targetTable: "ingestionJobs"
+      })
+    )
+  })
+
+  it("writes an audit event when an admin login attempt fails", async () => {
+    const insert = vi.fn().mockResolvedValueOnce("adminLoginAttempts_1").mockResolvedValueOnce("auditEvents_1")
+
+    await recordLoginAttemptHandler._handler(
+      {
+        db: { insert }
+      } as never,
+      {
+        successful: false,
+        username: "admin"
+      }
+    )
+
+    expect(insert).toHaveBeenNthCalledWith(
+      1,
+      "adminLoginAttempts",
+      expect.objectContaining({
+        successful: false,
+        username: "admin"
+      })
+    )
+    expect(insert).toHaveBeenNthCalledWith(
+      2,
+      "auditEvents",
+      expect.objectContaining({
+        action: "admin.sign_in_failed",
+        actorLabel: "admin",
+        actorType: "admin_auth",
+        summary: "Failed sign-in attempt for admin",
+        targetId: "login:admin",
+        targetTable: "adminSessions"
       })
     )
   })

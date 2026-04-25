@@ -1,4 +1,7 @@
 import type { Id } from "@convex/_generated/dataModel"
+import type { ReactNode } from "react"
+
+import { Component, useEffect } from "react"
 
 import { useAction, useMutation, useQuery } from "convex/react"
 
@@ -12,7 +15,36 @@ function isAdminSessionError(error: unknown) {
   return error instanceof Error && /admin session/i.test(error.message)
 }
 
-export default function AdminConsole({
+class AdminConsoleQueryBoundary extends Component<{
+  children: ReactNode
+  onSessionInvalid: (message?: string) => void
+}> {
+  state: { error: Error | null } = { error: null }
+
+  static getDerivedStateFromError(error: Error) {
+    return { error }
+  }
+
+  componentDidCatch(error: Error) {
+    if (isAdminSessionError(error)) {
+      this.props.onSessionInvalid("Admin session expired. Please sign in again.")
+    }
+  }
+
+  render() {
+    if (!this.state.error) {
+      return this.props.children
+    }
+
+    if (isAdminSessionError(this.state.error)) {
+      return null
+    }
+
+    throw this.state.error
+  }
+}
+
+function AdminConsoleContent({
   onSessionInvalid,
   sessionToken
 }: {
@@ -27,6 +59,16 @@ export default function AdminConsole({
   const enqueue = useMutation(api.ingestion.enqueue)
   const retryJob = useMutation(api.ingestion.retry)
   const deleteDocument = useMutation(api.documents.deleteDocument)
+
+  useEffect(() => {
+    const queryError = [documents, jobs].find((result) => result instanceof Error)
+    if (queryError && isAdminSessionError(queryError)) {
+      onSessionInvalid("Admin session expired. Please sign in again.")
+    }
+  }, [documents, jobs, onSessionInvalid])
+
+  const safeDocuments = documents instanceof Error ? undefined : documents
+  const safeJobs = jobs instanceof Error ? undefined : jobs
 
   async function runProtectedMutation<T>(work: () => Promise<T>) {
     try {
@@ -71,7 +113,7 @@ export default function AdminConsole({
             </div>
             <div className="flex items-end gap-4">
               <p className="text-6xl leading-none font-medium tracking-tighter text-[#000000] md:text-8xl">
-                {documents === undefined ? "—" : documents.length}
+                {safeDocuments === undefined ? "—" : safeDocuments.length}
               </p>
               <span className="mb-2 font-mono text-[14px] tracking-widest uppercase">Units</span>
             </div>
@@ -85,14 +127,14 @@ export default function AdminConsole({
               <h2 className="text-[20px] font-medium tracking-tight text-[#000000] uppercase">Searchable Manuals</h2>
             </div>
             <div className="flex flex-col gap-4 p-6 md:p-8">
-              {documents === undefined ? (
+              {safeDocuments === undefined ? (
                 <div className="crosshatch-bg wire-border h-24 animate-pulse" />
-              ) : documents.length === 0 ? (
+              ) : safeDocuments.length === 0 ? (
                 <div className="wire-border border-dashed bg-[#FAFAFA] p-6 text-center font-mono text-[11px] tracking-[0.2em] uppercase">
                   No manuals registered
                 </div>
               ) : (
-                documents.map((document) => {
+                safeDocuments.map((document) => {
                   return (
                     <article key={document._id} className="wire-border flex flex-col gap-4 bg-white p-4">
                       <div className="flex items-start justify-between gap-4">
@@ -174,7 +216,7 @@ export default function AdminConsole({
         </div>
 
         <div className="animate-expand flex min-h-0 flex-col lg:h-full" style={{ animationDelay: "0.2s" }}>
-          {jobs === undefined ? (
+          {safeJobs === undefined ? (
             <section className="wire-border relative flex h-full flex-col overflow-hidden bg-white">
               <div className="wire-border-b flex shrink-0 items-center justify-between bg-[#FAFAFA] p-6 md:p-8">
                 <div className="space-y-1">
@@ -190,7 +232,7 @@ export default function AdminConsole({
             </section>
           ) : (
             <IngestionJobList
-              jobs={jobs}
+              jobs={safeJobs}
               onRetry={(jobId) => {
                 void runProtectedMutation(() => retryJob({ jobId, sessionToken }))
               }}
@@ -199,5 +241,19 @@ export default function AdminConsole({
         </div>
       </div>
     </AppShell>
+  )
+}
+
+export default function AdminConsole({
+  onSessionInvalid,
+  sessionToken
+}: {
+  onSessionInvalid: (message?: string) => void
+  sessionToken: string
+}) {
+  return (
+    <AdminConsoleQueryBoundary onSessionInvalid={onSessionInvalid}>
+      <AdminConsoleContent onSessionInvalid={onSessionInvalid} sessionToken={sessionToken} />
+    </AdminConsoleQueryBoundary>
   )
 }

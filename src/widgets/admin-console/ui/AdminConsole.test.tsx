@@ -101,6 +101,17 @@ describe("AdminConsole", () => {
     await waitFor(() => expect(onSessionInvalid).toHaveBeenCalledWith("Admin session expired. Please sign in again."))
   })
 
+  it("routes protected query auth failures through onSessionInvalid", async () => {
+    useQuery.mockReset()
+    useQuery.mockReturnValueOnce(new Error("Admin session required")).mockReturnValueOnce([])
+
+    const onSessionInvalid = vi.fn()
+
+    render(<AdminConsole onSessionInvalid={onSessionInvalid} sessionToken="token-123" />)
+
+    await waitFor(() => expect(onSessionInvalid).toHaveBeenCalledWith("Admin session expired. Please sign in again."))
+  })
+
   it("uploads the source file and prepares the mineru batch before queueing ingestion", async () => {
     createDocument.mockResolvedValue("documents_1")
     enqueue.mockResolvedValue("ingestionJobs_1")

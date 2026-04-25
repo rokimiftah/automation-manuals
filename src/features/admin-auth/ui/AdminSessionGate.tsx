@@ -11,6 +11,14 @@ import { AdminLoginForm } from "./AdminLoginForm"
 const STORAGE_KEY = "adminSessionToken"
 const EXPIRED_MESSAGE = "Admin session expired. Please sign in again."
 
+function AdminSessionLoadingState() {
+  return (
+    <section className="wire-border animate-expand relative mx-auto mt-[12vh] flex max-w-115 flex-col bg-white p-8 text-center md:p-10">
+      <span className="font-mono text-[11px] tracking-[0.2em] text-[#000000] uppercase">Validating admin session...</span>
+    </section>
+  )
+}
+
 export function AdminSessionGate({
   children
 }: {
@@ -26,7 +34,7 @@ export function AdminSessionGate({
   const signOut = useMutation(api.adminAuth.signOut)
   const [error, setError] = useState<string>()
   const [isPending, setIsPending] = useState(false)
-  const [sessionToken, setSessionToken] = useState<string | null>(null)
+  const [sessionToken, setSessionToken] = useState<string | null | undefined>(undefined)
 
   const clearSession = useCallback((message?: string) => {
     sessionStorage.removeItem(STORAGE_KEY)
@@ -66,6 +74,10 @@ export function AdminSessionGate({
     }
   }, [session, sessionToken, clearSession])
 
+  if (sessionToken === undefined) {
+    return <AdminSessionLoadingState />
+  }
+
   if (!sessionToken) {
     return (
       <AdminLoginForm
@@ -89,7 +101,7 @@ export function AdminSessionGate({
   }
 
   if (session === undefined) {
-    return
+    return <AdminSessionLoadingState />
   }
 
   if (!session) {

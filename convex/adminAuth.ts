@@ -90,11 +90,26 @@ export const recordLoginAttempt = internalMutation({
   },
   returns: v.null(),
   handler: async (ctx, args) => {
+    const createdAt = Date.now()
+
     await ctx.db.insert("adminLoginAttempts", {
-      createdAt: Date.now(),
+      createdAt,
       successful: args.successful,
       username: args.username
     })
+
+    if (!args.successful) {
+      await ctx.db.insert("auditEvents", {
+        action: "admin.sign_in_failed",
+        actorLabel: args.username,
+        actorType: "admin_auth",
+        createdAt,
+        summary: `Failed sign-in attempt for ${args.username}`,
+        targetId: `login:${args.username}`,
+        targetTable: "adminSessions"
+      })
+    }
+
     return null
   }
 })

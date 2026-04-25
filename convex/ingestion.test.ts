@@ -1,6 +1,18 @@
 import { beforeEach, describe, expect, it, vi } from "vitest"
 
-import { isRetryableJob, prepareMineruUpload, selectMineruArchiveJson } from "./ingestion"
+import { isRetryableJob, prepareMineruUpload, retry, selectMineruArchiveJson } from "./ingestion"
+
+const { requireAdminWriteSession } = vi.hoisted(() => ({
+  requireAdminWriteSession: vi.fn()
+}))
+
+vi.mock("./lib/adminSession", async () => {
+  const actual = await vi.importActual<typeof import("./lib/adminSession")>("./lib/adminSession")
+  return {
+    ...actual,
+    requireAdminWriteSession
+  }
+})
 
 const { getProviderEnv, submitMineruBatch } = vi.hoisted(() => ({
   getProviderEnv: vi.fn(),
@@ -32,6 +44,10 @@ const prepareMineruUploadHandler = prepareMineruUpload as typeof prepareMineruUp
       sourceStorageId: never
     }
   ) => Promise<{ batchId: string; traceId?: string }>
+}
+
+const retryHandler = retry as typeof retry & {
+  _handler: (ctx: unknown, args: { jobId: never; sessionToken: string }) => Promise<never>
 }
 
 describe("isRetryableJob", () => {
@@ -140,6 +156,11 @@ describe("isRetryableJob", () => {
 
 describe("prepareMineruUpload", () => {
   beforeEach(() => {
+    requireAdminWriteSession.mockReset()
+    requireAdminWriteSession.mockResolvedValue({
+      _id: "adminSessions_1",
+      username: "admin"
+    })
     getProviderEnv.mockReset()
     submitMineruBatch.mockReset()
     getProviderEnv.mockReturnValue({
@@ -183,6 +204,66 @@ describe("prepareMineruUpload", () => {
       })
     )
     expect(result).toEqual({ batchId: "batch-1", traceId: "trace-1" })
+  })
+})
+
+describe("retry", () => {
+  beforeEach(() => {
+    requireAdminWriteSession.mockReset()
+    requireAdminWriteSession.mockResolvedValue({
+      _id: "adminSessions_1",
+      username: "admin"
+    })
+  })
+
+  it("copies the original source file metadata into the retry job", async () => {
+    const insert = vi.fn().mockResolvedValue("ingestionJobs_retry")
+    const runAfter = vi.fn().mockResolvedValue(undefined)
+    const existingJob = {
+      _id: "ingestionJobs_1" as never,
+      _creationTime: 1,
+      createdAt: 1,
+      documentId: "documents_1" as never,
+      sourceFileName: "manual.pdf",
+      sourceMimeType: "application/pdf",
+      sourceStorageId: "_storage_1" as never,
+      status: "failed",
+      updatedAt: 1
+    }
+
+    await retryHandler._handler(
+      {
+        db: {
+          get: vi.fn().mockResolvedValue(existingJob),
+          insert,
+          query: vi.fn(() => ({
+            withIndex: vi.fn(() => ({
+              collect: vi.fn().mockResolvedValue([existingJob])
+            }))
+          }))
+        },
+        scheduler: {
+          runAfter
+        }
+      } as never,
+      {
+        jobId: "ingestionJobs_1" as never,
+        sessionToken: "token-123"
+      }
+    )
+
+    expect(insert).toHaveBeenCalledWith(
+      "ingestionJobs",
+      expect.objectContaining({
+        documentId: "documents_1",
+        requestedByAdmin: "admin",
+        sourceFileName: "manual.pdf",
+        sourceMimeType: "application/pdf",
+        sourceStorageId: "_storage_1",
+        status: "queued"
+      })
+    )
+    expect(runAfter).toHaveBeenCalled()
   })
 })
 

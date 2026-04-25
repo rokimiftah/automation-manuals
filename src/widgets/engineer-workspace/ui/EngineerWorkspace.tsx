@@ -13,13 +13,23 @@ import AppShell from "@widgets/app-shell/ui/AppShell"
 import { AnswerPacketView, QuestionComposer } from "@features/ask-assistant/ui"
 import EvidenceViewer from "@features/view-evidence/ui"
 
+function isMissingSessionError(error: unknown) {
+  return error instanceof Error && /session not found/i.test(error.message)
+}
+
 export default function EngineerWorkspace() {
   const ask = useAction(api.search.ask)
+  const [sessionAccessToken, setSessionAccessToken] = useState<string | null>(null)
   const [sessionId, setSessionId] = useState<Id<"chatSessions"> | null>(null)
   const [packet, setPacket] = useState<AnswerPacketViewPacket | null>(null)
   const [activeAsset, setActiveAsset] = useState<SupportingAsset | null>(null)
   const [error, setError] = useState<string>()
   const [isSubmitting, setIsSubmitting] = useState(false)
+
+  type AskResult = AnswerPacketViewPacket & {
+    sessionAccessToken: string
+    sessionId: Id<"chatSessions">
+  }
 
   return (
     <AppShell title="Engineer Workspace">
@@ -34,9 +44,26 @@ export default function EngineerWorkspace() {
                   setIsSubmitting(true)
 
                   try {
-                    const result = await ask({ question, sessionId: sessionId ?? undefined })
+                    let result: AskResult
+
+                    try {
+                      result = await ask({
+                        question,
+                        sessionAccessToken: sessionAccessToken ?? undefined,
+                        sessionId: sessionId ?? undefined
+                      })
+                    } catch (submitError) {
+                      if (!sessionId || !isMissingSessionError(submitError)) {
+                        throw submitError
+                      }
+
+                      setSessionAccessToken(null)
+                      setSessionId(null)
+                      result = await ask({ question, sessionAccessToken: undefined, sessionId: undefined })
+                    }
 
                     startTransition(() => {
+                      setSessionAccessToken(result.sessionAccessToken)
                       setSessionId(result.sessionId)
                       setPacket(result)
                       setActiveAsset(result.supportingAssets[0] ?? null)

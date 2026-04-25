@@ -1,7 +1,35 @@
+import type { Doc, Id } from "./_generated/dataModel"
+import type { QueryCtx } from "./_generated/server"
+
 import { ConvexError, v } from "convex/values"
 
-import { internalMutation, query } from "./_generated/server"
+import { internalMutation, internalQuery, query } from "./_generated/server"
 import { messageRoleValidator } from "./lib/validators"
+
+const encoder = new TextEncoder()
+
+function createSessionAccessToken() {
+  const bytes = crypto.getRandomValues(new Uint8Array(32))
+  return Array.from(bytes, (byte) => byte.toString(16).padStart(2, "0")).join("")
+}
+
+async function hashSessionAccessToken(sessionAccessToken: string) {
+  const digest = await crypto.subtle.digest("SHA-256", encoder.encode(sessionAccessToken))
+  return Array.from(new Uint8Array(digest), (byte) => byte.toString(16).padStart(2, "0")).join("")
+}
+
+async function loadAuthorizedSession(
+  ctx: Pick<QueryCtx, "db">,
+  args: { sessionAccessToken: string; sessionId: Id<"chatSessions"> }
+): Promise<Doc<"chatSessions"> | null> {
+  const session = await ctx.db.get("chatSessions", args.sessionId)
+  if (!session?.accessTokenHash) {
+    return null
+  }
+
+  const accessTokenHash = await hashSessionAccessToken(args.sessionAccessToken)
+  return session.accessTokenHash === accessTokenHash ? session : null
+}
 
 const chatSessionValidator = v.object({
   _id: v.id("chatSessions"),
@@ -17,10 +45,13 @@ const chatMessageValidator = v.object({
 })
 
 export const getSession = query({
-  args: { sessionId: v.id("chatSessions") },
+  args: {
+    sessionAccessToken: v.string(),
+    sessionId: v.id("chatSessions")
+  },
   returns: v.union(chatSessionValidator, v.null()),
   handler: async (ctx, args) => {
-    const session = await ctx.db.get(args.sessionId)
+    const session = await loadAuthorizedSession(ctx, args)
     if (!session) {
       return null
     }
@@ -35,10 +66,13 @@ export const getSession = query({
 })
 
 export const listMessages = query({
-  args: { sessionId: v.id("chatSessions") },
+  args: {
+    sessionAccessToken: v.string(),
+    sessionId: v.id("chatSessions")
+  },
   returns: v.array(chatMessageValidator),
   handler: async (ctx, args) => {
-    const session = await ctx.db.get(args.sessionId)
+    const session = await loadAuthorizedSession(ctx, args)
     if (!session) {
       return []
     }
@@ -59,16 +93,48 @@ export const listMessages = query({
   }
 })
 
+export const getAuthorizedSession = internalQuery({
+  args: {
+    sessionAccessToken: v.string(),
+    sessionId: v.id("chatSessions")
+  },
+  returns: v.union(chatSessionValidator, v.null()),
+  handler: async (ctx, args) => {
+    const session = await loadAuthorizedSession(ctx, args)
+    if (!session) {
+      return null
+    }
+
+    return {
+      _id: session._id as never,
+      createdAt: session.createdAt,
+      title: session.title,
+      updatedAt: session.updatedAt
+    }
+  }
+})
+
 export const ensureSession = internalMutation({
   args: { title: v.string() },
-  returns: v.id("chatSessions"),
+  returns: v.object({
+    sessionAccessToken: v.string(),
+    sessionId: v.id("chatSessions")
+  }),
   handler: async (ctx, args) => {
     const now = Date.now()
-    return await ctx.db.insert("chatSessions", {
+    const sessionAccessToken = createSessionAccessToken()
+    const sessionAccessTokenHash = await hashSessionAccessToken(sessionAccessToken)
+    const sessionId = await ctx.db.insert("chatSessions", {
+      accessTokenHash: sessionAccessTokenHash,
       createdAt: now,
       title: args.title.slice(0, 120) || "New chat",
       updatedAt: now
     })
+
+    return {
+      sessionAccessToken,
+      sessionId
+    }
   }
 })
 
@@ -81,7 +147,7 @@ export const appendMessage = internalMutation({
   },
   returns: v.id("chatMessages"),
   handler: async (ctx, args) => {
-    const session = await ctx.db.get(args.sessionId)
+    const session = await ctx.db.get("chatSessions", args.sessionId)
     if (!session) {
       throw new ConvexError("Session not found")
     }
@@ -95,7 +161,7 @@ export const appendMessage = internalMutation({
       sessionId: args.sessionId
     })
 
-    await ctx.db.patch(args.sessionId, { updatedAt: now })
+    await ctx.db.patch("chatSessions", args.sessionId, { updatedAt: now })
     return messageId
   }
 })

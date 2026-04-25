@@ -34,6 +34,17 @@ function makeDeleteQuery(collections: Record<string, Array<Record<string, unknow
         rangeBuilderFn(builder)
 
         const rows = (collections[table] ?? []).filter((row) => {
+          if (
+            (table === "documentAssets" || table === "documentPages" || table === "chunks" || table === "chunkEmbeddings") &&
+            indexName === "by_document_and_current"
+          ) {
+            return calls.every(([field, value]) => row[field] === value)
+          }
+
+          if (table === "ingestionJobs" && indexName === "by_document") {
+            return row.documentId === calls.find(([field]) => field === "documentId")?.[1]
+          }
+
           if (table === "answerEvidence" && indexName === "by_document") {
             return row.documentId === calls.find(([field]) => field === "documentId")?.[1]
           }
@@ -78,13 +89,14 @@ describe("deleteDocument", () => {
       {
         _id: "documentAssets_1" as never,
         documentId: "documents_1" as never,
+        isCurrent: true,
         storageId: "_storage_1" as never
       }
     ]
 
-    const documentPages = [{ _id: "documentPages_1" as never, documentId: "documents_1" as never }]
-    const chunks = [{ _id: "chunks_1" as never, documentId: "documents_1" as never }]
-    const chunkEmbeddings = [{ _id: "chunkEmbeddings_1" as never, documentId: "documents_1" as never }]
+    const documentPages = [{ _id: "documentPages_1" as never, documentId: "documents_1" as never, isCurrent: true }]
+    const chunks = [{ _id: "chunks_1" as never, documentId: "documents_1" as never, isCurrent: true }]
+    const chunkEmbeddings = [{ _id: "chunkEmbeddings_1" as never, documentId: "documents_1" as never, isCurrent: true }]
     const ingestionJobs = [{ _id: "ingestionJobs_1" as never, documentId: "documents_1" as never }]
     const answerEvidence = [
       {
@@ -193,13 +205,14 @@ describe("deleteDocument", () => {
       {
         _id: "documentAssets_1" as never,
         documentId: "documents_1" as never,
+        isCurrent: true,
         storageId: "_storage_1" as never
       }
     ]
 
-    const documentPages = [{ _id: "documentPages_1" as never, documentId: "documents_1" as never }]
-    const chunks = [{ _id: "chunks_1" as never, documentId: "documents_1" as never }]
-    const chunkEmbeddings = [{ _id: "chunkEmbeddings_1" as never, documentId: "documents_1" as never }]
+    const documentPages = [{ _id: "documentPages_1" as never, documentId: "documents_1" as never, isCurrent: true }]
+    const chunks = [{ _id: "chunks_1" as never, documentId: "documents_1" as never, isCurrent: true }]
+    const chunkEmbeddings = [{ _id: "chunkEmbeddings_1" as never, documentId: "documents_1" as never, isCurrent: true }]
     const ingestionJobs = [{ _id: "ingestionJobs_1" as never, documentId: "documents_1" as never }]
     const answerEvidence = [
       {
@@ -287,5 +300,95 @@ describe("deleteDocument", () => {
     expect(deleteRow).toHaveBeenCalledWith("answerEvidence", "answerEvidence_1")
     expect(deleteRow).not.toHaveBeenCalledWith("chatMessages", "chatMessages_2")
     expect(deleteRow).not.toHaveBeenCalledWith("chatSessions", "chatSessions_1")
+  })
+
+  it("deletes historical artifacts and deduplicates storage cleanup", async () => {
+    const document = {
+      _id: "documents_1" as never,
+      productId: "products_1" as never,
+      sourceAssetId: "documentAssets_2" as never,
+      status: "ready",
+      title: "GuardLogix 5570 Controllers User Manual",
+      version: "20.01"
+    }
+
+    const documentAssets = [
+      {
+        _id: "documentAssets_1" as never,
+        documentId: "documents_1" as never,
+        isCurrent: false,
+        storageId: "_storage_shared" as never
+      },
+      {
+        _id: "documentAssets_2" as never,
+        documentId: "documents_1" as never,
+        isCurrent: true,
+        storageId: "_storage_shared" as never
+      },
+      {
+        _id: "documentAssets_3" as never,
+        documentId: "documents_1" as never,
+        isCurrent: false,
+        storageId: "_storage_old" as never
+      }
+    ]
+
+    const documentPages = [
+      { _id: "documentPages_1" as never, documentId: "documents_1" as never, isCurrent: false },
+      { _id: "documentPages_2" as never, documentId: "documents_1" as never, isCurrent: true }
+    ]
+    const chunks = [
+      { _id: "chunks_1" as never, documentId: "documents_1" as never, isCurrent: false },
+      { _id: "chunks_2" as never, documentId: "documents_1" as never, isCurrent: true }
+    ]
+    const chunkEmbeddings = [
+      { _id: "chunkEmbeddings_1" as never, documentId: "documents_1" as never, isCurrent: false },
+      { _id: "chunkEmbeddings_2" as never, documentId: "documents_1" as never, isCurrent: true }
+    ]
+    const ingestionJobs = [{ _id: "ingestionJobs_1" as never, documentId: "documents_1" as never }]
+
+    const query = makeDeleteQuery({
+      answerEvidence: [],
+      chatMessages: [],
+      chunkEmbeddings,
+      chunks,
+      documentAssets,
+      documentPages,
+      ingestionJobs
+    })
+    const deleteRow = vi.fn().mockResolvedValue(undefined)
+    const insert = vi.fn().mockResolvedValue("auditEvents_1")
+    const storageDelete = vi.fn().mockResolvedValue(undefined)
+
+    await deleteDocumentHandler._handler(
+      {
+        db: {
+          delete: deleteRow,
+          get: vi.fn().mockResolvedValue(document),
+          insert,
+          query
+        },
+        storage: {
+          delete: storageDelete
+        }
+      } as never,
+      {
+        documentId: "documents_1" as never,
+        sessionToken: "token-123"
+      }
+    )
+
+    expect(deleteRow).toHaveBeenCalledWith("documentAssets", "documentAssets_1")
+    expect(deleteRow).toHaveBeenCalledWith("documentAssets", "documentAssets_2")
+    expect(deleteRow).toHaveBeenCalledWith("documentAssets", "documentAssets_3")
+    expect(deleteRow).toHaveBeenCalledWith("documentPages", "documentPages_1")
+    expect(deleteRow).toHaveBeenCalledWith("documentPages", "documentPages_2")
+    expect(deleteRow).toHaveBeenCalledWith("chunks", "chunks_1")
+    expect(deleteRow).toHaveBeenCalledWith("chunks", "chunks_2")
+    expect(deleteRow).toHaveBeenCalledWith("chunkEmbeddings", "chunkEmbeddings_1")
+    expect(deleteRow).toHaveBeenCalledWith("chunkEmbeddings", "chunkEmbeddings_2")
+    expect(storageDelete).toHaveBeenCalledTimes(2)
+    expect(storageDelete).toHaveBeenCalledWith("_storage_shared")
+    expect(storageDelete).toHaveBeenCalledWith("_storage_old")
   })
 })

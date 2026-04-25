@@ -4,11 +4,12 @@ import { buildGroundedPacket, buildRefusalPacket, selectEvidenceByCitationIds } 
 
 describe("buildRefusalPacket", () => {
   it("returns an empty citation packet for insufficient evidence", () => {
-    expect(buildRefusalPacket("chatSessions_1" as never)).toEqual({
+    expect(buildRefusalPacket("chatSessions_1" as never, "access-token-1")).toEqual({
       answerSteps: [],
       answerSummary: "I could not find enough evidence in the official documentation to answer that safely.",
       answerabilityStatus: "insufficient_evidence",
       citations: [],
+      sessionAccessToken: "access-token-1",
       sessionId: "chatSessions_1",
       supportingAssets: []
     })
@@ -59,6 +60,7 @@ describe("buildGroundedPacket", () => {
     expect(
       buildGroundedPacket(
         "chatSessions_1" as never,
+        "access-token-1",
         "Install the module beside the controller.",
         ["Check the chassis", "Tighten the mounting rail"],
         [
@@ -109,6 +111,7 @@ describe("buildGroundedPacket", () => {
           pageNumber: 18
         }
       ],
+      sessionAccessToken: "access-token-1",
       sessionId: "chatSessions_1",
       supportingAssets: [
         {
@@ -129,6 +132,7 @@ describe("buildGroundedPacket", () => {
     expect(
       buildGroundedPacket(
         "chatSessions_1" as never,
+        "access-token-1",
         "Install the module beside the controller.",
         ["Check the chassis"],
         [
@@ -166,6 +170,7 @@ describe("buildGroundedPacket", () => {
           pageNumber: 12
         }
       ],
+      sessionAccessToken: "access-token-1",
       sessionId: "chatSessions_1",
       supportingAssets: [
         {

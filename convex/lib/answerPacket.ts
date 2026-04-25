@@ -22,6 +22,7 @@ export type AnswerPacket = {
   answerSummary: string
   answerabilityStatus: "grounded" | "insufficient_evidence"
   citations: AnswerCitation[]
+  sessionAccessToken: string
   sessionId: GenericId<"chatSessions">
   supportingAssets: SupportingAsset[]
 }
@@ -53,6 +54,7 @@ export const answerPacketValidator = v.object({
   answerSummary: v.string(),
   answerabilityStatus: answerabilityStatusValidator,
   citations: v.array(answerCitationValidator),
+  sessionAccessToken: v.string(),
   sessionId: v.id("chatSessions"),
   supportingAssets: v.array(supportingAssetValidator)
 })
@@ -83,6 +85,7 @@ function normalizeCitationId(value: string) {
 
 export function buildRefusalPacket(
   sessionId: GenericId<"chatSessions">,
+  sessionAccessToken: string,
   answerSummary = "I could not find enough evidence in the official documentation to answer that safely.",
   answerSteps: string[] = []
 ): AnswerPacket {
@@ -91,6 +94,7 @@ export function buildRefusalPacket(
     answerSummary,
     answerabilityStatus: "insufficient_evidence",
     citations: [],
+    sessionAccessToken,
     sessionId,
     supportingAssets: []
   }
@@ -103,6 +107,7 @@ export function selectEvidenceByCitationIds(evidence: Evidence[], citationIds: s
 
 export function buildGroundedPacket(
   sessionId: GenericId<"chatSessions">,
+  sessionAccessToken: string,
   answerSummary: string,
   answerSteps: string[],
   evidence: Evidence[]
@@ -130,6 +135,7 @@ export function buildGroundedPacket(
     answerSummary,
     answerabilityStatus: "grounded",
     citations,
+    sessionAccessToken,
     sessionId,
     supportingAssets
   }

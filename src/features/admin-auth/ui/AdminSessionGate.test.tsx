@@ -66,6 +66,17 @@ describe("AdminSessionGate", () => {
     expect(screen.getByRole("button", { name: /access/i })).toBeInTheDocument()
   })
 
+  it("shows a stable loading state while validating a stored session token", async () => {
+    sessionStorage.setItem("adminSessionToken", "live-token")
+    useQuery.mockReturnValue(undefined)
+
+    render(<AdminSessionGate>{() => <div>Admin console</div>}</AdminSessionGate>)
+
+    expect(screen.getByText(/validating admin session/i)).toBeInTheDocument()
+    expect(screen.queryByRole("button", { name: /access/i })).not.toBeInTheDocument()
+    expect(screen.queryByText("Admin console")).not.toBeInTheDocument()
+  })
+
   it("clears the stored token when the validated session expires locally", async () => {
     vi.useFakeTimers()
     vi.setSystemTime(new Date("2026-04-23T00:00:00.000Z"))

@@ -314,19 +314,19 @@ export const deleteDocument = mutation({
     const [documentAssets, documentPages, documentChunks, documentEmbeddings, documentJobs] = await Promise.all([
       ctx.db
         .query("documentAssets")
-        .withIndex("by_document_and_current", (q) => q.eq("documentId", args.documentId).eq("isCurrent", true))
+        .withIndex("by_document_and_current", (q) => q.eq("documentId", args.documentId))
         .collect(),
       ctx.db
         .query("documentPages")
-        .withIndex("by_document_and_current", (q) => q.eq("documentId", args.documentId).eq("isCurrent", true))
+        .withIndex("by_document_and_current", (q) => q.eq("documentId", args.documentId))
         .collect(),
       ctx.db
         .query("chunks")
-        .withIndex("by_document_and_current", (q) => q.eq("documentId", args.documentId).eq("isCurrent", true))
+        .withIndex("by_document_and_current", (q) => q.eq("documentId", args.documentId))
         .collect(),
       ctx.db
         .query("chunkEmbeddings")
-        .withIndex("by_document_and_current", (q) => q.eq("documentId", args.documentId).eq("isCurrent", true))
+        .withIndex("by_document_and_current", (q) => q.eq("documentId", args.documentId))
         .collect(),
       ctx.db
         .query("ingestionJobs")
@@ -378,7 +378,9 @@ export const deleteDocument = mutation({
       }
     }
 
-    await Promise.all(documentAssets.map((asset) => ctx.storage.delete(asset.storageId)))
+    await Promise.all(
+      [...new Set(documentAssets.map((asset) => asset.storageId))].map((storageId) => ctx.storage.delete(storageId))
+    )
 
     for (const evidence of documentEvidence) {
       await ctx.db.delete("answerEvidence", evidence._id)

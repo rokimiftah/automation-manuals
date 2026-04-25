@@ -296,6 +296,9 @@ export const retry = mutation({
     const retryJobId = await ctx.db.insert("ingestionJobs", {
       documentId: existing.documentId,
       requestedByAdmin: adminSession.username,
+      ...(existing.sourceFileName === undefined ? {} : { sourceFileName: existing.sourceFileName }),
+      ...(existing.sourceMimeType === undefined ? {} : { sourceMimeType: existing.sourceMimeType }),
+      ...(existing.sourceStorageId === undefined ? {} : { sourceStorageId: existing.sourceStorageId }),
       status: "queued",
       createdAt: now,
       updatedAt: now

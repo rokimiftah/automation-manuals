@@ -4,7 +4,7 @@ import type { GenericId } from "convex/values"
 import { paginationOptsValidator } from "convex/server"
 import { ConvexError, v } from "convex/values"
 
-import { api, internal } from "./_generated/api"
+import { internal } from "./_generated/api"
 import { action, internalMutation, internalQuery } from "./_generated/server"
 import { answerPacketValidator, buildGroundedPacket, buildRefusalPacket, selectEvidenceByCitationIds } from "./lib/answerPacket"
 import { isLookupLikeQuery, mergeCandidates, rankExactCandidates } from "./lib/hybridRetrieval"
@@ -251,6 +251,7 @@ export const ask = action({
   args: {
     documentId: v.optional(v.id("documents")),
     question: v.string(),
+    sessionAccessToken: v.optional(v.string()),
     sessionId: v.optional(v.id("chatSessions"))
   },
   returns: answerPacketValidator,
@@ -261,18 +262,25 @@ export const ask = action({
     }
 
     let sessionId = args.sessionId
+    let sessionAccessToken = args.sessionAccessToken
     if (sessionId) {
-      const session = await ctx.runQuery(api.chats.getSession, { sessionId })
+      if (!sessionAccessToken) {
+        throw new ConvexError("Session not found")
+      }
+
+      const session = await ctx.runQuery(internal.chats.getAuthorizedSession, { sessionAccessToken, sessionId })
       if (!session) {
         throw new ConvexError("Session not found")
       }
     } else {
-      sessionId = await ctx.runMutation(internal.chats.ensureSession, {
+      const session = await ctx.runMutation(internal.chats.ensureSession, {
         title: question.slice(0, 80)
       })
+      sessionId = session.sessionId
+      sessionAccessToken = session.sessionAccessToken
     }
 
-    if (!sessionId) {
+    if (!sessionId || !sessionAccessToken) {
       throw new ConvexError("Session not found")
     }
 
@@ -330,7 +338,7 @@ export const ask = action({
       evidenceId: `E${index + 1}`
     }))
     if (mergedEvidence.length === 0) {
-      const packet = buildRefusalPacket(sessionId)
+      const packet = buildRefusalPacket(sessionId, sessionAccessToken)
 
       await ctx.runMutation(internal.chats.appendMessage, {
         answerabilityStatus: packet.answerabilityStatus,
@@ -347,8 +355,14 @@ export const ask = action({
     const selectedEvidence = selectEvidenceByCitationIds(evidenceWithIds, groundedAnswer.citationIds)
     const packet: AnswerPacket =
       groundedAnswer.answerSteps.length === 0 || selectedEvidence.length === 0
-        ? buildRefusalPacket(sessionId)
-        : buildGroundedPacket(sessionId, groundedAnswer.answerSummary, groundedAnswer.answerSteps, selectedEvidence)
+        ? buildRefusalPacket(sessionId, sessionAccessToken)
+        : buildGroundedPacket(
+            sessionId,
+            sessionAccessToken,
+            groundedAnswer.answerSummary,
+            groundedAnswer.answerSteps,
+            selectedEvidence
+          )
 
     const assistantMessageId = await ctx.runMutation(internal.chats.appendMessage, {
       answerabilityStatus: packet.answerabilityStatus,

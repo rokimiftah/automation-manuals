@@ -6,6 +6,7 @@ import { ConvexError, v } from "convex/values"
 import { internalMutation, internalQuery, mutation, query } from "./_generated/server"
 import { insertAdminAuditEvent, requireAdminQuerySession, requireAdminWriteSession } from "./lib/adminSession"
 import { assertReadyDocumentArtifacts, buildReadyDocumentPatch } from "./lib/documentReadiness"
+import { buildChunkTerms } from "./lib/exactTerms"
 import { assertNextIngestionStatus } from "./lib/ingestionState"
 import { chunkTypeValidator, documentStatusValidator } from "./lib/validators"
 
@@ -161,6 +162,15 @@ export const replaceParsedContent = internalMutation({
       .withIndex("by_document_and_current", (q) => q.eq("documentId", args.documentId).eq("isCurrent", true))
       .collect()
     for (const chunk of currentChunks) {
+      const chunkTerms = await ctx.db
+        .query("chunkTerms")
+        .withIndex("by_chunk", (q) => q.eq("chunkId", chunk._id))
+        .collect()
+      for (const term of chunkTerms) {
+        await ctx.db.delete("chunkTerms", term._id)
+      }
+    }
+    for (const chunk of currentChunks) {
       await ctx.db.patch("chunks", chunk._id, { isCurrent: false })
     }
 
@@ -228,6 +238,14 @@ export const replaceParsedContent = internalMutation({
         productSlug: document.productSlug,
         vendorSlug: document.vendorSlug
       })
+
+      for (const term of buildChunkTerms({ citationLabel: chunk.citationLabel, content: chunk.content })) {
+        await ctx.db.insert("chunkTerms", {
+          chunkId,
+          documentId: args.documentId,
+          term
+        })
+      }
     }
 
     await ctx.db.patch("documents", args.documentId, buildReadyDocumentPatch({ now, sourceAssetId }))
@@ -333,6 +351,10 @@ export const deleteDocument = mutation({
         .withIndex("by_document", (q) => q.eq("documentId", args.documentId))
         .collect()
     ])
+    const chunkTerms = await ctx.db
+      .query("chunkTerms")
+      .withIndex("by_document", (q) => q.eq("documentId", args.documentId))
+      .collect()
 
     const documentEvidence = await ctx.db
       .query("answerEvidence")
@@ -400,6 +422,10 @@ export const deleteDocument = mutation({
 
     for (const chunk of documentChunks) {
       await ctx.db.delete("chunks", chunk._id)
+    }
+
+    for (const term of chunkTerms) {
+      await ctx.db.delete("chunkTerms", term._id)
     }
 
     for (const page of documentPages) {

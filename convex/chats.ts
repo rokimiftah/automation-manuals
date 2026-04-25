@@ -3,10 +3,11 @@ import type { QueryCtx } from "./_generated/server"
 
 import { ConvexError, v } from "convex/values"
 
-import { internalMutation, internalQuery, query } from "./_generated/server"
+import { internalMutation, internalQuery, mutation, query } from "./_generated/server"
 import { messageRoleValidator } from "./lib/validators"
 
 const encoder = new TextEncoder()
+const CHAT_SESSION_TTL_MS = 24 * 60 * 60 * 1000
 
 function createSessionAccessToken() {
   const bytes = crypto.getRandomValues(new Uint8Array(32))
@@ -23,12 +24,20 @@ async function loadAuthorizedSession(
   args: { sessionAccessToken: string; sessionId: Id<"chatSessions"> }
 ): Promise<Doc<"chatSessions"> | null> {
   const session = await ctx.db.get("chatSessions", args.sessionId)
-  if (!session?.accessTokenHash) {
+  if (!session?.accessTokenHash || session.revokedAt !== undefined) {
     return null
   }
 
   const accessTokenHash = await hashSessionAccessToken(args.sessionAccessToken)
-  return session.accessTokenHash === accessTokenHash ? session : null
+  if (session.accessTokenHash !== accessTokenHash) {
+    return null
+  }
+
+  if (session.expiresAt !== undefined && Date.now() >= session.expiresAt) {
+    return null
+  }
+
+  return session
 }
 
 const chatSessionValidator = v.object({
@@ -127,6 +136,8 @@ export const ensureSession = internalMutation({
     const sessionId = await ctx.db.insert("chatSessions", {
       accessTokenHash: sessionAccessTokenHash,
       createdAt: now,
+      expiresAt: now + CHAT_SESSION_TTL_MS,
+      lastAccessedAt: now,
       title: args.title.slice(0, 120) || "New chat",
       updatedAt: now
     })
@@ -135,6 +146,76 @@ export const ensureSession = internalMutation({
       sessionAccessToken,
       sessionId
     }
+  }
+})
+
+export const rotateSessionAccessToken = internalMutation({
+  args: {
+    sessionAccessToken: v.string(),
+    sessionId: v.id("chatSessions")
+  },
+  returns: v.object({
+    expiresAt: v.number(),
+    sessionAccessToken: v.string()
+  }),
+  handler: async (ctx, args) => {
+    const session = await ctx.db.get("chatSessions", args.sessionId)
+    if (!session?.accessTokenHash || session.revokedAt !== undefined) {
+      return {
+        expiresAt: session?.expiresAt ?? Date.now(),
+        sessionAccessToken: args.sessionAccessToken
+      }
+    }
+
+    const currentTokenHash = await hashSessionAccessToken(args.sessionAccessToken)
+    if (currentTokenHash !== session.accessTokenHash) {
+      return {
+        expiresAt: session.expiresAt ?? Date.now(),
+        sessionAccessToken: args.sessionAccessToken
+      }
+    }
+
+    if (session.expiresAt !== undefined && Date.now() >= session.expiresAt) {
+      return {
+        expiresAt: session.expiresAt,
+        sessionAccessToken: args.sessionAccessToken
+      }
+    }
+
+    const now = Date.now()
+    const sessionAccessToken = createSessionAccessToken()
+    await ctx.db.patch("chatSessions", args.sessionId, {
+      accessTokenHash: await hashSessionAccessToken(sessionAccessToken),
+      expiresAt: now + CHAT_SESSION_TTL_MS,
+      lastAccessedAt: now,
+      updatedAt: now
+    })
+
+    return {
+      expiresAt: now + CHAT_SESSION_TTL_MS,
+      sessionAccessToken
+    }
+  }
+})
+
+export const revokeSession = mutation({
+  args: {
+    sessionAccessToken: v.string(),
+    sessionId: v.id("chatSessions")
+  },
+  returns: v.null(),
+  handler: async (ctx, args) => {
+    const session = await loadAuthorizedSession(ctx, args)
+    if (!session) {
+      return null
+    }
+
+    const now = Date.now()
+    await ctx.db.patch("chatSessions", args.sessionId, {
+      revokedAt: now,
+      updatedAt: now
+    })
+    return null
   }
 })
 

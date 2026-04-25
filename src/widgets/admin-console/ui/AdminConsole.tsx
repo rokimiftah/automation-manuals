@@ -3,7 +3,7 @@ import type { ReactNode } from "react"
 
 import { Component, useEffect } from "react"
 
-import { useAction, useMutation, useQuery } from "convex/react"
+import { useMutation, useQuery } from "convex/react"
 
 import { api } from "@convex/_generated/api"
 
@@ -54,7 +54,6 @@ function AdminConsoleContent({
   const documents = useQuery(api.documents.listAdmin, { sessionToken })
   const jobs = useQuery(api.ingestion.listJobs, { sessionToken })
   const generateSourceUploadUrl = useMutation(api.documents.generateSourceUploadUrl)
-  const prepareMineruUpload = useAction(api.ingestion.prepareMineruUpload)
   const createDocument = useMutation(api.documents.create)
   const enqueue = useMutation(api.ingestion.enqueue)
   const retryJob = useMutation(api.ingestion.retry)
@@ -152,7 +151,7 @@ function AdminConsoleContent({
                         <button
                           className="wire-border px-4 py-2 font-mono text-[10px] tracking-widest uppercase transition-colors hover:bg-[#991b1b] hover:text-white disabled:cursor-not-allowed disabled:opacity-50"
                           type="button"
-                          onClick={() => {
+                          onClick={async () => {
                             if (
                               !window.confirm(
                                 `Delete ${document.title} ${document.version}? This will permanently remove the document, related history, and storage.`
@@ -161,7 +160,13 @@ function AdminConsoleContent({
                               return
                             }
 
-                            void runProtectedMutation(() => deleteDocument({ documentId: document._id, sessionToken }))
+                            try {
+                              await runProtectedMutation(() => deleteDocument({ documentId: document._id, sessionToken }))
+                            } catch (error) {
+                              if (!isAdminSessionError(error)) {
+                                window.alert(error instanceof Error ? error.message : "Unable to delete document.")
+                              }
+                            }
                           }}
                         >
                           Delete {document.version}
@@ -185,11 +190,6 @@ function AdminConsoleContent({
                     }
 
                     const sourceStorageId = await uploadSourceFile(sourceFile)
-                    const mineruUpload = await prepareMineruUpload({
-                      fileName: sourceFile.name,
-                      sessionToken,
-                      sourceStorageId
-                    })
                     const documentId = await createDocument({
                       language: values.language,
                       productName: values.productName,
@@ -201,8 +201,6 @@ function AdminConsoleContent({
                     })
                     await enqueue({
                       documentId,
-                      providerBatchId: mineruUpload.batchId,
-                      ...(mineruUpload.traceId === undefined ? {} : { providerTraceId: mineruUpload.traceId }),
                       sessionToken,
                       sourceFileName: sourceFile.name,
                       sourceMimeType: sourceFile.type || "application/pdf",
@@ -252,7 +250,7 @@ export default function AdminConsole({
   sessionToken: string
 }) {
   return (
-    <AdminConsoleQueryBoundary onSessionInvalid={onSessionInvalid}>
+    <AdminConsoleQueryBoundary key={sessionToken} onSessionInvalid={onSessionInvalid}>
       <AdminConsoleContent onSessionInvalid={onSessionInvalid} sessionToken={sessionToken} />
     </AdminConsoleQueryBoundary>
   )

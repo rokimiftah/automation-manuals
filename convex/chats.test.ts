@@ -42,9 +42,41 @@ describe("chats access boundary", () => {
       "chatSessions",
       expect.objectContaining({
         accessTokenHash: expect.any(String),
+        expiresAt: expect.any(Number),
         title: "PowerFlex 755 startup"
       })
     )
+  })
+
+  it("does not reveal a session when the bearer token has expired", async () => {
+    const accessTokenHash = "f".repeat(64)
+    const session = {
+      _id: "chatSessions_1" as never,
+      accessTokenHash,
+      createdAt: 1,
+      expiresAt: Date.now() - 1,
+      revokedAt: undefined,
+      title: "PowerFlex 755 startup",
+      updatedAt: 2
+    }
+
+    const _digestSpy = vi
+      .spyOn(globalThis.crypto.subtle, "digest")
+      .mockResolvedValue(Uint8Array.from({ length: 32 }, () => 0xff).buffer)
+
+    const result = await getSessionHandler._handler(
+      {
+        db: {
+          get: vi.fn().mockResolvedValue(session)
+        }
+      } as never,
+      {
+        sessionAccessToken: "expired-token",
+        sessionId: "chatSessions_1" as never
+      }
+    )
+
+    expect(result).toBeNull()
   })
 
   it("does not reveal a session when the access token is wrong", async () => {
@@ -89,6 +121,36 @@ describe("chats access boundary", () => {
       } as never,
       {
         sessionAccessToken: "wrong-token",
+        sessionId: "chatSessions_1" as never
+      }
+    )
+
+    expect(result).toEqual([])
+  })
+
+  it("does not reveal messages when the session was revoked", async () => {
+    const accessTokenHash = "f".repeat(64)
+    const _digestSpy = vi
+      .spyOn(globalThis.crypto.subtle, "digest")
+      .mockResolvedValue(Uint8Array.from({ length: 32 }, () => 0xff).buffer)
+
+    const result = await listMessagesHandler._handler(
+      {
+        db: {
+          get: vi.fn().mockResolvedValue({
+            _id: "chatSessions_1" as never,
+            accessTokenHash,
+            createdAt: 1,
+            expiresAt: Date.now() + 60_000,
+            revokedAt: Date.now(),
+            title: "PowerFlex 755 startup",
+            updatedAt: 2
+          }),
+          query: vi.fn()
+        }
+      } as never,
+      {
+        sessionAccessToken: "revoked-token",
         sessionId: "chatSessions_1" as never
       }
     )

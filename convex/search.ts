@@ -5,8 +5,10 @@ import { paginationOptsValidator } from "convex/server"
 import { ConvexError, v } from "convex/values"
 
 import { internal } from "./_generated/api"
-import { action, internalMutation, internalQuery } from "./_generated/server"
+import { action, internalMutation, internalQuery, mutation } from "./_generated/server"
+import { requireAdminWriteSession } from "./lib/adminSession"
 import { answerPacketValidator, buildGroundedPacket, buildRefusalPacket, selectEvidenceByCitationIds } from "./lib/answerPacket"
+import { buildChunkTerms, extractExactSearchTerms } from "./lib/exactTerms"
 import { isLookupLikeQuery, mergeCandidates, rankExactCandidates } from "./lib/hybridRetrieval"
 import { embedTexts, generateGroundedAnswer } from "./lib/mistral"
 
@@ -36,6 +38,14 @@ export const GLOBAL_EXACT_MATCH_LIMIT = 32
 export const GLOBAL_EXACT_MATCH_SCAN_LIMIT = 128
 
 export const GLOBAL_EXACT_MATCH_PAGE_SIZE = 32
+
+const GLOBAL_EXACT_TERM_LIMIT = 64
+
+const SEARCH_RATE_WINDOW_MS = 60_000
+
+const GLOBAL_SEARCH_REQUEST_LIMIT = 120
+
+const SESSION_SEARCH_REQUEST_LIMIT = 10
 
 const WEAK_VECTOR_EVIDENCE_THRESHOLD = 0.5
 
@@ -69,6 +79,11 @@ const savedEvidenceValidator = v.object({
   chunkId: v.id("chunks"),
   pageNumber: v.number(),
   score: v.number()
+})
+
+const searchRateLimitResultValidator = v.object({
+  allowed: v.boolean(),
+  retryAfterMs: v.optional(v.number())
 })
 
 function rankExactSearchResults(question: string, candidates: ExactSearchCandidate[]) {
@@ -247,6 +262,148 @@ export const saveEvidence = internalMutation({
   }
 })
 
+export const claimSearchAccess = internalMutation({
+  args: { sessionId: v.optional(v.id("chatSessions")) },
+  returns: searchRateLimitResultValidator,
+  handler: async (ctx, args) => {
+    const now = Date.now()
+    const windowStart = now - (now % SEARCH_RATE_WINDOW_MS)
+    const retryAfterMs = Math.max(1, windowStart + SEARCH_RATE_WINDOW_MS - now)
+    const states = await ctx.db.query("searchRateState").take(8)
+    const [state, ...extraStates] = states
+    for (const extraState of extraStates) {
+      await ctx.db.delete("searchRateState", extraState._id)
+    }
+
+    const globalRequestCount = state && state.windowStart === windowStart ? state.globalRequestCount : 0
+    const session = args.sessionId ? await ctx.db.get(args.sessionId) : null
+    const sessionRequestCount = session && session.searchWindowStart === windowStart ? (session.searchRequestCount ?? 0) : 0
+
+    if (!args.sessionId && globalRequestCount >= GLOBAL_SEARCH_REQUEST_LIMIT) {
+      return {
+        allowed: false,
+        retryAfterMs
+      }
+    }
+
+    if (args.sessionId && sessionRequestCount >= SESSION_SEARCH_REQUEST_LIMIT) {
+      return {
+        allowed: false,
+        retryAfterMs
+      }
+    }
+
+    if (!state) {
+      await ctx.db.insert("searchRateState", {
+        globalRequestCount: args.sessionId ? 0 : 1,
+        windowStart
+      })
+    } else {
+      if (!args.sessionId) {
+        await ctx.db.patch("searchRateState", state._id, {
+          globalRequestCount: globalRequestCount + 1,
+          windowStart
+        })
+      } else if (state.windowStart !== windowStart) {
+        await ctx.db.patch("searchRateState", state._id, {
+          globalRequestCount: 0,
+          windowStart
+        })
+      }
+    }
+
+    if (args.sessionId && session) {
+      await ctx.db.patch("chatSessions", args.sessionId, {
+        searchRequestCount: sessionRequestCount + 1,
+        searchWindowStart: windowStart
+      })
+    }
+
+    return { allowed: true }
+  }
+})
+
+export const loadGlobalExactResultsByTerms = internalQuery({
+  args: {
+    question: v.string(),
+    terms: v.array(v.string())
+  },
+  returns: v.array(searchResultValidator),
+  handler: async (ctx, args) => {
+    const seenChunkIds = new Set<string>()
+    const candidates: ExactSearchCandidate[] = []
+
+    for (const term of args.terms.slice(0, 12)) {
+      const rows = await ctx.db
+        .query("chunkTerms")
+        .withIndex("by_term", (q) => q.eq("term", term))
+        .take(GLOBAL_EXACT_TERM_LIMIT)
+
+      for (const row of rows) {
+        if (seenChunkIds.has(String(row.chunkId))) {
+          continue
+        }
+
+        const chunk = await ctx.db.get(row.chunkId)
+        if (!chunk?.isCurrent) {
+          continue
+        }
+
+        const document = await ctx.db.get(chunk.documentId)
+        if (!document || document.status !== "ready") {
+          continue
+        }
+
+        seenChunkIds.add(String(chunk._id))
+        candidates.push({
+          ...(document.sourceAssetId === undefined ? {} : { assetId: document.sourceAssetId }),
+          citationLabel: chunk.citationLabel,
+          chunkId: chunk._id,
+          content: chunk.content,
+          pageNumber: chunk.pageNumber
+        })
+      }
+    }
+
+    return rankExactSearchResults(args.question, candidates)
+  }
+})
+
+export const backfillExactTerms = mutation({
+  args: { sessionToken: v.string() },
+  returns: v.number(),
+  handler: async (ctx, args) => {
+    await requireAdminWriteSession(ctx, args.sessionToken)
+
+    const currentChunks = await ctx.db
+      .query("chunks")
+      .withIndex("by_current_and_content", (q) => q.eq("isCurrent", true))
+      .collect()
+
+    let inserted = 0
+    for (const chunk of currentChunks) {
+      const existingTerms = await ctx.db
+        .query("chunkTerms")
+        .withIndex("by_chunk", (q) => q.eq("chunkId", chunk._id))
+        .take(1)
+      if (existingTerms.length > 0) {
+        continue
+      }
+
+      for (const term of buildChunkTerms({ citationLabel: chunk.citationLabel, content: chunk.content })) {
+        await ctx.db.insert("chunkTerms", {
+          chunkId: chunk._id,
+          documentId: chunk.documentId,
+          term
+        })
+        inserted += 1
+      }
+    }
+
+    return inserted
+  }
+})
+
 export const ask = action({
   args: {
     documentId: v.optional(v.id("documents")),
@@ -261,6 +418,7 @@ export const ask = action({
       throw new ConvexError("Question is required")
     }
 
+    const shouldRotateSessionToken = args.sessionId !== undefined
     let sessionId = args.sessionId
     let sessionAccessToken = args.sessionAccessToken
     if (sessionId) {
@@ -272,7 +430,18 @@ export const ask = action({
       if (!session) {
         throw new ConvexError("Session not found")
       }
-    } else {
+    }
+
+    const access = await ctx.runMutation(internal.search.claimSearchAccess, {
+      ...(sessionId === undefined ? {} : { sessionId })
+    })
+    if (!access.allowed) {
+      throw new ConvexError(
+        `Too many search requests. Please wait ${Math.ceil((access.retryAfterMs ?? SEARCH_RATE_WINDOW_MS) / 1000)} seconds and try again.`
+      )
+    }
+
+    if (!sessionId) {
       const session = await ctx.runMutation(internal.chats.ensureSession, {
         title: question.slice(0, 80)
       })
@@ -308,6 +477,18 @@ export const ask = action({
             exactContent: question
           })
         : await (async () => {
+            const terms = extractExactSearchTerms(question)
+            const termMatches = terms.length
+              ? await ctx.runQuery(internal.search.loadGlobalExactResultsByTerms, {
+                  question,
+                  terms
+                })
+              : []
+
+            if (termMatches.length >= GLOBAL_EXACT_MATCH_LIMIT) {
+              return termMatches
+            }
+
             let cursor: string | null = null
             let isDone = false
             let remaining = GLOBAL_EXACT_MATCH_SCAN_LIMIT
@@ -328,7 +509,8 @@ export const ask = action({
               candidates.push(...page.page)
             }
 
-            return rankExactSearchResults(question, candidates)
+            const paginatedMatches = rankExactSearchResults(question, candidates)
+            return termMatches.length > 0 ? (mergeCandidates(termMatches, paginatedMatches) as SearchResult[]) : paginatedMatches
           })()
       : []
 
@@ -346,6 +528,12 @@ export const ask = action({
         role: "assistant",
         sessionId
       })
+
+      if (shouldRotateSessionToken) {
+        packet.sessionAccessToken = (
+          await ctx.runMutation(internal.chats.rotateSessionAccessToken, { sessionAccessToken, sessionId })
+        ).sessionAccessToken
+      }
 
       return packet
     }
@@ -389,6 +577,12 @@ export const ask = action({
         ),
         messageId: assistantMessageId
       })
+    }
+
+    if (shouldRotateSessionToken) {
+      packet.sessionAccessToken = (
+        await ctx.runMutation(internal.chats.rotateSessionAccessToken, { sessionAccessToken, sessionId })
+      ).sessionAccessToken
     }
 
     return packet

@@ -112,7 +112,7 @@ describe("AdminConsole", () => {
     await waitFor(() => expect(onSessionInvalid).toHaveBeenCalledWith("Admin session expired. Please sign in again."))
   })
 
-  it("uploads the source file and prepares the mineru batch before queueing ingestion", async () => {
+  it("uploads the source file and queues ingestion without submitting MinerU from the client", async () => {
     createDocument.mockResolvedValue("documents_1")
     enqueue.mockResolvedValue("ingestionJobs_1")
 
@@ -126,13 +126,6 @@ describe("AdminConsole", () => {
       expect.objectContaining({
         body: expect.any(File),
         method: "POST"
-      })
-    )
-    await waitFor(() =>
-      expect(prepareMineruUpload).toHaveBeenCalledWith({
-        sourceStorageId: "storage_1",
-        fileName: "manual.pdf",
-        sessionToken: "token-123"
       })
     )
     expect(createDocument).toHaveBeenCalledWith(
@@ -149,14 +142,13 @@ describe("AdminConsole", () => {
     expect(enqueue).toHaveBeenCalledWith(
       expect.objectContaining({
         documentId: "documents_1",
-        providerBatchId: "batch-1",
-        providerTraceId: "trace-1",
         sessionToken: "token-123",
         sourceFileName: "manual.pdf",
         sourceMimeType: "application/pdf",
         sourceStorageId: "storage_1"
       })
     )
+    expect(prepareMineruUpload).not.toHaveBeenCalled()
   })
 
   it("does not expose session identity or sign-out controls in the admin shell", () => {

@@ -110,6 +110,14 @@ export default defineSchema({
     .index("by_document_and_current_and_content", ["documentId", "isCurrent", "content"])
     .index("by_current_and_content", ["isCurrent", "content"])
     .index("by_document_and_page", ["documentId", "pageNumber"]),
+  chunkTerms: defineTable({
+    chunkId: v.id("chunks"),
+    documentId: v.id("documents"),
+    term: v.string()
+  })
+    .index("by_chunk", ["chunkId"])
+    .index("by_document", ["documentId"])
+    .index("by_term", ["term"]),
   chunkEmbeddings: defineTable({
     chunkId: v.id("chunks"),
     documentId: v.id("documents"),
@@ -131,6 +139,11 @@ export default defineSchema({
     accessTokenHash: v.optional(v.string()),
     title: v.string(),
     createdAt: v.number(),
+    expiresAt: v.optional(v.number()),
+    lastAccessedAt: v.optional(v.number()),
+    revokedAt: v.optional(v.number()),
+    searchRequestCount: v.optional(v.number()),
+    searchWindowStart: v.optional(v.number()),
     updatedAt: v.number()
   }),
   chatMessages: defineTable({
@@ -168,5 +181,9 @@ export default defineSchema({
     targetId: v.string(),
     summary: v.string(),
     createdAt: v.number()
-  }).index("by_actor_type", ["actorType"])
+  }).index("by_actor_type", ["actorType"]),
+  searchRateState: defineTable({
+    globalRequestCount: v.number(),
+    windowStart: v.number()
+  })
 })

@@ -62,8 +62,9 @@ export default function EvidenceViewer({ asset }: { asset: SupportingAsset | nul
       </div>
       <div className="min-h-0 flex-1 p-4 md:p-6">
         <iframe
+          key={`${asset.assetId}-${asset.pageNumber}`}
           className="wire-border h-full w-full bg-white"
-          src={`${viewerAsset.url}#page=${asset.pageNumber}`}
+          src={`${viewerAsset.url}#page=${asset.pageNumber}&view=FitH`}
           title={asset.label}
         />
       </div>

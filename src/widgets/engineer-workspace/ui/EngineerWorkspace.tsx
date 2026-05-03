@@ -104,7 +104,7 @@ export default function EngineerWorkspace() {
           </div>
         </div>
 
-        <div className="animate-expand flex h-full min-h-0 flex-col" style={{ animationDelay: "0.2s" }}>
+        <div className="animate-expand flex h-full min-h-0 flex-col lg:h-full" style={{ animationDelay: "0.2s" }}>
           <EvidenceViewer asset={activeAsset} />
         </div>
       </div>

@@ -117,10 +117,13 @@ function inferPrintedPageNumber(page: MineruPage) {
 
 export function normalizeMineruDocument(document: MineruDocument): NormalizedDocument {
   return normalizeParsedPages(
-    document.pdf_info.map((page) => ({
-      markdown: (page.para_blocks ?? []).map(renderMarkdownBlock).filter(Boolean).join("\n\n"),
-      pageNumber: page.page_idx + 1,
-      ...(inferPrintedPageNumber(page) ? { printedPageNumber: inferPrintedPageNumber(page) } : {})
-    }))
+    document.pdf_info.map((page) => {
+      const printedPageNumber = inferPrintedPageNumber(page)
+      return {
+        markdown: (page.para_blocks ?? []).map(renderMarkdownBlock).filter(Boolean).join("\n\n"),
+        pageNumber: page.page_idx + 1,
+        ...(printedPageNumber ? { printedPageNumber } : {})
+      }
+    })
   )
 }

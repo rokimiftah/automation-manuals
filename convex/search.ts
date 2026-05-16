@@ -421,7 +421,7 @@ export const claimSearchAccess = internalMutation({
     const session = args.sessionId ? await ctx.db.get(args.sessionId) : null
     const sessionRequestCount = session && session.searchWindowStart === windowStart ? (session.searchRequestCount ?? 0) : 0
 
-    if (!args.sessionId && globalRequestCount >= GLOBAL_SEARCH_REQUEST_LIMIT) {
+    if (globalRequestCount >= GLOBAL_SEARCH_REQUEST_LIMIT) {
       return {
         allowed: false,
         retryAfterMs
@@ -435,23 +435,23 @@ export const claimSearchAccess = internalMutation({
       }
     }
 
+    const nextGlobalRequestCount = globalRequestCount + 1
+
     if (!state) {
       await ctx.db.insert("searchRateState", {
-        globalRequestCount: args.sessionId ? 0 : 1,
+        globalRequestCount: nextGlobalRequestCount,
+        windowStart
+      })
+    } else if (state.windowStart !== windowStart) {
+      await ctx.db.patch("searchRateState", state._id, {
+        globalRequestCount: nextGlobalRequestCount,
         windowStart
       })
     } else {
-      if (!args.sessionId) {
-        await ctx.db.patch("searchRateState", state._id, {
-          globalRequestCount: globalRequestCount + 1,
-          windowStart
-        })
-      } else if (state.windowStart !== windowStart) {
-        await ctx.db.patch("searchRateState", state._id, {
-          globalRequestCount: 0,
-          windowStart
-        })
-      }
+      await ctx.db.patch("searchRateState", state._id, {
+        globalRequestCount: nextGlobalRequestCount,
+        windowStart
+      })
     }
 
     if (args.sessionId && session) {

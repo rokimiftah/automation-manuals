@@ -10,33 +10,6 @@ import tailwindcss from "@tailwindcss/vite"
 
 const __dirname = path.dirname(fileURLToPath(import.meta.url))
 
-/**
- * Workaround for https://github.com/withastro/astro/issues/15952
- * Astro's `astro:server-app` virtual module lacks the `virtual:` prefix,
- * causing Vite 7 to append `.js` during dependency optimization reload.
- * The regex filter `^astro:server-app$` in Astro's resolveId hook does not
- * match `astro:server-app.js`, so resolution fails. This plugin intercepts
- * the `.js` variant and delegates to Astro's original resolution.
- */
-function vitePluginAstroServerAppCompat() {
-  const ASTRO_DEV_SERVER_APP_ID = "astro:server-app"
-  const createAstroServerAppUrl = new URL(
-    "./node_modules/astro/dist/vite-plugin-app/createAstroServerApp.js",
-    `file://${__dirname}/`
-  ).toString()
-  const plugin = {
-    name: "astro:server-app-compat",
-    enforce: /** @type {"pre"} */ ("pre"),
-    /** @param {string} id */
-    resolveId(id) {
-      if (id === `${ASTRO_DEV_SERVER_APP_ID}.js`) {
-        return createAstroServerAppUrl
-      }
-    }
-  }
-  return /** @type {import("vite").Plugin} */ (plugin)
-}
-
 export default defineConfig({
   devToolbar: { enabled: false },
   env: {
@@ -49,7 +22,7 @@ export default defineConfig({
   site: "https://automation-manuals.web.id",
   trailingSlash: "never",
   vite: {
-    plugins: [vitePluginAstroServerAppCompat(), tailwindcss()],
+    plugins: [tailwindcss()],
     resolve: {
       alias: {
         "@": path.resolve(__dirname, "./src"),

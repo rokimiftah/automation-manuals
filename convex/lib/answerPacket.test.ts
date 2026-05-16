@@ -56,6 +56,29 @@ describe("buildGroundedPacket", () => {
     expect(selectEvidenceByCitationIds(evidence, ["[e1]"])).toEqual(evidence)
   })
 
+  it("preserves model citation order when selecting evidence", () => {
+    const evidence = [
+      {
+        assetId: "documentAssets_1" as never,
+        citationLabel: "Page 12",
+        chunkId: "chunks_1" as never,
+        evidenceId: "E1",
+        pageNumber: 12,
+        score: 0.97
+      },
+      {
+        assetId: "documentAssets_2" as never,
+        citationLabel: "Page 18",
+        chunkId: "chunks_2" as never,
+        evidenceId: "E2",
+        pageNumber: 18,
+        score: 0.95
+      }
+    ]
+
+    expect(selectEvidenceByCitationIds(evidence, ["E2", "E1"])).toEqual([evidence[1], evidence[0]])
+  })
+
   it("keeps chunk-level citations while deduplicating supporting assets", () => {
     expect(
       buildGroundedPacket(

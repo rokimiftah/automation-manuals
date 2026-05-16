@@ -14,31 +14,32 @@
     "lint": "biome check --write --unsafe . && tsc --noEmit && tsc --noEmit -p convex"
   },
   "dependencies": {
-    "@astrojs/react": "^5.0.4",
+    "@astrojs/react": "^5.0.5",
     "@mistralai/mistralai": "^2.2.1",
-    "astro": "^6.2.1",
-    "convex": "^1.37.0",
-    "fflate": "^0.8.2",
+    "astro": "^6.3.3",
+    "convex": "^1.39.1",
+    "fflate": "^0.8.3",
     "hash-wasm": "^4.12.0",
-    "react": "^19.2.5",
-    "react-dom": "^19.2.5"
+    "react": "^19.2.6",
+    "react-dom": "^19.2.6",
+    "react-pdf": "^10.4.1"
   },
   "devDependencies": {
-    "@biomejs/biome": "^2.4.14",
+    "@biomejs/biome": "^2.4.15",
     "@testing-library/jest-dom": "^6.9.1",
     "@testing-library/react": "^16.3.2",
     "@testing-library/user-event": "^14.6.1",
     "@ianvs/prettier-plugin-sort-imports": "^4.7.1",
-    "@tailwindcss/vite": "^4.2.4",
-    "@types/node": "^25.6.0",
+    "@tailwindcss/vite": "^4.3.0",
+    "@types/node": "^25.8.0",
     "@types/react": "^19.2.14",
     "@types/react-dom": "^19.2.3",
     "jsdom": "^29.1.1",
     "prettier": "^3.8.3",
     "prettier-plugin-astro": "^0.14.1",
     "prettier-plugin-tailwindcss": "^0.8.0",
-    "vitest": "^4.1.5",
-    "tailwindcss": "^4.2.4",
+    "vitest": "^4.1.6",
+    "tailwindcss": "^4.3.0",
     "typescript": "^6.0.3"
   },
   "overrides": {

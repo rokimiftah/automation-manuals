@@ -1,13 +1,26 @@
 import { v } from "convex/values"
 
 import { query } from "./_generated/server"
+import { buildCitationLabel } from "./lib/normalize"
 
 export function canResolveViewerAsset(input: { asset: { isCurrent: boolean } | null; document: { status: string } | null }) {
   return input.asset?.isCurrent === true && input.document?.status === "ready"
 }
 
+function resolvePageNumberByCitationLabel(
+  pages: Array<{ pageNumber: number; printedPageNumber?: string }>,
+  citationLabel: string | undefined
+) {
+  const normalizedLabel = citationLabel?.trim()
+  if (!normalizedLabel) {
+    return undefined
+  }
+
+  return pages.find((page) => buildCitationLabel(page.pageNumber, page.printedPageNumber) === normalizedLabel)?.pageNumber
+}
+
 export const resolveViewerAsset = query({
-  args: { assetId: v.id("documentAssets") },
+  args: { assetId: v.id("documentAssets"), citationLabel: v.optional(v.string()) },
   returns: v.union(
     v.null(),
     v.object({
@@ -33,10 +46,16 @@ export const resolveViewerAsset = query({
       return null
     }
 
+    const pages = await ctx.db
+      .query("documentPages")
+      .withIndex("by_document_and_current", (q) => q.eq("documentId", asset.documentId).eq("isCurrent", true))
+      .collect()
+    const pageNumber = resolvePageNumberByCitationLabel(pages, args.citationLabel) ?? asset.pageNumber
+
     return {
       _id: asset._id,
       kind: "source_pdf" as const,
-      ...(asset.pageNumber === undefined ? {} : { pageNumber: asset.pageNumber }),
+      ...(pageNumber === undefined ? {} : { pageNumber }),
       url
     }
   }

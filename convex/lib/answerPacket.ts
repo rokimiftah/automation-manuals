@@ -103,8 +103,36 @@ export function buildRefusalPacket(
 }
 
 export function selectEvidenceByCitationIds(evidence: Evidence[], citationIds: string[]) {
-  const wanted = new Set(citationIds.map(normalizeCitationId).filter(Boolean))
-  return evidence.filter((item) => item.evidenceId !== undefined && wanted.has(normalizeCitationId(item.evidenceId)))
+  const evidenceById = new Map<string, Evidence>()
+
+  for (const item of evidence) {
+    if (item.evidenceId === undefined) {
+      continue
+    }
+
+    const normalizedId = normalizeCitationId(item.evidenceId)
+    if (!evidenceById.has(normalizedId)) {
+      evidenceById.set(normalizedId, item)
+    }
+  }
+
+  const selected: Evidence[] = []
+  const seen = new Set<string>()
+
+  for (const citationId of citationIds) {
+    const normalizedId = normalizeCitationId(citationId)
+    if (!normalizedId || seen.has(normalizedId)) {
+      continue
+    }
+
+    seen.add(normalizedId)
+    const item = evidenceById.get(normalizedId)
+    if (item) {
+      selected.push(item)
+    }
+  }
+
+  return selected
 }
 
 export function buildGroundedPacket(

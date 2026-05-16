@@ -68,10 +68,20 @@ export default function AnswerPacketView({ packet, onSelectCitation }: AnswerPac
                   type="button"
                   onClick={() => onSelectCitation(asset)}
                 >
-                  <span className="mb-4 line-clamp-2 text-[14px] font-medium tracking-wide uppercase">{asset.label}</span>
-                  <span className="mt-auto w-full border-t border-inherit pt-2 font-mono text-[11px] tracking-widest uppercase group-hover:border-white">
-                    Pg. {asset.pageNumber}
-                  </span>
+                  <dl className="grid w-full gap-3">
+                    <div className="space-y-1">
+                      <dt className="font-mono text-[10px] tracking-[0.2em] text-[#666666] uppercase group-hover:text-white/70">
+                        Citation label
+                      </dt>
+                      <dd className="line-clamp-2 text-[14px] font-medium tracking-wide uppercase">{asset.label}</dd>
+                    </div>
+                    <div className="space-y-1 border-t border-inherit pt-2">
+                      <dt className="font-mono text-[10px] tracking-[0.2em] text-[#666666] uppercase group-hover:text-white/70">
+                        PDF page
+                      </dt>
+                      <dd className="font-mono text-[11px] tracking-widest uppercase">Pg. {asset.pageNumber}</dd>
+                    </div>
+                  </dl>
                 </button>
               ))}
             </div>

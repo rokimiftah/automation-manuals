@@ -13,15 +13,18 @@ describe("AnswerPacketView", () => {
           answerabilityStatus: "grounded",
           answerSummary: "Partner goes to the right.",
           answerSteps: ["Check the right-adjacent slot."],
-          citations: [{ chunkId: "chunk-1" as never, pageNumber: 9, citationLabel: "Page 9", assetId: "asset-1" as never }],
-          supportingAssets: [{ assetId: "asset-1" as never, pageNumber: 9, label: "Page 9" }]
+          citations: [{ chunkId: "chunk-1" as never, pageNumber: 70, citationLabel: "Page 62", assetId: "asset-1" as never }],
+          supportingAssets: [{ assetId: "asset-1" as never, pageNumber: 70, label: "Page 62" }]
         }}
         onSelectCitation={onSelect}
       />
     )
 
-    fireEvent.click(screen.getByRole("button", { name: /page 9/i }))
+    expect(screen.getByText("Citation label")).toBeInTheDocument()
+    expect(screen.getByText("PDF page")).toBeInTheDocument()
 
-    expect(onSelect).toHaveBeenCalledWith({ assetId: "asset-1", pageNumber: 9, label: "Page 9" })
+    fireEvent.click(screen.getByRole("button", { name: /page 62/i }))
+
+    expect(onSelect).toHaveBeenCalledWith({ assetId: "asset-1", pageNumber: 70, label: "Page 62" })
   })
 })

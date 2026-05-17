@@ -265,4 +265,71 @@ describe("backfillDocumentExactTermsBatch", () => {
       insert.mock.calls.some(([table, value]) => table === "chunkTerms" && (value as { chunkId: string }).chunkId === "chunks_51")
     ).toBe(false)
   })
+
+  it("continues admin backfill after the first chunk batch already has terms", async () => {
+    requireAdminWriteSession.mockReset()
+    requireAdminWriteSession.mockResolvedValue({
+      _id: "adminSessions_1",
+      username: "admin"
+    })
+
+    const chunks = Array.from({ length: 55 }, (_, index) => ({
+      _id: `chunks_${index + 1}` as never,
+      citationLabel: `Page ${index + 1}`,
+      content: `Install module ${index + 1} beside the controller for proper operation and grounding.`,
+      documentId: "documents_1" as never,
+      ingestionJobId: "ingestionJobs_1" as never,
+      isCurrent: true,
+      pageNumber: index + 1
+    }))
+    const chunksWithTerms = new Set(chunks.slice(0, 50).map((chunk) => chunk._id))
+    const insert = vi.fn(async (_table: string, value: { chunkId: never }) => {
+      chunksWithTerms.add(value.chunkId)
+    })
+
+    const inserted = await backfillExactTermsHandler._handler(
+      {
+        db: {
+          insert,
+          query: vi.fn((table: string) => {
+            if (table === "chunks") {
+              return {
+                withIndex: vi.fn(() => ({
+                  collect: vi.fn().mockResolvedValue(chunks)
+                }))
+              }
+            }
+
+            if (table === "chunkTerms") {
+              return {
+                withIndex: vi.fn((_index: string, range: (q: { eq: (field: string, value: unknown) => unknown }) => void) => {
+                  const filters: Array<[string, unknown]> = []
+                  const builder = {
+                    eq(field: string, value: unknown) {
+                      filters.push([field, value])
+                      return builder
+                    }
+                  }
+                  range(builder)
+                  const chunkId = filters.find(([field]) => field === "chunkId")?.[1] as never
+
+                  return {
+                    take: vi.fn().mockResolvedValue(chunksWithTerms.has(chunkId) ? [{ _id: `chunkTerms_${chunkId}` }] : [])
+                  }
+                })
+              }
+            }
+
+            throw new Error(`Unexpected table ${table}`)
+          })
+        }
+      } as never,
+      {
+        sessionToken: "token-123"
+      }
+    )
+
+    expect(inserted).toBeGreaterThan(0)
+    expect(chunksWithTerms.has("chunks_51" as never)).toBe(true)
+  })
 })

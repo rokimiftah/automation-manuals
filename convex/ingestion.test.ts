@@ -4,6 +4,7 @@ import {
   isRecoverableStuckJob,
   isRetryableJob,
   listJobs,
+  mineruCallback,
   prepareMineruUpload,
   recoverStuckJob,
   retry,
@@ -66,6 +67,10 @@ const retryHandler = retry as typeof retry & {
 
 const recoverStuckJobHandler = recoverStuckJob as typeof recoverStuckJob & {
   _handler: (ctx: unknown, args: { jobId: never; sessionToken: string }) => Promise<null>
+}
+
+const mineruCallbackHandler = mineruCallback as typeof mineruCallback & {
+  _handler: (ctx: unknown, request: Request) => Promise<Response>
 }
 
 describe("isRetryableJob", () => {
@@ -659,5 +664,48 @@ describe("selectMineruArchiveJson", () => {
     }
 
     expect(selectMineruArchiveJson(files)).toEqual(layoutFixture)
+  })
+})
+
+describe("mineruCallback", () => {
+  it("returns 400 when signed callback content has a non-string batch id", async () => {
+    process.env.MINERU_CALLBACK_UID = "uid-1"
+    getProviderEnv.mockReturnValue({
+      mineruApiToken: "mineru-token",
+      mineruCallbackSeed: "seed-1",
+      mineruCallbackUid: "uid-1",
+      mineruCallbackUrl: "https://app.example/providers/mineru/callback",
+      mineruDailyFileLimit: 5000,
+      mineruDailyPriorityPages: 1000,
+      mineruResultQueryRatePerMinute: 1000,
+      mineruSubmitRatePerMinute: 50,
+      mistralApiKey: "mistral-test-key",
+      mistralChatModel: "mistral-small-latest",
+      mistralEmbedModel: "mistral-embed"
+    })
+
+    const content = JSON.stringify({ batch_id: 123 })
+    const checksum = await crypto.subtle
+      .digest("SHA-256", new TextEncoder().encode(`uid-1seed-1${content}`))
+      .then((digest) => Array.from(new Uint8Array(digest), (byte) => byte.toString(16).padStart(2, "0")).join(""))
+    const request = new Request("https://app.example/providers/mineru/callback", {
+      body: JSON.stringify({ checksum, content }),
+      headers: { "content-type": "application/json" },
+      method: "POST"
+    })
+
+    const response = await mineruCallbackHandler._handler(
+      {
+        runMutation: vi.fn(),
+        runQuery: vi.fn(),
+        scheduler: { runAfter: vi.fn() }
+      } as never,
+      request
+    )
+
+    await expect(response.text()).resolves.toBe("MinerU callback is missing batch_id")
+    expect(response.status).toBe(400)
+
+    delete process.env.MINERU_CALLBACK_UID
   })
 })

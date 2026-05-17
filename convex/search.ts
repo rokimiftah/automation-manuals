@@ -173,6 +173,27 @@ async function deleteExactTermsForChunkBatch(ctx: ExactTermCleanupCtx, chunks: E
   return deleted
 }
 
+async function selectChunksWithoutExactTerms(ctx: ExactTermInsertCtx, chunks: ExactTermBackfillChunk[], limit: number) {
+  const chunksWithoutTerms: ExactTermBackfillChunk[] = []
+
+  for (const chunk of chunks) {
+    const existingTerms = await ctx.db
+      .query("chunkTerms")
+      .withIndex("by_chunk", (q) => q.eq("chunkId", chunk._id))
+      .take(1)
+    if (existingTerms.length > 0) {
+      continue
+    }
+
+    chunksWithoutTerms.push(chunk)
+    if (chunksWithoutTerms.length >= limit) {
+      break
+    }
+  }
+
+  return chunksWithoutTerms
+}
+
 export const backfillDocumentExactTermsBatch = internalMutation({
   args: {
     documentId: v.id("documents"),
@@ -522,7 +543,9 @@ export const backfillExactTerms = mutation({
       .withIndex("by_current_and_content", (q) => q.eq("isCurrent", true))
       .collect()
 
-    return await insertExactTermsForChunkBatch(ctx, currentChunks.slice(0, EXACT_TERM_BACKFILL_CHUNK_BATCH_SIZE))
+    const chunkBatch = await selectChunksWithoutExactTerms(ctx, currentChunks, EXACT_TERM_BACKFILL_CHUNK_BATCH_SIZE)
+
+    return await insertExactTermsForChunkBatch(ctx, chunkBatch)
   }
 })
 

@@ -196,6 +196,15 @@ function parseCallbackEnvelope(payload: unknown) {
   }
 }
 
+function getCallbackBatchId(parsedContent: unknown) {
+  if (!parsedContent || typeof parsedContent !== "object") {
+    return ""
+  }
+
+  const batchId = (parsedContent as { batch_id?: unknown }).batch_id
+  return typeof batchId === "string" ? batchId.trim() : ""
+}
+
 export const listJobs = query({
   args: { sessionToken: v.string() },
   returns: v.array(listJobValidator),
@@ -680,7 +689,7 @@ export const mineruCallback = httpAction(async (ctx, request) => {
   }
 
   const providerEnv = getProviderEnv()
-  const callbackUid = process.env.MINERU_CALLBACK_UID?.trim()
+  const callbackUid = providerEnv.mineruCallbackUid
   if (!callbackUid || !providerEnv.mineruCallbackSeed) {
     return new Response("MinerU callback verification is not configured", { status: 503 })
   }
@@ -696,7 +705,7 @@ export const mineruCallback = httpAction(async (ctx, request) => {
     return new Response("Invalid MinerU callback checksum", { status: 401 })
   }
 
-  const providerBatchId = envelope.parsedContent.batch_id?.trim()
+  const providerBatchId = getCallbackBatchId(envelope.parsedContent)
   if (!providerBatchId) {
     return new Response("MinerU callback is missing batch_id", { status: 400 })
   }

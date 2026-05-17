@@ -8,6 +8,7 @@ describe("getProviderEnv", () => {
       getProviderEnv({
         MINERU_API_TOKEN: " mineru-token ",
         MINERU_CALLBACK_SEED: " callback-seed ",
+        MINERU_CALLBACK_UID: " callback-uid ",
         MINERU_CALLBACK_URL: " https://app.example/providers/mineru/callback ",
         MINERU_DAILY_PRIORITY_PAGES: " 1000 ",
         MINERU_DAILY_FILE_LIMIT: " 5000 ",
@@ -20,6 +21,7 @@ describe("getProviderEnv", () => {
     ).toEqual({
       mineruApiToken: "mineru-token",
       mineruCallbackSeed: "callback-seed",
+      mineruCallbackUid: "callback-uid",
       mineruCallbackUrl: "https://app.example/providers/mineru/callback",
       mineruDailyPriorityPages: 1000,
       mineruDailyFileLimit: 5000,
@@ -61,5 +63,16 @@ describe("getProviderEnv", () => {
         MISTRAL_API_KEY: "mistral-test-key"
       })
     ).toThrow("MINERU_CALLBACK_SEED is required when MINERU_CALLBACK_URL is set")
+  })
+
+  it("throws when a callback url is configured without a callback uid", () => {
+    expect(() =>
+      getProviderEnv({
+        MINERU_API_TOKEN: "mineru-token",
+        MINERU_CALLBACK_SEED: "callback-seed",
+        MINERU_CALLBACK_URL: "https://app.example/providers/mineru/callback",
+        MISTRAL_API_KEY: "mistral-test-key"
+      })
+    ).toThrow("MINERU_CALLBACK_UID is required when MINERU_CALLBACK_URL is set")
   })
 })

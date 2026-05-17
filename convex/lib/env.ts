@@ -2,6 +2,7 @@ type ProviderEnvInput = Partial<
   Record<
     | "MINERU_API_TOKEN"
     | "MINERU_CALLBACK_SEED"
+    | "MINERU_CALLBACK_UID"
     | "MINERU_CALLBACK_URL"
     | "MINERU_DAILY_PRIORITY_PAGES"
     | "MINERU_DAILY_FILE_LIMIT"
@@ -17,6 +18,7 @@ type ProviderEnvInput = Partial<
 export type ProviderEnv = {
   mineruApiToken: string
   mineruCallbackSeed?: string
+  mineruCallbackUid?: string
   mineruCallbackUrl?: string
   mineruDailyPriorityPages: number
   mineruDailyFileLimit: number
@@ -54,13 +56,18 @@ function numberEnv(value: string | undefined, fallback: number) {
 export function getProviderEnv(input: ProviderEnvInput = process.env) {
   const mineruCallbackUrl = optionalEnv(input.MINERU_CALLBACK_URL)
   const mineruCallbackSeed = optionalEnv(input.MINERU_CALLBACK_SEED)
+  const mineruCallbackUid = optionalEnv(input.MINERU_CALLBACK_UID)
   if (mineruCallbackUrl && !mineruCallbackSeed) {
     throw new Error("MINERU_CALLBACK_SEED is required when MINERU_CALLBACK_URL is set")
+  }
+  if (mineruCallbackUrl && !mineruCallbackUid) {
+    throw new Error("MINERU_CALLBACK_UID is required when MINERU_CALLBACK_URL is set")
   }
 
   return {
     mineruApiToken: requireEnv("MINERU_API_TOKEN", input.MINERU_API_TOKEN),
     ...(mineruCallbackSeed === undefined ? {} : { mineruCallbackSeed }),
+    ...(mineruCallbackUid === undefined ? {} : { mineruCallbackUid }),
     ...(mineruCallbackUrl === undefined ? {} : { mineruCallbackUrl }),
     mineruDailyPriorityPages: numberEnv(input.MINERU_DAILY_PRIORITY_PAGES, 1000),
     mineruDailyFileLimit: numberEnv(input.MINERU_DAILY_FILE_LIMIT, 5000),

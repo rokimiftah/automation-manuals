@@ -441,9 +441,17 @@ export const deleteDocument = mutation({
       }
     }
 
-    await Promise.all(
-      [...new Set(documentAssets.map((asset) => asset.storageId))].map((storageId) => ctx.storage.delete(storageId))
-    )
+    const storageIds = new Set<GenericId<"_storage">>()
+    for (const asset of documentAssets) {
+      storageIds.add(asset.storageId)
+    }
+    for (const job of documentJobs) {
+      if (job.sourceStorageId !== undefined) {
+        storageIds.add(job.sourceStorageId)
+      }
+    }
+
+    await Promise.all([...storageIds].map((storageId) => ctx.storage.delete(storageId)))
 
     for (const evidence of documentEvidence) {
       await ctx.db.delete("answerEvidence", evidence._id)

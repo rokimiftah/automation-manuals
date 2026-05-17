@@ -391,4 +391,60 @@ describe("deleteDocument", () => {
     expect(storageDelete).toHaveBeenCalledWith("_storage_shared")
     expect(storageDelete).toHaveBeenCalledWith("_storage_old")
   })
+
+  it("deletes source storage that is only referenced by ingestion jobs", async () => {
+    const document = {
+      _id: "documents_1" as never,
+      productId: "products_1" as never,
+      status: "draft",
+      title: "GuardLogix 5570 Controllers User Manual",
+      version: "20.01"
+    }
+    const ingestionJobs = [
+      {
+        _id: "ingestionJobs_1" as never,
+        documentId: "documents_1" as never,
+        sourceStorageId: "_storage_job_source" as never
+      }
+    ]
+
+    const query = makeDeleteQuery({
+      answerEvidence: [],
+      chatMessages: [],
+      chunkEmbeddings: [],
+      chunks: [],
+      documentAssets: [],
+      documentPages: [],
+      ingestionJobs
+    })
+    const get = vi.fn(async (...args: Array<string>) => {
+      const id = args.length === 2 ? args[1] : args[0]
+      return id === "documents_1" ? document : null
+    })
+    const deleteRow = vi.fn().mockResolvedValue(undefined)
+    const insert = vi.fn().mockResolvedValue("auditEvents_1")
+    const storageDelete = vi.fn().mockResolvedValue(undefined)
+
+    await deleteDocumentHandler._handler(
+      {
+        db: {
+          delete: deleteRow,
+          get,
+          insert,
+          query
+        },
+        storage: {
+          delete: storageDelete
+        }
+      } as never,
+      {
+        documentId: "documents_1" as never,
+        sessionToken: "token-123"
+      }
+    )
+
+    expect(storageDelete).toHaveBeenCalledWith("_storage_job_source")
+    expect(deleteRow).toHaveBeenCalledWith("ingestionJobs", "ingestionJobs_1")
+    expect(deleteRow).toHaveBeenCalledWith("documents", "documents_1")
+  })
 })

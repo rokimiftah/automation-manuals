@@ -36,7 +36,7 @@ export default function DocumentRegistrationForm({ onSubmit }: DocumentRegistrat
 
   return (
     <section className="relative flex flex-col bg-white">
-      <div className="bg-[#FAFAFA] p-6 md:p-18">
+      <div className="bg-[#FAFAFA] p-6">
         <h2 className="mb-2 text-[20px] font-medium tracking-tight text-[#000000] uppercase">Input Manual Data</h2>
       </div>
 

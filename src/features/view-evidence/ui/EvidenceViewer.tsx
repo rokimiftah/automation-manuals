@@ -24,8 +24,8 @@ function BrowserPdfFallback({ fileUrl, pageNumber }: { fileUrl: string; pageNumb
   const pageUrl = buildPdfPageUrl(fileUrl, pageNumber)
 
   return (
-    <div className="flex h-full min-h-[400px] flex-col gap-3 bg-white">
-      <iframe className="h-full min-h-[400px] w-full flex-1 bg-white" src={pageUrl} title="PDF preview" />
+    <div className="flex h-full min-h-100 flex-col gap-3 bg-white">
+      <iframe className="h-full min-h-100 w-full flex-1 bg-white" src={pageUrl} title="PDF preview" />
       <a
         className="wire-border inline-flex self-start bg-white px-4 py-2 font-mono text-[10px] tracking-widest text-[#000000] uppercase"
         href={pageUrl}
@@ -143,23 +143,23 @@ function PdfPageViewer({ fileUrl, pageNumber }: { fileUrl: string; pageNumber: n
   return (
     <div
       ref={ref}
-      className="h-full min-h-[400px] w-full touch-pan-y overflow-y-auto overscroll-contain bg-white"
+      className="h-full min-h-100 w-full touch-pan-y overflow-y-auto overscroll-contain bg-white"
       data-file-url={fileUrl}
       data-page-number={pageNumber}
       data-testid="pdf-viewer"
     >
       {showDocument ? (
         <pdfModule.Document
-          className="block min-h-[400px] bg-white"
+          className="block min-h-100 bg-white"
           error={<BrowserPdfFallback fileUrl={fileUrl} pageNumber={pageNumber} />}
           file={fileUrl}
-          loading={<div className="crosshatch-bg wire-border h-[400px] animate-pulse bg-white" />}
+          loading={<div className="crosshatch-bg wire-border h-100 animate-pulse bg-white" />}
           onLoadSuccess={({ numPages }) => {
             setPageCount(numPages)
           }}
         >
           {pageCount === null ? null : (
-            <div className="flex flex-col gap-4">
+            <div className="flex flex-col gap-6">
               {Array.from({ length: pageCount }, (_, index) => {
                 const currentPageNumber = index + 1
 
@@ -179,7 +179,7 @@ function PdfPageViewer({ fileUrl, pageNumber }: { fileUrl: string; pageNumber: n
                   >
                     <pdfModule.Page
                       className="block"
-                      loading={<div className="crosshatch-bg wire-border h-[400px] animate-pulse bg-white" />}
+                      loading={<div className="crosshatch-bg wire-border h-100 animate-pulse bg-white" />}
                       pageNumber={currentPageNumber}
                       renderAnnotationLayer={false}
                       renderTextLayer={false}
@@ -192,7 +192,7 @@ function PdfPageViewer({ fileUrl, pageNumber }: { fileUrl: string; pageNumber: n
           )}
         </pdfModule.Document>
       ) : (
-        <div className="crosshatch-bg wire-border h-[400px] animate-pulse bg-white" />
+        <div className="crosshatch-bg wire-border h-100 animate-pulse bg-white" />
       )}
     </div>
   )
@@ -206,8 +206,11 @@ export default function EvidenceViewer({ asset }: { asset: SupportingAsset | nul
 
   if (!asset) {
     return (
-      <section className="wire-border relative flex min-h-160 flex-1 items-center justify-center border-dashed bg-white p-10 text-center font-mono text-[11px] tracking-[0.2em] text-[#000000] uppercase">
-        Awaiting...
+      <section className="wire-border relative flex min-h-160 flex-1 flex-col items-center justify-center border-dashed bg-white p-10 text-center">
+        <div className="space-y-4">
+          <div className="mx-auto h-8 w-8 animate-pulse rounded-full bg-[#E5E5E5]" />
+          <p className="font-mono text-[11px] tracking-[0.2em] text-[#555555] uppercase">Awaiting...</p>
+        </div>
       </section>
     )
   }
@@ -215,13 +218,13 @@ export default function EvidenceViewer({ asset }: { asset: SupportingAsset | nul
   if (viewerAsset === undefined) {
     return (
       <section className="wire-border relative flex h-full min-h-0 flex-1 flex-col bg-white">
-        <div className="wire-border-b flex shrink-0 items-center justify-between bg-[#FAFAFA] p-4 md:p-6">
+        <div className="wire-border-b flex shrink-0 items-center justify-between bg-[#FAFAFA] p-6">
           <h3 className="text-[14px] font-medium tracking-wide text-[#000000] uppercase">Visual Output</h3>
           <span className="wire-border px-3 py-1 font-mono text-[10px] font-medium tracking-widest text-[#000000] uppercase">
             Loading...
           </span>
         </div>
-        <div className="min-h-0 flex-1 p-4 md:p-6">
+        <div className="min-h-0 flex-1 p-6">
           <div className="crosshatch-bg wire-border h-full w-full animate-pulse" />
         </div>
       </section>
@@ -231,7 +234,7 @@ export default function EvidenceViewer({ asset }: { asset: SupportingAsset | nul
   if (!viewerAsset) {
     return (
       <section className="wire-border relative flex h-full min-h-0 flex-1 flex-col bg-white">
-        <div className="wire-border-b flex shrink-0 items-center justify-between bg-[#FAFAFA] p-4 md:p-6">
+        <div className="wire-border-b flex shrink-0 items-center justify-between bg-[#FAFAFA] p-6">
           <h3 className="text-[14px] font-medium tracking-wide text-[#000000] uppercase">Visual Output</h3>
           <span className="wire-border bg-[#000000] px-3 py-1 font-mono text-[10px] font-medium tracking-widest text-white uppercase">
             Error 404
@@ -253,13 +256,13 @@ export default function EvidenceViewer({ asset }: { asset: SupportingAsset | nul
 
   return (
     <section className="wire-border relative flex min-h-0 flex-1 flex-col bg-white">
-      <div className="wire-border-b flex flex-col justify-between gap-4 bg-[#FAFAFA] p-4 md:flex-row md:items-center md:p-6">
-        <div className="flex min-w-0 items-center gap-4">
+      <div className="wire-border-b flex flex-col justify-between gap-6 bg-[#FAFAFA] p-6 md:flex-row md:items-center">
+        <div className="flex min-w-0 items-center gap-6">
           <span className="h-1.5 w-1.5 shrink-0 bg-[#000000]"></span>
           <h3 className="truncate text-[14px] font-medium tracking-wide text-[#000000] uppercase">{asset.label}</h3>
         </div>
       </div>
-      <div className="min-h-0 flex-1 p-4 md:p-6">
+      <div className="min-h-0 flex-1 p-6">
         <PdfPageViewer fileUrl={viewerAsset.url} pageNumber={pageNumber} />
       </div>
     </section>

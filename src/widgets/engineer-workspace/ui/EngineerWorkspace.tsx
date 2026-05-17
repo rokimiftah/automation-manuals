@@ -32,8 +32,8 @@ export default function EngineerWorkspace() {
   }
 
   return (
-    <AppShell title="Engineer Workspace">
-      <div className="mx-auto flex w-full max-w-450 flex-col gap-6 p-4 md:p-8 lg:h-full lg:min-h-0 lg:flex-row">
+    <AppShell>
+      <div className="flex w-full flex-col gap-6 lg:h-full lg:min-h-0 lg:flex-row">
         <div className="flex w-full shrink-0 flex-col gap-6 lg:h-full lg:min-h-0 lg:w-[45%]">
           <div className="animate-expand shrink-0" style={{ animationDelay: "0ms" }}>
             <QuestionComposer
@@ -80,7 +80,7 @@ export default function EngineerWorkspace() {
             />
 
             {error ? (
-              <div className="wire-border relative mt-6 flex items-start gap-4 overflow-hidden bg-white p-4 font-mono text-[13px] text-[#000000]">
+              <div className="wire-border relative mt-6 flex items-start gap-6 overflow-hidden bg-white p-4 font-mono text-[13px] text-[#000000]">
                 <div className="diagonal-bg pointer-events-none absolute inset-0 opacity-20"></div>
                 <span className="relative z-10 shrink-0 bg-[#000000] px-2 py-0.5 text-[10px] tracking-widest text-white uppercase">
                   ERR
@@ -90,23 +90,23 @@ export default function EngineerWorkspace() {
             ) : null}
           </div>
 
-          <div className="animate-expand flex min-h-75 flex-1 flex-col lg:min-h-0" style={{ animationDelay: "0.1s" }}>
+          <div className="animate-expand flex min-h-75 flex-col lg:min-h-0 lg:flex-1" style={{ animationDelay: "0.1s" }}>
             {packet ? (
-              <div className="wire-border relative h-full min-h-0 overflow-y-auto bg-white shadow-sm">
+              <div className="wire-border relative flex flex-1 flex-col bg-white lg:h-full lg:min-h-0 lg:overflow-y-auto">
                 <AnswerPacketView packet={packet} onSelectCitation={setActiveAsset} />
               </div>
             ) : (
-              <section className="wire-border relative flex h-full min-h-40 flex-col items-center justify-center border-dashed bg-[#FAFAFA] p-12 text-center">
+              <section className="wire-border relative flex flex-1 flex-col items-center justify-center border-dashed bg-[#FAFAFA] p-12 text-center">
                 <div className="space-y-4">
                   <div className="mx-auto h-8 w-8 animate-pulse rounded-full bg-[#E5E5E5]" />
-                  <p className="font-mono text-[11px] tracking-[0.2em] text-[#555555] uppercase">Awaiting Input...</p>
+                  <p className="font-mono text-[11px] tracking-[0.2em] text-[#555555] uppercase">Awaiting...</p>
                 </div>
               </section>
             )}
           </div>
         </div>
 
-        <div className="animate-expand flex min-h-100 flex-1 flex-col lg:h-full lg:min-h-0" style={{ animationDelay: "0.2s" }}>
+        <div className="animate-expand flex min-h-100 flex-col lg:h-full lg:min-h-0 lg:flex-1" style={{ animationDelay: "0.2s" }}>
           <EvidenceViewer asset={activeAsset} />
         </div>
       </div>

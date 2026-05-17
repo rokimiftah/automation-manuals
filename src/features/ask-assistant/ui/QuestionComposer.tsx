@@ -32,7 +32,7 @@ export default function QuestionComposer({ disabled, onSubmit }: QuestionCompose
         })()
       }}
     >
-      <div className="flex flex-1 flex-col p-6 md:p-8">
+      <div className="flex flex-1 flex-col p-6">
         <textarea
           className={textareaClassName}
           disabled={disabled}

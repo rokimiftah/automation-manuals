@@ -104,11 +104,11 @@ function AdminConsoleContent({
   }
 
   return (
-    <AppShell title="Admin Interface">
-      <div className="mx-auto flex w-full max-w-400 flex-col gap-6 p-4 md:p-8 lg:h-full lg:min-h-0 lg:flex-row">
+    <AppShell>
+      <div className="flex w-full flex-col gap-6 lg:h-full lg:min-h-0 lg:flex-row">
         {/* Left Column: Inventory & Manuals */}
         <div className="flex w-full flex-col gap-6 lg:h-full lg:min-h-0 lg:w-1/3">
-          <section className="wire-border animate-expand relative flex shrink-0 flex-col justify-between gap-6 bg-white p-6 md:p-8">
+          <section className="wire-border animate-expand relative flex shrink-0 flex-col justify-between gap-6 bg-white p-6">
             <h2 className="text-[14px] font-medium tracking-widest text-[#555555] uppercase">Total Inventory</h2>
             <div className="flex items-baseline gap-3">
               <p className="text-6xl leading-none font-medium tracking-tighter text-[#000000]">
@@ -122,10 +122,10 @@ function AdminConsoleContent({
             className="wire-border animate-expand relative flex min-h-75 flex-1 flex-col bg-white lg:min-h-0"
             style={{ animationDelay: "0.05s" }}
           >
-            <div className="wire-border-b flex shrink-0 items-center justify-between bg-[#FAFAFA] p-4 md:p-6">
+            <div className="wire-border-b flex shrink-0 items-center justify-between bg-[#FAFAFA] p-6">
               <h2 className="text-[14px] font-medium tracking-widest text-[#000000] uppercase">Searchable Manuals</h2>
             </div>
-            <div className="flex flex-1 flex-col gap-4 overflow-y-auto p-4 md:p-6">
+            <div className="flex flex-1 flex-col gap-6 overflow-y-auto p-6">
               {safeDocuments === undefined ? (
                 <div className="crosshatch-bg wire-border h-24 animate-pulse" />
               ) : safeDocuments.length === 0 ? (
@@ -137,9 +137,9 @@ function AdminConsoleContent({
                   return (
                     <article
                       key={document._id}
-                      className="wire-border flex flex-col gap-4 bg-white p-4 transition-colors hover:bg-[#FAFAFA]"
+                      className="wire-border flex flex-col gap-6 bg-white p-6 transition-colors hover:bg-[#FAFAFA]"
                     >
-                      <div className="flex items-start justify-between gap-4">
+                      <div className="flex items-start justify-between gap-6">
                         <div className="space-y-1.5">
                           <h3 className="text-[15px] leading-snug font-medium tracking-tight text-[#000000] uppercase">
                             {document.title}
@@ -186,7 +186,7 @@ function AdminConsoleContent({
         </div>
 
         {/* Right Column: Registration & Jobs */}
-        <div className="flex w-full flex-col gap-6 lg:h-full lg:min-h-0 lg:w-2/3 lg:overflow-y-auto lg:pr-2">
+        <div className="flex w-full flex-col gap-6 lg:h-full lg:min-h-0 lg:w-2/3 lg:overflow-y-auto">
           <div className="animate-expand shrink-0" style={{ animationDelay: "0.1s" }}>
             <div className="wire-border bg-white">
               <DocumentRegistrationForm
@@ -223,7 +223,7 @@ function AdminConsoleContent({
           <div className="animate-expand flex min-h-100 flex-col lg:flex-1" style={{ animationDelay: "0.2s" }}>
             {safeJobs === undefined ? (
               <section className="wire-border relative flex h-full flex-col overflow-hidden bg-white">
-                <div className="wire-border-b flex shrink-0 items-center justify-between bg-[#FAFAFA] p-6 md:p-8">
+                <div className="wire-border-b flex shrink-0 items-center justify-between bg-[#FAFAFA] p-6">
                   <div className="space-y-1">
                     <h2 className="text-[14px] font-medium tracking-widest text-[#000000] uppercase">Ingestion Flow</h2>
                   </div>
@@ -231,7 +231,7 @@ function AdminConsoleContent({
                     Loading...
                   </span>
                 </div>
-                <div className="min-h-0 flex-1 bg-white p-6 md:p-8">
+                <div className="min-h-0 flex-1 bg-white p-6">
                   <div className="crosshatch-bg wire-border h-full w-full animate-pulse" />
                 </div>
               </section>

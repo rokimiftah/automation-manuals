@@ -19,7 +19,7 @@ export default function AnswerPacketView({ packet, onSelectCitation }: AnswerPac
 
   return (
     <section className="relative flex flex-col bg-white">
-      <div className="space-y-10 p-6 md:p-8">
+      <div className="space-y-6 p-6">
         <p className="font-mono text-[16px] leading-[1.8] whitespace-pre-wrap text-[#000000]">{packet.answerSummary}</p>
 
         {packet.answerSteps.length > 0 && (

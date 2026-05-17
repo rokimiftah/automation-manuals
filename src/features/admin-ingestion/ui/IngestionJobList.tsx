@@ -143,7 +143,7 @@ export default function IngestionJobList({ jobs, onRecover, onRetry }: Ingestion
 
   return (
     <section className="wire-border relative flex h-full flex-col overflow-hidden bg-white">
-      <div className="wire-border-b flex shrink-0 items-center justify-between bg-[#FAFAFA] p-6 md:p-8">
+      <div className="wire-border-b flex shrink-0 items-center justify-between bg-[#FAFAFA] p-6">
         <div className="space-y-1">
           <h2 className="text-[20px] font-medium tracking-tight text-[#000000] uppercase">Ingestion Flow</h2>
         </div>
@@ -152,7 +152,7 @@ export default function IngestionJobList({ jobs, onRecover, onRetry }: Ingestion
         </span>
       </div>
 
-      <div className="flex-1 overflow-auto bg-white p-6 md:p-8">
+      <div className="flex-1 overflow-auto bg-white p-6">
         {jobs.length === 0 ? (
           <div className="wire-border flex h-full flex-col items-center justify-center border-dashed bg-[#FAFAFA] p-12 text-center">
             <p className="font-mono text-[12px] tracking-[0.2em] text-[#000000] uppercase">Queue Empty</p>

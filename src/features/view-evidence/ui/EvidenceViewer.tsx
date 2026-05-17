@@ -52,6 +52,15 @@ function PdfPageViewer({ fileUrl, pageNumber }: { fileUrl: string; pageNumber: n
   const lastScrolledKeyRef = useRef<string | null>(null)
 
   useEffect(() => {
+    if (!fileUrl) {
+      return
+    }
+
+    setPageCount(null)
+    pageRefs.current.clear()
+  }, [fileUrl])
+
+  useEffect(() => {
     let cancelled = false
 
     async function loadPdfModule() {

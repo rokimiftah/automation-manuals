@@ -1,8 +1,8 @@
 import type { ReactNode } from "react"
 
-import { useEffect } from "react"
+import { useEffect, useState } from "react"
 
-import { cleanup, render, screen } from "@testing-library/react"
+import { cleanup, render, screen, waitFor } from "@testing-library/react"
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest"
 
 import EvidenceViewer from "./EvidenceViewer"
@@ -15,10 +15,27 @@ let scrollIntoViewDescriptor: PropertyDescriptor | undefined
 
 const { documentMock, pageMock, workerState } = vi.hoisted(() => {
   const documentMock = vi.fn(
-    ({ children, onLoadSuccess }: { children?: ReactNode; onLoadSuccess?: (result: { numPages: number }) => void }) => {
+    ({
+      children,
+      file,
+      loading,
+      onLoadSuccess
+    }: {
+      children?: ReactNode
+      file?: string
+      loading?: ReactNode
+      onLoadSuccess?: (result: { numPages: number }) => void
+    }) => {
+      const [loadedFile, setLoadedFile] = useState<string | null>(null)
+
       useEffect(() => {
         onLoadSuccess?.({ numPages: 70 })
-      }, [onLoadSuccess])
+        setLoadedFile(file ?? null)
+      }, [file, onLoadSuccess])
+
+      if (loadedFile !== file) {
+        return <div data-testid="pdf-document-loading">{loading}</div>
+      }
 
       return <div data-testid="pdf-document">{children}</div>
     }
@@ -109,5 +126,51 @@ describe("EvidenceViewer", () => {
     expect(scrollTargets[0]).toBe(screen.getAllByTestId("pdf-page")[69])
     expect(workerState.workerSrc).toContain("pdf.worker.min.mjs")
     expect(screen.queryByTitle("Engine manual")).not.toBeInTheDocument()
+  })
+
+  it("scrolls again after switching to another PDF with the same page count", async () => {
+    useQuery.mockReturnValue({
+      _id: "documentAssets_1",
+      kind: "source_pdf",
+      pageNumber: 10,
+      url: "https://storage.example/manual-a.pdf"
+    })
+
+    const { rerender } = render(
+      <EvidenceViewer
+        asset={{
+          assetId: "documentAssets_1" as never,
+          label: "Engine manual A",
+          pageNumber: 10
+        }}
+      />
+    )
+
+    await screen.findAllByTestId("pdf-page")
+    await waitFor(() => expect(scrollTargets).toHaveLength(1))
+
+    useQuery.mockReturnValue({
+      _id: "documentAssets_2",
+      kind: "source_pdf",
+      pageNumber: 10,
+      url: "https://storage.example/manual-b.pdf"
+    })
+    rerender(
+      <EvidenceViewer
+        asset={{
+          assetId: "documentAssets_2" as never,
+          label: "Engine manual B",
+          pageNumber: 10
+        }}
+      />
+    )
+
+    await waitFor(() =>
+      expect(screen.getByTestId("pdf-viewer")).toHaveAttribute("data-file-url", "https://storage.example/manual-b.pdf")
+    )
+    await screen.findAllByTestId("pdf-page")
+
+    await waitFor(() => expect(scrollTargets).toHaveLength(2))
+    expect(scrollTargets[1]).toBe(screen.getAllByTestId("pdf-page")[9])
   })
 })

@@ -8,7 +8,7 @@ import { argon2Verify } from "hash-wasm"
 
 import { internal } from "./_generated/api"
 import { internalAction } from "./_generated/server"
-import { authenticateAdminLogin, getAdminAuthEnv, getAdminLoginAttemptUsername, getRateLimitState } from "./lib/adminSession"
+import { authenticateAdminLogin, getAdminAuthEnv, getRateLimitState } from "./lib/adminSession"
 
 const LOGIN_LIMIT = 5
 const LOGIN_WINDOW_MS = 15 * 60 * 1000
@@ -26,7 +26,7 @@ export const signInWithPassword = internalAction({
   handler: async (ctx, args) => {
     const env = getAdminAuthEnv()
     const now = Date.now()
-    const attemptUsername = getAdminLoginAttemptUsername(args.username)
+    const attemptUsername = env.username
 
     const attempts = await ctx.runQuery(internal.adminAuth.listRecentLoginAttempts, {
       username: attemptUsername,

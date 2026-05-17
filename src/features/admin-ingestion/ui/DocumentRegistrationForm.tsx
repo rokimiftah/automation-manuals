@@ -90,6 +90,7 @@ export default function DocumentRegistrationForm({ onSubmit }: DocumentRegistrat
               <span className="font-mono text-[11px] tracking-widest text-[#000000] uppercase">Manufacturer</span>
               <input
                 className={inputClassName}
+                disabled={isDisabled}
                 placeholder="Rockwell Automation"
                 value={values.vendorName}
                 onChange={(event) => setValues((current) => ({ ...current, vendorName: event.target.value }))}
@@ -100,6 +101,7 @@ export default function DocumentRegistrationForm({ onSubmit }: DocumentRegistrat
               <span className="font-mono text-[11px] tracking-widest text-[#000000] uppercase">Apparatus</span>
               <input
                 className={inputClassName}
+                disabled={isDisabled}
                 placeholder="GuardLogix 5570"
                 value={values.productName}
                 onChange={(event) => setValues((current) => ({ ...current, productName: event.target.value }))}
@@ -110,6 +112,7 @@ export default function DocumentRegistrationForm({ onSubmit }: DocumentRegistrat
               <span className="font-mono text-[11px] tracking-widest text-[#000000] uppercase">Document Title</span>
               <input
                 className={inputClassName}
+                disabled={isDisabled}
                 placeholder="GuardLogix 5570 Controllers User Manual"
                 value={values.title}
                 onChange={(event) => setValues((current) => ({ ...current, title: event.target.value }))}
@@ -120,6 +123,7 @@ export default function DocumentRegistrationForm({ onSubmit }: DocumentRegistrat
               <span className="font-mono text-[11px] tracking-widest text-[#000000] uppercase">Edition</span>
               <input
                 className={inputClassName}
+                disabled={isDisabled}
                 placeholder="20.01"
                 value={values.version}
                 onChange={(event) => setValues((current) => ({ ...current, version: event.target.value }))}
@@ -130,6 +134,7 @@ export default function DocumentRegistrationForm({ onSubmit }: DocumentRegistrat
               <span className="font-mono text-[11px] tracking-widest text-[#000000] uppercase">Dialect</span>
               <input
                 className={inputClassName}
+                disabled={isDisabled}
                 placeholder="English"
                 value={values.language}
                 onChange={(event) => setValues((current) => ({ ...current, language: event.target.value }))}
@@ -143,6 +148,7 @@ export default function DocumentRegistrationForm({ onSubmit }: DocumentRegistrat
               ref={fileInputRef}
               accept="application/pdf,.pdf"
               className={inputClassName}
+              disabled={isDisabled}
               type="file"
               onChange={(event) =>
                 setValues((current) => ({

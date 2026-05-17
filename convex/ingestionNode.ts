@@ -12,6 +12,9 @@ import { buildDocumentPayload } from "./lib/ingestDocument"
 import { submitMineruBatch } from "./lib/mineru"
 import { normalizeMineruDocument } from "./lib/mineruResult"
 import { embedTexts, ocrPdfPage } from "./lib/mistral"
+import { getProviderReconcileDecision } from "./lib/providerRetry"
+
+const RESULT_DOWNLOAD_RETRY_DELAY_MS = 30_000
 
 export const runDocumentJob = internalAction({
   args: {
@@ -134,20 +137,58 @@ export const finalizeProviderResult = internalAction({
   },
   returns: v.null(),
   handler: async (ctx, args) => {
-    const claimed = await ctx.runMutation(internal.ingestion.claimProviderFinalization, {
-      jobId: args.jobId
-    })
-    if (!claimed) {
+    const job = await ctx.runQuery(internal.ingestion.getJobById, { jobId: args.jobId })
+    if (!job || job.status !== "downloading_result") {
       return null
     }
 
-    const job = await ctx.runQuery(internal.ingestion.getJobById, { jobId: args.jobId })
     if (!job?.providerResultUrl || !job.sourceStorageId || !job.sourceFileName || !job.sourceMimeType) {
       await ctx.runMutation(internal.documents.markFailed, {
         errorMessage: "MinerU job is missing the result or source file metadata",
         jobId: args.jobId,
         documentId: args.documentId
       })
+      return null
+    }
+
+    let archive: ArrayBuffer
+    try {
+      const response = await fetch(job.providerResultUrl)
+      if (!response.ok) {
+        throw new Error(`Failed to download MinerU result: ${response.status} ${response.statusText}`)
+      }
+      archive = await response.arrayBuffer()
+    } catch (error) {
+      const errorMessage = error instanceof Error ? error.message : "Unknown MinerU result download error"
+      const decision = getProviderReconcileDecision(job.providerReconcileFailureCount ?? 0)
+
+      await ctx.runMutation(internal.ingestion.recordProviderProgress, {
+        jobId: args.jobId,
+        providerErrorMessage: errorMessage,
+        providerReconcileFailureCount: decision.nextFailureCount,
+        providerState: job.providerState || "done",
+        status: job.status
+      })
+
+      if (decision.shouldFail) {
+        await ctx.runMutation(internal.documents.markFailed, {
+          errorMessage,
+          jobId: args.jobId,
+          documentId: args.documentId
+        })
+        return null
+      }
+
+      await ctx.scheduler.runAfter(RESULT_DOWNLOAD_RETRY_DELAY_MS, internal.ingestion.reconcileProviderJob, {
+        jobId: args.jobId
+      })
+      return null
+    }
+
+    const claimed = await ctx.runMutation(internal.ingestion.claimProviderFinalization, {
+      jobId: args.jobId
+    })
+    if (!claimed) {
       return null
     }
 
@@ -162,12 +203,6 @@ export const finalizeProviderResult = internalAction({
     }
 
     try {
-      const response = await fetch(job.providerResultUrl)
-      if (!response.ok) {
-        throw new Error(`Failed to download MinerU result: ${response.status} ${response.statusText}`)
-      }
-
-      const archive = await response.arrayBuffer()
       const structuredJson = decodeMineruArchiveJson(archive)
       const normalized = normalizeMineruDocument(structuredJson)
       const sourceUrl = await ctx.storage.getUrl(job.sourceStorageId)

@@ -8,7 +8,7 @@ import AppShell from "./AppShell"
 afterEach(cleanup)
 
 describe("AppShell", () => {
-  it("locks the app to the viewport so nested panels can scroll", () => {
+  it("keeps desktop panels locked while allowing mobile vertical scroll", () => {
     render(
       <AppShell title="Workspace">
         <div>Content</div>
@@ -16,7 +16,9 @@ describe("AppShell", () => {
     )
 
     expect(screen.getByRole("main")).toHaveClass("h-dvh")
-    expect(screen.getByRole("main")).toHaveClass("overflow-hidden")
+    expect(screen.getByRole("main")).toHaveClass("overflow-x-hidden")
+    expect(screen.getByRole("main")).toHaveClass("overflow-y-auto")
+    expect(screen.getByRole("main")).toHaveClass("lg:overflow-hidden")
   })
 
   it("renders the title in the header", () => {

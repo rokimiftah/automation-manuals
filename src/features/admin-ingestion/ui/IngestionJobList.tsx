@@ -1,6 +1,6 @@
 import type { Id } from "@convex/_generated/dataModel"
 
-import { useEffect, useState } from "react"
+import { useEffect, useRef, useState } from "react"
 
 const RECOVERY_REFRESH_INTERVAL_MS = 5_000
 
@@ -96,6 +96,8 @@ export default function IngestionJobList({ jobs, onRecover, onRetry }: Ingestion
     clientNow: Date.now(),
     serverNow: jobs[0]?.serverNow ?? Date.now()
   }))
+  const [pendingActionKeys, setPendingActionKeys] = useState<Set<string>>(() => new Set())
+  const pendingActionKeysRef = useRef(new Set<string>())
 
   useEffect(() => {
     const nextClientNow = Date.now()
@@ -118,6 +120,27 @@ export default function IngestionJobList({ jobs, onRecover, onRetry }: Ingestion
 
   const approxServerNow = clockAnchor.serverNow + (clientNow - clockAnchor.clientNow)
 
+  async function runJobAction(
+    action: "recover" | "retry",
+    jobId: Id<"ingestionJobs">,
+    work: (jobId: Id<"ingestionJobs">) => void | Promise<void>
+  ) {
+    const actionKey = `${action}:${jobId}`
+    if (pendingActionKeysRef.current.has(actionKey)) {
+      return
+    }
+
+    pendingActionKeysRef.current.add(actionKey)
+    setPendingActionKeys(new Set(pendingActionKeysRef.current))
+
+    try {
+      await work(jobId)
+    } finally {
+      pendingActionKeysRef.current.delete(actionKey)
+      setPendingActionKeys(new Set(pendingActionKeysRef.current))
+    }
+  }
+
   return (
     <section className="wire-border relative flex h-full max-h-200 flex-col overflow-hidden bg-white">
       <div className="wire-border-b flex shrink-0 items-center justify-between bg-[#FAFAFA] p-6 md:p-8">
@@ -136,72 +159,81 @@ export default function IngestionJobList({ jobs, onRecover, onRetry }: Ingestion
           </div>
         ) : (
           <div className="flex flex-col gap-6">
-            {jobs.map((job) => (
-              <article
-                key={job._id}
-                className="wire-border relative flex flex-col justify-between gap-6 bg-white p-6 transition-colors hover:bg-[#FAFAFA] sm:flex-row sm:items-start"
-              >
-                <div className="min-w-0 flex-1 space-y-4">
-                  <div className="flex items-center justify-between gap-4">
-                    <span className="truncate font-mono text-[14px] font-bold text-[#000000]">
-                      D_{job.documentId.slice(0, 8)}...
-                    </span>
-                    <span
-                      className={`shrink-0 px-3 py-1.5 font-mono text-[10px] font-medium tracking-widest uppercase ${statusClasses(job.status)}`}
+            {jobs.map((job) => {
+              const recoverActionKey = `recover:${job._id}`
+              const retryActionKey = `retry:${job._id}`
+              const isRecoverPending = pendingActionKeys.has(recoverActionKey)
+              const isRetryPending = pendingActionKeys.has(retryActionKey)
+
+              return (
+                <article
+                  key={job._id}
+                  className="wire-border relative flex flex-col justify-between gap-6 bg-white p-6 transition-colors hover:bg-[#FAFAFA] sm:flex-row sm:items-start"
+                >
+                  <div className="min-w-0 flex-1 space-y-4">
+                    <div className="flex items-center justify-between gap-4">
+                      <span className="truncate font-mono text-[14px] font-bold text-[#000000]">
+                        D_{job.documentId.slice(0, 8)}...
+                      </span>
+                      <span
+                        className={`shrink-0 px-3 py-1.5 font-mono text-[10px] font-medium tracking-widest uppercase ${statusClasses(job.status)}`}
+                      >
+                        {statusLabel(job.status)}
+                      </span>
+                    </div>
+
+                    <div className="wire-border-t grid gap-x-8 gap-y-2 pt-4 font-mono text-[11px] tracking-widest text-[#000000] uppercase sm:grid-cols-2">
+                      {job.providerState && <div>State: {job.providerState}</div>}
+                      {job.providerErrorCode !== undefined && <div>Code: {job.providerErrorCode}</div>}
+                      {job.providerLastCheckedAt !== undefined && (
+                        <div className="sm:col-span-2">Ping: {new Date(job.providerLastCheckedAt).toLocaleTimeString()}</div>
+                      )}
+                    </div>
+
+                    {job.errorMessage ? (
+                      <div className="wire-border-t mt-4 pt-4">
+                        <p className="wire-border flex items-start gap-3 bg-[#FAFAFA] p-3 font-mono text-[12px] text-[#000000]">
+                          <span className="bg-[#000000] px-1.5 text-white">Err</span> {job.errorMessage}
+                        </p>
+                      </div>
+                    ) : null}
+                    {job.providerErrorMessage ? (
+                      <div className="mt-2">
+                        <p className="wire-border flex items-start gap-3 bg-[#FAFAFA] p-3 font-mono text-[12px] text-[#000000]">
+                          <span className="bg-[#000000] px-1.5 text-white">Prv</span> {job.providerErrorMessage}
+                        </p>
+                      </div>
+                    ) : null}
+                  </div>
+
+                  {canRecoverJob(job, approxServerNow) ? (
+                    <button
+                      className="wire-border w-full shrink-0 bg-white px-6 py-2.5 font-mono text-[11px] font-medium tracking-widest text-[#000000] uppercase transition-colors hover:bg-[#000000] hover:text-white active:scale-[0.98] disabled:cursor-not-allowed disabled:opacity-50 sm:w-auto"
+                      disabled={isRecoverPending}
+                      type="button"
+                      onClick={() => {
+                        void runJobAction("recover", job._id, onRecover)
+                      }}
                     >
-                      {statusLabel(job.status)}
-                    </span>
-                  </div>
-
-                  <div className="wire-border-t grid gap-x-8 gap-y-2 pt-4 font-mono text-[11px] tracking-widest text-[#000000] uppercase sm:grid-cols-2">
-                    {job.providerState && <div>State: {job.providerState}</div>}
-                    {job.providerErrorCode !== undefined && <div>Code: {job.providerErrorCode}</div>}
-                    {job.providerLastCheckedAt !== undefined && (
-                      <div className="sm:col-span-2">Ping: {new Date(job.providerLastCheckedAt).toLocaleTimeString()}</div>
-                    )}
-                  </div>
-
-                  {job.errorMessage ? (
-                    <div className="wire-border-t mt-4 pt-4">
-                      <p className="wire-border flex items-start gap-3 bg-[#FAFAFA] p-3 font-mono text-[12px] text-[#000000]">
-                        <span className="bg-[#000000] px-1.5 text-white">Err</span> {job.errorMessage}
-                      </p>
-                    </div>
+                      {isRecoverPending ? "[ Recovering... ]" : "[ Recover ]"}
+                    </button>
                   ) : null}
-                  {job.providerErrorMessage ? (
-                    <div className="mt-2">
-                      <p className="wire-border flex items-start gap-3 bg-[#FAFAFA] p-3 font-mono text-[12px] text-[#000000]">
-                        <span className="bg-[#000000] px-1.5 text-white">Prv</span> {job.providerErrorMessage}
-                      </p>
-                    </div>
+
+                  {canRetryJob(job, jobs) ? (
+                    <button
+                      className="wire-border w-full shrink-0 bg-white px-6 py-2.5 font-mono text-[11px] font-medium tracking-widest text-[#000000] uppercase transition-colors hover:bg-[#000000] hover:text-white active:scale-[0.98] disabled:cursor-not-allowed disabled:opacity-50 sm:w-auto"
+                      disabled={isRetryPending}
+                      type="button"
+                      onClick={() => {
+                        void runJobAction("retry", job._id, onRetry)
+                      }}
+                    >
+                      {isRetryPending ? "[ Retrying... ]" : "[ Retry ]"}
+                    </button>
                   ) : null}
-                </div>
-
-                {canRecoverJob(job, approxServerNow) ? (
-                  <button
-                    className="wire-border w-full shrink-0 bg-white px-6 py-2.5 font-mono text-[11px] font-medium tracking-widest text-[#000000] uppercase transition-colors hover:bg-[#000000] hover:text-white active:scale-[0.98] sm:w-auto"
-                    type="button"
-                    onClick={() => {
-                      void onRecover(job._id)
-                    }}
-                  >
-                    [ Recover ]
-                  </button>
-                ) : null}
-
-                {canRetryJob(job, jobs) ? (
-                  <button
-                    className="wire-border w-full shrink-0 bg-white px-6 py-2.5 font-mono text-[11px] font-medium tracking-widest text-[#000000] uppercase transition-colors hover:bg-[#000000] hover:text-white active:scale-[0.98] sm:w-auto"
-                    type="button"
-                    onClick={() => {
-                      void onRetry(job._id)
-                    }}
-                  >
-                    [ Retry ]
-                  </button>
-                ) : null}
-              </article>
-            ))}
+                </article>
+              )
+            })}
           </div>
         )}
       </div>

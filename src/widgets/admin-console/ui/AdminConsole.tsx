@@ -232,19 +232,23 @@ function AdminConsoleContent({
           ) : (
             <IngestionJobList
               jobs={safeJobs}
-              onRecover={(jobId) => {
-                void runProtectedMutation(() => recoverStuckJob({ jobId, sessionToken })).catch((error) => {
+              onRecover={async (jobId) => {
+                try {
+                  await runProtectedMutation(() => recoverStuckJob({ jobId, sessionToken }))
+                } catch (error) {
                   if (!isAdminSessionError(error)) {
                     window.alert(error instanceof Error ? error.message : "Unable to recover ingestion job.")
                   }
-                })
+                }
               }}
-              onRetry={(jobId) => {
-                void runProtectedMutation(() => retryJob({ jobId, sessionToken })).catch((error) => {
+              onRetry={async (jobId) => {
+                try {
+                  await runProtectedMutation(() => retryJob({ jobId, sessionToken }))
+                } catch (error) {
                   if (!isAdminSessionError(error)) {
                     window.alert(error instanceof Error ? error.message : "Unable to retry ingestion job.")
                   }
-                })
+                }
               }}
             />
           )}

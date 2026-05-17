@@ -1,6 +1,6 @@
 // @vitest-environment jsdom
 
-import { act, cleanup, render, screen, within } from "@testing-library/react"
+import { act, cleanup, fireEvent, render, screen, within } from "@testing-library/react"
 import { afterEach, describe, expect, it, vi } from "vitest"
 
 import IngestionJobList from "./IngestionJobList"
@@ -139,6 +139,83 @@ describe("IngestionJobList", () => {
     expect(olderJobCard).not.toBeNull()
     expect(within(newerJobCard as HTMLElement).getByRole("button", { name: /retry/i })).toBeInTheDocument()
     expect(within(olderJobCard as HTMLElement).queryByRole("button", { name: /retry/i })).not.toBeInTheDocument()
+  })
+
+  it("prevents duplicate retry requests while retry is pending", () => {
+    const onRetry = vi.fn(
+      () =>
+        new Promise<void>(() => {
+          // Keep the mutation pending to verify the intermediate UI state.
+        })
+    )
+
+    render(
+      <IngestionJobList
+        jobs={[
+          {
+            _creationTime: 1,
+            _id: "ingestionJobs_1" as never,
+            createdAt: 1,
+            documentId: "documents_1" as never,
+            recoverableAt: undefined,
+            serverNow: 1,
+            status: "failed",
+            updatedAt: 1
+          }
+        ]}
+        onRecover={vi.fn()}
+        onRetry={onRetry}
+      />
+    )
+
+    const retryButton = screen.getByRole("button", { name: /retry/i })
+
+    fireEvent.click(retryButton)
+    fireEvent.click(retryButton)
+
+    expect(onRetry).toHaveBeenCalledTimes(1)
+    expect(retryButton).toBeDisabled()
+  })
+
+  it("prevents duplicate recover requests while recovery is pending", () => {
+    vi.useFakeTimers()
+    vi.setSystemTime(new Date("2026-04-25T12:00:00.000Z"))
+
+    const onRecover = vi.fn(
+      () =>
+        new Promise<void>(() => {
+          // Keep the mutation pending to verify the intermediate UI state.
+        })
+    )
+
+    render(
+      <IngestionJobList
+        jobs={[
+          {
+            _creationTime: 1,
+            _id: "ingestionJobs_1" as never,
+            createdAt: 1,
+            documentId: "documents_1" as never,
+            recoverableAt: Date.parse("2026-04-25T12:00:00.000Z"),
+            serverNow: Date.parse("2026-04-25T12:00:00.000Z"),
+            status: "submitting",
+            updatedAt: Date.parse("2026-04-25T11:40:00.000Z")
+          }
+        ]}
+        onRecover={onRecover}
+        onRetry={vi.fn()}
+      />
+    )
+
+    const recoverButton = screen.getByRole("button", { name: /recover/i })
+
+    fireEvent.click(recoverButton)
+    fireEvent.click(recoverButton)
+
+    expect(onRecover).toHaveBeenCalledTimes(1)
+    expect(recoverButton).toBeDisabled()
+
+    vi.useRealTimers()
   })
 
   it("shows recover only after the server-defined recovery time", () => {

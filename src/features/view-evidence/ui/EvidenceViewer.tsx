@@ -8,6 +8,36 @@ import { api } from "@convex/_generated/api"
 
 type ReactPdfModule = typeof import("react-pdf")
 
+function buildPdfPageUrl(fileUrl: string, pageNumber: number) {
+  const safePageNumber = Number.isFinite(pageNumber) && pageNumber > 0 ? Math.floor(pageNumber) : 1
+
+  try {
+    const url = new URL(fileUrl)
+    url.hash = `page=${safePageNumber}`
+    return url.toString()
+  } catch {
+    return `${fileUrl.split("#")[0]}#page=${safePageNumber}`
+  }
+}
+
+function BrowserPdfFallback({ fileUrl, pageNumber }: { fileUrl: string; pageNumber: number }) {
+  const pageUrl = buildPdfPageUrl(fileUrl, pageNumber)
+
+  return (
+    <div className="flex h-full min-h-[400px] flex-col gap-3 bg-white">
+      <iframe className="h-full min-h-[400px] w-full flex-1 bg-white" src={pageUrl} title="PDF preview" />
+      <a
+        className="wire-border inline-flex self-start bg-white px-4 py-2 font-mono text-[10px] tracking-widest text-[#000000] uppercase"
+        href={pageUrl}
+        rel="noreferrer"
+        target="_blank"
+      >
+        Open PDF
+      </a>
+    </div>
+  )
+}
+
 function useElementWidth<T extends HTMLElement>() {
   const ref = useRef<T | null>(null)
   const [width, setWidth] = useState<number | null>(null)
@@ -105,21 +135,7 @@ function PdfPageViewer({ fileUrl, pageNumber }: { fileUrl: string; pageNumber: n
   }, [fileUrl, pageCount, pageNumber, pdfModule, viewerWidth])
 
   if (loadError) {
-    return (
-      <div className="flex min-h-[400px] items-center justify-center bg-[#FAFAFA] p-6">
-        <div className="wire-border diagonal-bg max-w-sm bg-white p-6 text-center">
-          <p className="bg-white p-2 font-mono text-[12px] text-[#000000]">Unable to render PDF preview inline.</p>
-          <a
-            className="wire-border mt-4 inline-flex bg-white px-4 py-2 font-mono text-[10px] tracking-widest text-[#000000] uppercase"
-            href={fileUrl}
-            rel="noreferrer"
-            target="_blank"
-          >
-            Open PDF
-          </a>
-        </div>
-      </div>
-    )
+    return <BrowserPdfFallback fileUrl={fileUrl} pageNumber={pageNumber} />
   }
 
   const showDocument = pdfModule !== null && viewerWidth > 0
@@ -135,21 +151,7 @@ function PdfPageViewer({ fileUrl, pageNumber }: { fileUrl: string; pageNumber: n
       {showDocument ? (
         <pdfModule.Document
           className="block min-h-[400px] bg-white"
-          error={
-            <div className="flex min-h-[400px] items-center justify-center bg-[#FAFAFA] p-6">
-              <div className="wire-border diagonal-bg max-w-sm bg-white p-6 text-center">
-                <p className="bg-white p-2 font-mono text-[12px] text-[#000000]">Unable to render PDF preview inline.</p>
-                <a
-                  className="wire-border mt-4 inline-flex bg-white px-4 py-2 font-mono text-[10px] tracking-widest text-[#000000] uppercase"
-                  href={fileUrl}
-                  rel="noreferrer"
-                  target="_blank"
-                >
-                  Open PDF
-                </a>
-              </div>
-            </div>
-          }
+          error={<BrowserPdfFallback fileUrl={fileUrl} pageNumber={pageNumber} />}
           file={fileUrl}
           loading={<div className="crosshatch-bg wire-border h-[400px] animate-pulse bg-white" />}
           onLoadSuccess={({ numPages }) => {

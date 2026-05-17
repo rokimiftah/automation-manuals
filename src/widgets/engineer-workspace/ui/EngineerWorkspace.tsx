@@ -33,8 +33,8 @@ export default function EngineerWorkspace() {
 
   return (
     <AppShell title="Engineer Workspace">
-      <div className="grid h-full min-h-0 w-full grid-cols-1 gap-4 md:gap-6 lg:grid-cols-[minmax(0,1fr)_minmax(0,1.2fr)]">
-        <div className="flex h-full min-h-0 flex-col gap-4 md:gap-6">
+      <div className="mx-auto flex w-full max-w-450 flex-col gap-6 p-4 md:p-8 lg:h-full lg:min-h-0 lg:flex-row">
+        <div className="flex w-full shrink-0 flex-col gap-6 lg:h-full lg:min-h-0 lg:w-[45%]">
           <div className="animate-expand shrink-0" style={{ animationDelay: "0ms" }}>
             <QuestionComposer
               disabled={isSubmitting}
@@ -80,31 +80,33 @@ export default function EngineerWorkspace() {
             />
 
             {error ? (
-              <div className="wire-border relative mt-4 flex items-start gap-4 overflow-hidden bg-white p-4 font-mono text-[13px] text-[#000000] md:mt-6">
+              <div className="wire-border relative mt-6 flex items-start gap-4 overflow-hidden bg-white p-4 font-mono text-[13px] text-[#000000]">
                 <div className="diagonal-bg pointer-events-none absolute inset-0 opacity-20"></div>
                 <span className="relative z-10 shrink-0 bg-[#000000] px-2 py-0.5 text-[10px] tracking-widest text-white uppercase">
                   ERR
                 </span>
-                <span className="relative z-10">{error}</span>
+                <span className="relative z-10 leading-relaxed">{error}</span>
               </div>
             ) : null}
           </div>
 
-          <div className="animate-expand flex min-h-0 flex-1 flex-col" style={{ animationDelay: "0.1s" }}>
+          <div className="animate-expand flex min-h-75 flex-1 flex-col lg:min-h-0" style={{ animationDelay: "0.1s" }}>
             {packet ? (
-              <div className="wire-border relative min-h-0 overflow-y-auto bg-white lg:h-full">
-                {/* To avoid double borders if AnswerPacketView also has them, AnswerPacketView should not have wire-border. But assuming it does, we can just render it. */}
+              <div className="wire-border relative h-full min-h-0 overflow-y-auto bg-white shadow-sm">
                 <AnswerPacketView packet={packet} onSelectCitation={setActiveAsset} />
               </div>
             ) : (
-              <section className="wire-border relative flex min-h-100 flex-col items-center justify-center border-dashed bg-[#FAFAFA] p-12 text-center font-mono text-[11px] tracking-[0.2em] text-[#000000] uppercase lg:h-full">
-                Awaiting...
+              <section className="wire-border relative flex h-full min-h-40 flex-col items-center justify-center border-dashed bg-[#FAFAFA] p-12 text-center">
+                <div className="space-y-4">
+                  <div className="mx-auto h-8 w-8 animate-pulse rounded-full bg-[#E5E5E5]" />
+                  <p className="font-mono text-[11px] tracking-[0.2em] text-[#555555] uppercase">Awaiting Input...</p>
+                </div>
               </section>
             )}
           </div>
         </div>
 
-        <div className="animate-expand flex h-full min-h-0 flex-col lg:h-full" style={{ animationDelay: "0.2s" }}>
+        <div className="animate-expand flex min-h-100 flex-1 flex-col lg:h-full lg:min-h-0" style={{ animationDelay: "0.2s" }}>
           <EvidenceViewer asset={activeAsset} />
         </div>
       </div>

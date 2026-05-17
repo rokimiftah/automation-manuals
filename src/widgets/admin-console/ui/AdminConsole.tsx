@@ -105,52 +105,56 @@ function AdminConsoleContent({
 
   return (
     <AppShell title="Admin Interface">
-      <div className="grid h-full min-h-0 gap-4 md:gap-6 lg:grid-cols-[minmax(0,1fr)_minmax(0,1.2fr)]">
-        <div className="flex h-full min-h-0 flex-col gap-4 md:gap-6">
-          <section className="wire-border animate-expand relative flex shrink-0 flex-col justify-between gap-8 bg-white p-6 md:p-8">
-            <div className="space-y-2">
-              <h2 className="text-[20px] font-medium tracking-tight text-[#000000] uppercase md:text-[24px]">Manual Inventory</h2>
-            </div>
-            <div className="flex items-end gap-4">
-              <p className="text-6xl leading-none font-medium tracking-tighter text-[#000000] md:text-8xl">
+      <div className="mx-auto flex w-full max-w-400 flex-col gap-6 p-4 md:p-8 lg:h-full lg:min-h-0 lg:flex-row">
+        {/* Left Column: Inventory & Manuals */}
+        <div className="flex w-full flex-col gap-6 lg:h-full lg:min-h-0 lg:w-1/3">
+          <section className="wire-border animate-expand relative flex shrink-0 flex-col justify-between gap-6 bg-white p-6 md:p-8">
+            <h2 className="text-[14px] font-medium tracking-widest text-[#555555] uppercase">Total Inventory</h2>
+            <div className="flex items-baseline gap-3">
+              <p className="text-6xl leading-none font-medium tracking-tighter text-[#000000]">
                 {safeDocuments === undefined ? "—" : safeDocuments.length}
               </p>
-              <span className="mb-2 font-mono text-[14px] tracking-widest uppercase">Units</span>
+              <span className="font-mono text-[14px] tracking-widest text-[#000000] uppercase">Units</span>
             </div>
           </section>
 
           <section
-            className="wire-border animate-expand relative flex shrink-0 flex-col bg-white"
+            className="wire-border animate-expand relative flex min-h-75 flex-1 flex-col bg-white lg:min-h-0"
             style={{ animationDelay: "0.05s" }}
           >
-            <div className="wire-border-b flex items-center justify-between bg-[#FAFAFA] p-6 md:p-8">
-              <h2 className="text-[20px] font-medium tracking-tight text-[#000000] uppercase">Searchable Manuals</h2>
+            <div className="wire-border-b flex shrink-0 items-center justify-between bg-[#FAFAFA] p-4 md:p-6">
+              <h2 className="text-[14px] font-medium tracking-widest text-[#000000] uppercase">Searchable Manuals</h2>
             </div>
-            <div className="flex flex-col gap-4 p-6 md:p-8">
+            <div className="flex flex-1 flex-col gap-4 overflow-y-auto p-4 md:p-6">
               {safeDocuments === undefined ? (
                 <div className="crosshatch-bg wire-border h-24 animate-pulse" />
               ) : safeDocuments.length === 0 ? (
-                <div className="wire-border border-dashed bg-[#FAFAFA] p-6 text-center font-mono text-[11px] tracking-[0.2em] uppercase">
+                <div className="wire-border border-dashed bg-[#FAFAFA] p-6 text-center font-mono text-[11px] tracking-[0.2em] text-[#555555] uppercase">
                   No manuals registered
                 </div>
               ) : (
                 safeDocuments.map((document) => {
                   return (
-                    <article key={document._id} className="wire-border flex flex-col gap-4 bg-white p-4">
+                    <article
+                      key={document._id}
+                      className="wire-border flex flex-col gap-4 bg-white p-4 transition-colors hover:bg-[#FAFAFA]"
+                    >
                       <div className="flex items-start justify-between gap-4">
-                        <div className="space-y-1">
-                          <h3 className="text-[14px] font-medium tracking-wide uppercase">{document.title}</h3>
+                        <div className="space-y-1.5">
+                          <h3 className="text-[15px] leading-snug font-medium tracking-tight text-[#000000] uppercase">
+                            {document.title}
+                          </h3>
                           <p className="font-mono text-[11px] tracking-widest text-[#555555] uppercase">
-                            {document.vendorSlug} / {document.productSlug} / {document.version}
+                            {document.vendorSlug} / {document.productSlug} / v{document.version}
                           </p>
                         </div>
-                        <span className="wire-border px-3 py-1 font-mono text-[10px] tracking-widest uppercase">
+                        <span className="wire-border shrink-0 bg-white px-2 py-1 font-mono text-[10px] font-bold tracking-widest text-[#000000] uppercase">
                           {document.status}
                         </span>
                       </div>
-                      <div className="flex justify-end">
+                      <div className="flex justify-end border-t border-[#E5E5E5] pt-2">
                         <button
-                          className="wire-border px-4 py-2 font-mono text-[10px] tracking-widest uppercase transition-colors hover:bg-[#991b1b] hover:text-white disabled:cursor-not-allowed disabled:opacity-50"
+                          className="px-3 py-1.5 font-mono text-[10px] font-bold tracking-widest text-[#991b1b] uppercase transition-colors hover:bg-[#991b1b] hover:text-white disabled:cursor-not-allowed disabled:opacity-50"
                           type="button"
                           onClick={async () => {
                             if (
@@ -170,7 +174,7 @@ function AdminConsoleContent({
                             }
                           }}
                         >
-                          Delete {document.version}
+                          Delete
                         </button>
                       </div>
                     </article>
@@ -179,9 +183,12 @@ function AdminConsoleContent({
               )}
             </div>
           </section>
+        </div>
 
-          <div className="animate-expand flex min-h-0 flex-1 flex-col" style={{ animationDelay: "0.1s" }}>
-            <div className="wire-border h-full min-h-0 overflow-y-auto bg-white">
+        {/* Right Column: Registration & Jobs */}
+        <div className="flex w-full flex-col gap-6 lg:h-full lg:min-h-0 lg:w-2/3 lg:overflow-y-auto lg:pr-2">
+          <div className="animate-expand shrink-0" style={{ animationDelay: "0.1s" }}>
+            <div className="wire-border bg-white">
               <DocumentRegistrationForm
                 onSubmit={async (values) => {
                   await runProtectedMutation(async () => {
@@ -212,46 +219,46 @@ function AdminConsoleContent({
               />
             </div>
           </div>
-        </div>
 
-        <div className="animate-expand flex min-h-0 flex-col lg:h-full" style={{ animationDelay: "0.2s" }}>
-          {safeJobs === undefined ? (
-            <section className="wire-border relative flex h-full flex-col overflow-hidden bg-white">
-              <div className="wire-border-b flex shrink-0 items-center justify-between bg-[#FAFAFA] p-6 md:p-8">
-                <div className="space-y-1">
-                  <h2 className="text-[20px] font-medium tracking-tight text-[#000000] uppercase">Ingestion Flow</h2>
+          <div className="animate-expand flex min-h-100 flex-col lg:flex-1" style={{ animationDelay: "0.2s" }}>
+            {safeJobs === undefined ? (
+              <section className="wire-border relative flex h-full flex-col overflow-hidden bg-white">
+                <div className="wire-border-b flex shrink-0 items-center justify-between bg-[#FAFAFA] p-6 md:p-8">
+                  <div className="space-y-1">
+                    <h2 className="text-[14px] font-medium tracking-widest text-[#000000] uppercase">Ingestion Flow</h2>
+                  </div>
+                  <span className="wire-border px-3 py-1 font-mono text-[10px] font-medium tracking-widest text-[#000000] uppercase">
+                    Loading...
+                  </span>
                 </div>
-                <span className="wire-border px-3 py-1 font-mono text-[10px] font-medium tracking-widest text-[#000000] uppercase">
-                  Loading...
-                </span>
-              </div>
-              <div className="min-h-0 flex-1 bg-white p-6 md:p-8">
-                <div className="crosshatch-bg wire-border h-full w-full animate-pulse" />
-              </div>
-            </section>
-          ) : (
-            <IngestionJobList
-              jobs={safeJobs}
-              onRecover={async (jobId) => {
-                try {
-                  await runProtectedMutation(() => recoverStuckJob({ jobId, sessionToken }))
-                } catch (error) {
-                  if (!isAdminSessionError(error)) {
-                    window.alert(error instanceof Error ? error.message : "Unable to recover ingestion job.")
+                <div className="min-h-0 flex-1 bg-white p-6 md:p-8">
+                  <div className="crosshatch-bg wire-border h-full w-full animate-pulse" />
+                </div>
+              </section>
+            ) : (
+              <IngestionJobList
+                jobs={safeJobs}
+                onRecover={async (jobId) => {
+                  try {
+                    await runProtectedMutation(() => recoverStuckJob({ jobId, sessionToken }))
+                  } catch (error) {
+                    if (!isAdminSessionError(error)) {
+                      window.alert(error instanceof Error ? error.message : "Unable to recover ingestion job.")
+                    }
                   }
-                }
-              }}
-              onRetry={async (jobId) => {
-                try {
-                  await runProtectedMutation(() => retryJob({ jobId, sessionToken }))
-                } catch (error) {
-                  if (!isAdminSessionError(error)) {
-                    window.alert(error instanceof Error ? error.message : "Unable to retry ingestion job.")
+                }}
+                onRetry={async (jobId) => {
+                  try {
+                    await runProtectedMutation(() => retryJob({ jobId, sessionToken }))
+                  } catch (error) {
+                    if (!isAdminSessionError(error)) {
+                      window.alert(error instanceof Error ? error.message : "Unable to retry ingestion job.")
+                    }
                   }
-                }
-              }}
-            />
-          )}
+                }}
+              />
+            )}
+          </div>
         </div>
       </div>
     </AppShell>

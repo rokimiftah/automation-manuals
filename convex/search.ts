@@ -428,6 +428,13 @@ export const claimSearchAccess = internalMutation({
       }
     }
 
+    if (args.sessionId && sessionRequestCount >= SESSION_SEARCH_REQUEST_LIMIT) {
+      return {
+        allowed: false,
+        retryAfterMs
+      }
+    }
+
     const nextGlobalRequestCount = globalRequestCount + 1
 
     if (!state) {
@@ -445,13 +452,6 @@ export const claimSearchAccess = internalMutation({
         globalRequestCount: nextGlobalRequestCount,
         windowStart
       })
-    }
-
-    if (args.sessionId && sessionRequestCount >= SESSION_SEARCH_REQUEST_LIMIT) {
-      return {
-        allowed: false,
-        retryAfterMs
-      }
     }
 
     if (args.sessionId && session) {

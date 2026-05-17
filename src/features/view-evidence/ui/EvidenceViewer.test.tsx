@@ -1,7 +1,3 @@
-import type { ReactNode } from "react"
-
-import { useEffect, useState } from "react"
-
 import { cleanup, render, screen, waitFor } from "@testing-library/react"
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest"
 
@@ -13,71 +9,100 @@ const useQuery = vi.fn()
 let scrollTargets: HTMLElement[] = []
 let scrollIntoViewDescriptor: PropertyDescriptor | undefined
 
-const { documentFailureState, documentMock, pageMock, workerState } = vi.hoisted(() => {
-  const documentFailureState: { message: string | null } = { message: null }
-  const documentMock = vi.fn(
-    ({
-      children,
-      error,
-      file,
-      loading,
-      onLoadError,
-      onLoadSuccess
-    }: {
-      children?: ReactNode
-      error?: ReactNode
-      file?: string
-      loading?: ReactNode
-      onLoadError?: (error: Error) => void
-      onLoadSuccess?: (result: { numPages: number }) => void
-    }) => {
-      const [loadedFile, setLoadedFile] = useState<string | null>(null)
-
-      useEffect(() => {
-        if (documentFailureState.message) {
-          onLoadError?.(new Error(documentFailureState.message))
-          return
-        }
-
-        onLoadSuccess?.({ numPages: 70 })
-        setLoadedFile(file ?? null)
-      }, [file, onLoadError, onLoadSuccess])
-
-      if (documentFailureState.message) {
-        return <div data-testid="pdf-document-error">{error}</div>
-      }
-
-      if (loadedFile !== file) {
-        return <div data-testid="pdf-document-loading">{loading}</div>
-      }
-
-      return <div data-testid="pdf-document">{children}</div>
+const { getDocumentMock, getPageMock, renderCalls, renderResolvers, renderTaskCancelMock, workerState, pdfjsState } = vi.hoisted(
+  () => {
+    const workerState = { workerSrc: "" }
+    const pdfjsState: {
+      deferRendering: boolean
+      documentFailure: string | null
+      numPages: number
+      renderFailure: string | null
+    } = {
+      deferRendering: false,
+      documentFailure: null,
+      numPages: 70,
+      renderFailure: null
     }
-  )
-  const pageMock = vi.fn(({ pageNumber, width }: { pageNumber: number; width?: number }) => (
-    <div data-page-number={pageNumber} data-testid="pdf-page-content" data-width={width} />
-  ))
-  const workerState = { workerSrc: "" }
+    const renderCalls: Array<{
+      canvasHeight: number
+      canvasWidth: number
+      pageNumber: number
+      transform?: unknown
+      viewportWidth: number
+    }> = []
+    const renderResolvers = new Map<number, () => void>()
+    const renderTaskCancelMock = vi.fn()
+    const getPageMock = vi.fn((pageNumber: number) =>
+      Promise.resolve({
+        cleanup: vi.fn(),
+        getViewport: ({ scale }: { scale: number }) => ({ height: 900 * scale, width: 600 * scale }),
+        render: ({
+          canvas,
+          transform,
+          viewport
+        }: {
+          canvas: HTMLCanvasElement
+          transform?: unknown
+          viewport: { width: number }
+        }) => {
+          renderCalls.push({
+            canvasHeight: canvas.height,
+            canvasWidth: canvas.width,
+            pageNumber,
+            transform,
+            viewportWidth: viewport.width
+          })
 
-  return { documentFailureState, documentMock, pageMock, workerState }
-})
+          return {
+            cancel: renderTaskCancelMock,
+            promise: pdfjsState.renderFailure
+              ? Promise.reject(new Error(pdfjsState.renderFailure))
+              : pdfjsState.deferRendering
+                ? new Promise<void>((resolve) => {
+                    renderResolvers.set(pageNumber, resolve)
+                  })
+                : Promise.resolve()
+          }
+        }
+      })
+    )
+    const getDocumentMock = vi.fn((_source?: unknown) => ({
+      destroy: vi.fn(() => Promise.resolve()),
+      promise: pdfjsState.documentFailure
+        ? Promise.reject(new Error(pdfjsState.documentFailure))
+        : Promise.resolve({
+            destroy: vi.fn(() => Promise.resolve()),
+            getPage: getPageMock,
+            numPages: pdfjsState.numPages
+          })
+    }))
+
+    return { getDocumentMock, getPageMock, pdfjsState, renderCalls, renderResolvers, renderTaskCancelMock, workerState }
+  }
+)
 
 vi.mock("convex/react", () => ({
   useQuery: (...args: unknown[]) => useQuery(...args)
 }))
 
-vi.mock("react-pdf", () => ({
-  Document: (props: { children?: ReactNode }) => documentMock(props),
-  Page: (props: { pageNumber: number; width?: number }) => pageMock(props),
-  pdfjs: { GlobalWorkerOptions: workerState }
+vi.mock("pdfjs-dist", () => ({
+  getDocument: (source: unknown) => getDocumentMock(source),
+  GlobalWorkerOptions: workerState
 }))
 
 describe("EvidenceViewer", () => {
   beforeEach(() => {
     useQuery.mockReset()
-    documentMock.mockReset()
-    documentFailureState.message = null
-    pageMock.mockReset()
+    getDocumentMock.mockClear()
+    getPageMock.mockClear()
+    pdfjsState.deferRendering = false
+    pdfjsState.documentFailure = null
+    pdfjsState.numPages = 70
+    pdfjsState.renderFailure = null
+    renderCalls.length = 0
+    renderResolvers.clear()
+    renderTaskCancelMock.mockClear()
+    workerState.workerSrc = ""
     scrollTargets = []
     scrollIntoViewDescriptor = Object.getOwnPropertyDescriptor(HTMLElement.prototype, "scrollIntoView")
     Object.defineProperty(HTMLElement.prototype, "scrollIntoView", {
@@ -97,6 +122,8 @@ describe("EvidenceViewer", () => {
       x: 0,
       y: 0
     } as DOMRect)
+    vi.spyOn(HTMLCanvasElement.prototype, "getContext").mockReturnValue({} as CanvasRenderingContext2D)
+    Object.defineProperty(window, "devicePixelRatio", { configurable: true, value: 1 })
   })
 
   afterEach(() => {
@@ -109,7 +136,7 @@ describe("EvidenceViewer", () => {
     }
   })
 
-  it("renders all PDF pages so the viewer can scroll", async () => {
+  it("renders all PDF pages with pdfjs-dist so the viewer can scroll", async () => {
     useQuery.mockReturnValue({
       _id: "documentAssets_1",
       kind: "source_pdf",
@@ -135,9 +162,12 @@ describe("EvidenceViewer", () => {
       citationLabel: "Engine manual"
     })
     await screen.findAllByTestId("pdf-page")
-    expect(documentMock).toHaveBeenCalled()
-    expect(pageMock).toHaveBeenCalledTimes(70)
-    expect(pageMock.mock.calls.map(([props]) => props.pageNumber)).toEqual(Array.from({ length: 70 }, (_, index) => index + 1))
+    await waitFor(() => expect(renderCalls).toHaveLength(70))
+    expect(getDocumentMock).toHaveBeenCalledWith("https://storage.example/manual.pdf")
+    expect(getPageMock).toHaveBeenCalledTimes(70)
+    expect(getPageMock.mock.calls.map(([pageNumber]) => pageNumber)).toEqual(Array.from({ length: 70 }, (_, index) => index + 1))
+    expect(renderCalls[0]).toMatchObject({ canvasHeight: 1080, canvasWidth: 720, pageNumber: 1, viewportWidth: 720 })
+    await waitFor(() => expect(scrollTargets).toHaveLength(1))
     expect(scrollTargets[0]).toBe(screen.getAllByTestId("pdf-page")[69])
     expect(workerState.workerSrc).toContain("pdf.worker.min.mjs")
     expect(screen.queryByTitle("Engine manual")).not.toBeInTheDocument()
@@ -189,8 +219,47 @@ describe("EvidenceViewer", () => {
     expect(scrollTargets[1]).toBe(screen.getAllByTestId("pdf-page")[9])
   })
 
-  it("falls back to the browser PDF viewer when react-pdf cannot load the document", async () => {
-    documentFailureState.message = "Failed to fetch"
+  it("waits for pages through the citation page to render before scrolling", async () => {
+    pdfjsState.deferRendering = true
+    pdfjsState.numPages = 3
+    useQuery.mockReturnValue({
+      _id: "documentAssets_1",
+      kind: "source_pdf",
+      pageNumber: 3,
+      url: "https://storage.example/manual.pdf"
+    })
+
+    render(
+      <EvidenceViewer
+        asset={{
+          assetId: "documentAssets_1" as never,
+          label: "Engine manual",
+          pageNumber: 3
+        }}
+      />
+    )
+
+    await waitFor(() => expect(screen.getAllByTestId("pdf-page")).toHaveLength(3))
+    await waitFor(() => expect(renderCalls).toHaveLength(3))
+
+    expect(scrollTargets).toHaveLength(0)
+
+    renderResolvers.get(3)?.()
+    await Promise.resolve()
+    expect(scrollTargets).toHaveLength(0)
+
+    renderResolvers.get(1)?.()
+    await Promise.resolve()
+    expect(scrollTargets).toHaveLength(0)
+
+    renderResolvers.get(2)?.()
+
+    await waitFor(() => expect(scrollTargets).toHaveLength(1))
+    expect(scrollTargets[0]).toBe(screen.getAllByTestId("pdf-page")[2])
+  })
+
+  it("falls back to the browser PDF viewer when pdfjs-dist cannot load the document", async () => {
+    pdfjsState.documentFailure = "Failed to fetch"
     useQuery.mockReturnValue({
       _id: "documentAssets_1",
       kind: "source_pdf",

@@ -234,6 +234,7 @@ function AdminConsoleContent({
                       </div>
                       <div className="flex justify-end border-t border-[#E5E5E5] pt-2">
                         <button
+                          aria-label={`Delete ${document.version} ${document.title}`}
                           className="px-3 py-1.5 font-mono text-[10px] font-bold tracking-widest text-[#991b1b] uppercase transition-colors hover:bg-[#991b1b] hover:text-white disabled:cursor-not-allowed disabled:opacity-50"
                           type="button"
                           onClick={async () => {

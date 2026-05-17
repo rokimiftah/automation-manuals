@@ -6,10 +6,27 @@ import { useQuery } from "convex/react"
 
 import { api } from "@convex/_generated/api"
 
-type ReactPdfModule = typeof import("react-pdf")
+type PdfDocumentProxy = import("pdfjs-dist").PDFDocumentProxy
+type PdfJsModule = typeof import("pdfjs-dist")
+type PdfPageProxy = import("pdfjs-dist").PDFPageProxy
+type RenderTask = import("pdfjs-dist").RenderTask
+
+type PdfDocumentState = {
+  fileUrl: string
+  pdfDocument: PdfDocumentProxy
+}
+
+function getErrorMessage(error: unknown, fallback: string) {
+  return error instanceof Error ? error.message : fallback
+}
+
+function getSafePageNumber(pageNumber: number, pageCount?: number) {
+  const normalizedPageNumber = Number.isFinite(pageNumber) && pageNumber > 0 ? Math.floor(pageNumber) : 1
+  return pageCount === undefined ? normalizedPageNumber : Math.min(normalizedPageNumber, pageCount)
+}
 
 function buildPdfPageUrl(fileUrl: string, pageNumber: number) {
-  const safePageNumber = Number.isFinite(pageNumber) && pageNumber > 0 ? Math.floor(pageNumber) : 1
+  const safePageNumber = getSafePageNumber(pageNumber)
 
   try {
     const url = new URL(fileUrl)
@@ -34,6 +51,125 @@ function BrowserPdfFallback({ fileUrl, pageNumber }: { fileUrl: string; pageNumb
       >
         Open PDF
       </a>
+    </div>
+  )
+}
+
+function getCanvasOutputScale() {
+  if (typeof window === "undefined") {
+    return 1
+  }
+
+  const devicePixelRatio = window.devicePixelRatio
+  return Number.isFinite(devicePixelRatio) && devicePixelRatio > 0 ? devicePixelRatio : 1
+}
+
+function PdfPageCanvas({
+  onRenderError,
+  onRenderSuccess,
+  pageNumber,
+  pdfDocument,
+  width
+}: {
+  onRenderError: (error: unknown) => void
+  onRenderSuccess: (pageNumber: number) => void
+  pageNumber: number
+  pdfDocument: PdfDocumentProxy
+  width: number
+}) {
+  const canvasRef = useRef<HTMLCanvasElement | null>(null)
+  const onRenderErrorRef = useRef(onRenderError)
+  const onRenderSuccessRef = useRef(onRenderSuccess)
+  const [renderStatus, setRenderStatus] = useState<"loading" | "ready">("loading")
+
+  useEffect(() => {
+    onRenderErrorRef.current = onRenderError
+    onRenderSuccessRef.current = onRenderSuccess
+  }, [onRenderError, onRenderSuccess])
+
+  useEffect(() => {
+    const canvas = canvasRef.current
+    if (!canvas || width <= 0) {
+      return
+    }
+    const targetCanvas = canvas
+
+    let cancelled = false
+    let page: PdfPageProxy | null = null
+    let renderTask: RenderTask | null = null
+
+    async function renderPage() {
+      setRenderStatus("loading")
+
+      try {
+        page = await pdfDocument.getPage(pageNumber)
+        if (cancelled) {
+          page.cleanup()
+          page = null
+          return
+        }
+
+        const initialViewport = page.getViewport({ scale: 1 })
+        if (initialViewport.width <= 0) {
+          throw new Error("Invalid PDF page width.")
+        }
+
+        const viewport = page.getViewport({ scale: width / initialViewport.width })
+        const canvasContext = targetCanvas.getContext("2d")
+
+        if (!canvasContext) {
+          throw new Error("Unable to initialize PDF canvas.")
+        }
+
+        const outputScale = getCanvasOutputScale()
+        targetCanvas.width = Math.floor(viewport.width * outputScale)
+        targetCanvas.height = Math.floor(viewport.height * outputScale)
+        targetCanvas.style.height = `${Math.floor(viewport.height)}px`
+        targetCanvas.style.width = `${Math.floor(viewport.width)}px`
+
+        renderTask = page.render({
+          canvas: targetCanvas,
+          canvasContext,
+          transform: outputScale === 1 ? undefined : [outputScale, 0, 0, outputScale, 0, 0],
+          viewport
+        })
+
+        await renderTask.promise
+        renderTask = null
+        if (!cancelled) {
+          setRenderStatus("ready")
+          onRenderSuccessRef.current(pageNumber)
+        }
+      } catch (error) {
+        if (!cancelled) {
+          onRenderErrorRef.current(error)
+        }
+      } finally {
+        if (page) {
+          page.cleanup()
+          page = null
+        }
+      }
+    }
+
+    void renderPage()
+
+    return () => {
+      cancelled = true
+      renderTask?.cancel()
+      page?.cleanup()
+    }
+  }, [pageNumber, pdfDocument, width])
+
+  return (
+    <div className="relative min-h-100 bg-white">
+      {renderStatus === "loading" ? <div className="crosshatch-bg wire-border h-100 animate-pulse bg-white" /> : null}
+      <canvas
+        aria-label={`PDF page ${pageNumber}`}
+        className={renderStatus === "ready" ? "block max-w-full bg-white" : "hidden"}
+        ref={canvasRef}
+        role="img"
+      />
     </div>
   )
 }
@@ -75,9 +211,11 @@ function useElementWidth<T extends HTMLElement>() {
 function PdfPageViewer({ fileUrl, pageNumber }: { fileUrl: string; pageNumber: number }) {
   const { ref, width } = useElementWidth<HTMLDivElement>()
   const viewerWidth = width ?? 0
-  const [pdfModule, setPdfModule] = useState<ReactPdfModule | null>(null)
+  const [pdfModule, setPdfModule] = useState<PdfJsModule | null>(null)
+  const [pdfDocumentState, setPdfDocumentState] = useState<PdfDocumentState | null>(null)
   const [loadError, setLoadError] = useState<string | null>(null)
   const [pageCount, setPageCount] = useState<number | null>(null)
+  const [renderedPageNumbers, setRenderedPageNumbers] = useState<Set<number>>(() => new Set())
   const pageRefs = useRef(new Map<number, HTMLDivElement>())
   const lastScrolledKeyRef = useRef<string | null>(null)
 
@@ -87,6 +225,9 @@ function PdfPageViewer({ fileUrl, pageNumber }: { fileUrl: string; pageNumber: n
     }
 
     setPageCount(null)
+    setPdfDocumentState(null)
+    setLoadError(null)
+    setRenderedPageNumbers(new Set())
     pageRefs.current.clear()
   }, [fileUrl])
 
@@ -95,15 +236,15 @@ function PdfPageViewer({ fileUrl, pageNumber }: { fileUrl: string; pageNumber: n
 
     async function loadPdfModule() {
       try {
-        const module = await import("react-pdf")
-        module.pdfjs.GlobalWorkerOptions.workerSrc = new URL("pdfjs-dist/build/pdf.worker.min.mjs", import.meta.url).toString()
+        const module = await import("pdfjs-dist")
+        module.GlobalWorkerOptions.workerSrc = new URL("pdfjs-dist/build/pdf.worker.min.mjs", import.meta.url).toString()
 
         if (!cancelled) {
           setPdfModule(module)
         }
       } catch (error) {
         if (!cancelled) {
-          setLoadError(error instanceof Error ? error.message : "Unable to load the PDF viewer.")
+          setLoadError(getErrorMessage(error, "Unable to load the PDF viewer."))
         }
       }
     }
@@ -116,29 +257,79 @@ function PdfPageViewer({ fileUrl, pageNumber }: { fileUrl: string; pageNumber: n
   }, [])
 
   useEffect(() => {
-    if (pdfModule === null || pageCount === null || viewerWidth <= 0) {
+    if (pdfModule === null || !fileUrl) {
       return
     }
 
-    const scrollKey = `${fileUrl}:${pageNumber}`
+    let cancelled = false
+    let pdfDocument: PdfDocumentProxy | null = null
+    const loadingTask = pdfModule.getDocument(fileUrl)
+
+    setPageCount(null)
+    setPdfDocumentState(null)
+    setLoadError(null)
+    setRenderedPageNumbers(new Set())
+    pageRefs.current.clear()
+
+    async function loadPdfDocument() {
+      try {
+        pdfDocument = await loadingTask.promise
+        if (!cancelled) {
+          setPdfDocumentState({ fileUrl, pdfDocument })
+          setPageCount(pdfDocument.numPages)
+        } else {
+          void pdfDocument.destroy()
+        }
+      } catch (error) {
+        if (!cancelled) {
+          setLoadError(getErrorMessage(error, "Unable to load the PDF document."))
+        }
+      }
+    }
+
+    void loadPdfDocument()
+
+    return () => {
+      cancelled = true
+      if (pdfDocument) {
+        void pdfDocument.destroy()
+      } else {
+        void loadingTask.destroy()
+      }
+    }
+  }, [fileUrl, pdfModule])
+
+  useEffect(() => {
+    if (pdfDocumentState === null || pageCount === null || viewerWidth <= 0) {
+      return
+    }
+
+    const safePageNumber = getSafePageNumber(pageNumber, pageCount)
+    for (let currentPageNumber = 1; currentPageNumber <= safePageNumber; currentPageNumber += 1) {
+      if (!renderedPageNumbers.has(currentPageNumber)) {
+        return
+      }
+    }
+
+    const scrollKey = `${fileUrl}:${safePageNumber}`
     if (lastScrolledKeyRef.current === scrollKey) {
       return
     }
 
-    const targetPage = pageRefs.current.get(pageNumber)
+    const targetPage = pageRefs.current.get(safePageNumber)
     if (!targetPage) {
       return
     }
 
     targetPage.scrollIntoView({ block: "start" })
     lastScrolledKeyRef.current = scrollKey
-  }, [fileUrl, pageCount, pageNumber, pdfModule, viewerWidth])
+  }, [fileUrl, pageCount, pageNumber, pdfDocumentState, renderedPageNumbers, viewerWidth])
 
   if (loadError) {
     return <BrowserPdfFallback fileUrl={fileUrl} pageNumber={pageNumber} />
   }
 
-  const showDocument = pdfModule !== null && viewerWidth > 0
+  const showDocument = pdfDocumentState !== null && pdfDocumentState.fileUrl === fileUrl && pageCount !== null && viewerWidth > 0
 
   return (
     <div
@@ -149,48 +340,47 @@ function PdfPageViewer({ fileUrl, pageNumber }: { fileUrl: string; pageNumber: n
       data-testid="pdf-viewer"
     >
       {showDocument ? (
-        <pdfModule.Document
-          className="block min-h-100 bg-white"
-          error={<BrowserPdfFallback fileUrl={fileUrl} pageNumber={pageNumber} />}
-          file={fileUrl}
-          loading={<div className="crosshatch-bg wire-border h-100 animate-pulse bg-white" />}
-          onLoadSuccess={({ numPages }) => {
-            setPageCount(numPages)
-          }}
-        >
-          {pageCount === null ? null : (
-            <div className="flex flex-col gap-6">
-              {Array.from({ length: pageCount }, (_, index) => {
-                const currentPageNumber = index + 1
+        <div className="flex flex-col gap-6">
+          {Array.from({ length: pageCount }, (_, index) => {
+            const currentPageNumber = index + 1
 
-                return (
-                  <div
-                    key={currentPageNumber}
-                    className="wire-border bg-white"
-                    data-page-number={currentPageNumber}
-                    data-testid="pdf-page"
-                    ref={(node) => {
-                      if (node) {
-                        pageRefs.current.set(currentPageNumber, node)
-                      } else {
-                        pageRefs.current.delete(currentPageNumber)
+            return (
+              <div
+                key={currentPageNumber}
+                className="wire-border bg-white"
+                data-page-number={currentPageNumber}
+                data-testid="pdf-page"
+                ref={(node) => {
+                  if (node) {
+                    pageRefs.current.set(currentPageNumber, node)
+                  } else {
+                    pageRefs.current.delete(currentPageNumber)
+                  }
+                }}
+              >
+                <PdfPageCanvas
+                  onRenderError={(error) => {
+                    setLoadError(getErrorMessage(error, "Unable to render the PDF page."))
+                  }}
+                  onRenderSuccess={(renderedPageNumber) => {
+                    setRenderedPageNumbers((currentRenderedPageNumbers) => {
+                      if (currentRenderedPageNumbers.has(renderedPageNumber)) {
+                        return currentRenderedPageNumbers
                       }
-                    }}
-                  >
-                    <pdfModule.Page
-                      className="block"
-                      loading={<div className="crosshatch-bg wire-border h-100 animate-pulse bg-white" />}
-                      pageNumber={currentPageNumber}
-                      renderAnnotationLayer={false}
-                      renderTextLayer={false}
-                      width={viewerWidth}
-                    />
-                  </div>
-                )
-              })}
-            </div>
-          )}
-        </pdfModule.Document>
+
+                      const nextRenderedPageNumbers = new Set(currentRenderedPageNumbers)
+                      nextRenderedPageNumbers.add(renderedPageNumber)
+                      return nextRenderedPageNumbers
+                    })
+                  }}
+                  pageNumber={currentPageNumber}
+                  pdfDocument={pdfDocumentState.pdfDocument}
+                  width={viewerWidth}
+                />
+              </div>
+            )
+          })}
+        </div>
       ) : (
         <div className="crosshatch-bg wire-border h-100 animate-pulse bg-white" />
       )}

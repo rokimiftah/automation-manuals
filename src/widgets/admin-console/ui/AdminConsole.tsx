@@ -106,8 +106,8 @@ function AdminConsoleContent({
   return (
     <AppShell>
       <div className="flex w-full flex-col gap-6 lg:h-full lg:min-h-0 lg:flex-row">
-        {/* Left Column: Inventory & Manuals */}
-        <div className="flex w-full flex-col gap-6 lg:h-full lg:min-h-0 lg:w-1/3">
+        {/* Left Column: Inventory & Registration */}
+        <div className="flex w-full flex-col gap-6 lg:h-full lg:min-h-0 lg:w-1/3 lg:overflow-y-auto">
           <section className="wire-border animate-expand relative flex shrink-0 flex-col justify-between gap-6 bg-white p-6">
             <h2 className="text-[14px] font-medium tracking-widest text-[#555555] uppercase">Total Inventory</h2>
             <div className="flex items-baseline gap-3">
@@ -118,9 +118,89 @@ function AdminConsoleContent({
             </div>
           </section>
 
+          <div className="animate-expand flex min-h-75 flex-col lg:min-h-0 lg:flex-1" style={{ animationDelay: "0.1s" }}>
+            <div className="wire-border relative flex flex-1 flex-col bg-white">
+              <DocumentRegistrationForm
+                onSubmit={async (values) => {
+                  await runProtectedMutation(async () => {
+                    const sourceFile = values.sourceFile
+                    if (!sourceFile) {
+                      throw new Error("Source PDF is required.")
+                    }
+
+                    const sourceStorageId = await uploadSourceFile(sourceFile)
+                    const documentId = await createDocument({
+                      language: values.language,
+                      productName: values.productName,
+                      sessionToken,
+                      sourceStorageId,
+                      title: values.title,
+                      vendorName: values.vendorName,
+                      version: values.version
+                    })
+                    await enqueue({
+                      documentId,
+                      sessionToken,
+                      sourceFileName: sourceFile.name,
+                      sourceMimeType: sourceFile.type || "application/pdf",
+                      sourceStorageId
+                    })
+                  })
+                }}
+              />
+            </div>
+          </div>
+        </div>
+
+        {/* Middle Column: Jobs */}
+        <div className="flex w-full flex-col gap-6 lg:h-full lg:min-h-0 lg:w-1/3">
+          <div
+            className="animate-expand flex min-h-100 flex-col lg:h-full lg:min-h-0 lg:flex-1"
+            style={{ animationDelay: "0.05s" }}
+          >
+            {safeJobs === undefined ? (
+              <section className="wire-border relative flex h-full flex-col overflow-hidden bg-white">
+                <div className="wire-border-b flex shrink-0 items-center justify-between bg-[#FAFAFA] p-6">
+                  <h2 className="text-[14px] font-medium tracking-widest text-[#000000] uppercase">Ingestion Flow</h2>
+                  <span className="wire-border px-3 py-1 font-mono text-[10px] font-medium tracking-widest text-[#000000] uppercase">
+                    Loading...
+                  </span>
+                </div>
+                <div className="min-h-0 flex-1 bg-white p-6">
+                  <div className="crosshatch-bg wire-border h-full w-full animate-pulse" />
+                </div>
+              </section>
+            ) : (
+              <IngestionJobList
+                jobs={safeJobs}
+                onRecover={async (jobId) => {
+                  try {
+                    await runProtectedMutation(() => recoverStuckJob({ jobId, sessionToken }))
+                  } catch (error) {
+                    if (!isAdminSessionError(error)) {
+                      window.alert(error instanceof Error ? error.message : "Unable to recover ingestion job.")
+                    }
+                  }
+                }}
+                onRetry={async (jobId) => {
+                  try {
+                    await runProtectedMutation(() => retryJob({ jobId, sessionToken }))
+                  } catch (error) {
+                    if (!isAdminSessionError(error)) {
+                      window.alert(error instanceof Error ? error.message : "Unable to retry ingestion job.")
+                    }
+                  }
+                }}
+              />
+            )}
+          </div>
+        </div>
+
+        {/* Right Column: Searchable Manuals */}
+        <div className="flex w-full flex-col gap-6 lg:h-full lg:min-h-0 lg:w-1/3">
           <section
             className="wire-border animate-expand relative flex min-h-75 flex-1 flex-col bg-white lg:min-h-0"
-            style={{ animationDelay: "0.05s" }}
+            style={{ animationDelay: "0.2s" }}
           >
             <div className="wire-border-b flex shrink-0 items-center justify-between bg-[#FAFAFA] p-6">
               <h2 className="text-[14px] font-medium tracking-widest text-[#000000] uppercase">Searchable Manuals</h2>
@@ -183,82 +263,6 @@ function AdminConsoleContent({
               )}
             </div>
           </section>
-        </div>
-
-        {/* Right Column: Registration & Jobs */}
-        <div className="flex w-full flex-col gap-6 lg:h-full lg:min-h-0 lg:w-2/3 lg:overflow-y-auto">
-          <div className="animate-expand shrink-0" style={{ animationDelay: "0.1s" }}>
-            <div className="wire-border bg-white">
-              <DocumentRegistrationForm
-                onSubmit={async (values) => {
-                  await runProtectedMutation(async () => {
-                    const sourceFile = values.sourceFile
-                    if (!sourceFile) {
-                      throw new Error("Source PDF is required.")
-                    }
-
-                    const sourceStorageId = await uploadSourceFile(sourceFile)
-                    const documentId = await createDocument({
-                      language: values.language,
-                      productName: values.productName,
-                      sessionToken,
-                      sourceStorageId,
-                      title: values.title,
-                      vendorName: values.vendorName,
-                      version: values.version
-                    })
-                    await enqueue({
-                      documentId,
-                      sessionToken,
-                      sourceFileName: sourceFile.name,
-                      sourceMimeType: sourceFile.type || "application/pdf",
-                      sourceStorageId
-                    })
-                  })
-                }}
-              />
-            </div>
-          </div>
-
-          <div className="animate-expand flex min-h-100 flex-col lg:flex-1" style={{ animationDelay: "0.2s" }}>
-            {safeJobs === undefined ? (
-              <section className="wire-border relative flex h-full flex-col overflow-hidden bg-white">
-                <div className="wire-border-b flex shrink-0 items-center justify-between bg-[#FAFAFA] p-6">
-                  <div className="space-y-1">
-                    <h2 className="text-[14px] font-medium tracking-widest text-[#000000] uppercase">Ingestion Flow</h2>
-                  </div>
-                  <span className="wire-border px-3 py-1 font-mono text-[10px] font-medium tracking-widest text-[#000000] uppercase">
-                    Loading...
-                  </span>
-                </div>
-                <div className="min-h-0 flex-1 bg-white p-6">
-                  <div className="crosshatch-bg wire-border h-full w-full animate-pulse" />
-                </div>
-              </section>
-            ) : (
-              <IngestionJobList
-                jobs={safeJobs}
-                onRecover={async (jobId) => {
-                  try {
-                    await runProtectedMutation(() => recoverStuckJob({ jobId, sessionToken }))
-                  } catch (error) {
-                    if (!isAdminSessionError(error)) {
-                      window.alert(error instanceof Error ? error.message : "Unable to recover ingestion job.")
-                    }
-                  }
-                }}
-                onRetry={async (jobId) => {
-                  try {
-                    await runProtectedMutation(() => retryJob({ jobId, sessionToken }))
-                  } catch (error) {
-                    if (!isAdminSessionError(error)) {
-                      window.alert(error instanceof Error ? error.message : "Unable to retry ingestion job.")
-                    }
-                  }
-                }}
-              />
-            )}
-          </div>
         </div>
       </div>
     </AppShell>

@@ -13,10 +13,14 @@ const EXPIRED_MESSAGE = "Admin session expired. Please sign in again."
 
 function AdminSessionLoadingState() {
   return (
-    <section className="wire-border animate-expand relative mx-auto mt-[12vh] flex max-w-115 flex-col bg-white p-8 text-center md:p-10">
+    <section className="wire-border animate-expand relative flex w-full max-w-115 flex-col bg-white p-8 text-center md:p-10">
       <span className="font-mono text-[11px] tracking-[0.2em] text-[#000000] uppercase">Validating admin session...</span>
     </section>
   )
+}
+
+function AdminAuthLayout({ children }: { children: ReactNode }) {
+  return <main className="flex min-h-dvh w-screen items-center justify-center bg-[#FAFAFA] p-6">{children}</main>
 }
 
 export function AdminSessionGate({
@@ -75,33 +79,43 @@ export function AdminSessionGate({
   }, [session, sessionToken, clearSession])
 
   if (sessionToken === undefined) {
-    return <AdminSessionLoadingState />
+    return (
+      <AdminAuthLayout>
+        <AdminSessionLoadingState />
+      </AdminAuthLayout>
+    )
   }
 
   if (!sessionToken) {
     return (
-      <AdminLoginForm
-        error={error}
-        pending={isPending}
-        onSubmit={async (input) => {
-          setError(undefined)
-          setIsPending(true)
-          try {
-            const result = await signIn(input)
-            sessionStorage.setItem(STORAGE_KEY, result.sessionToken)
-            setSessionToken(result.sessionToken)
-          } catch (submitError) {
-            setError(submitError instanceof Error ? submitError.message : "Unable to sign in.")
-          } finally {
-            setIsPending(false)
-          }
-        }}
-      />
+      <AdminAuthLayout>
+        <AdminLoginForm
+          error={error}
+          pending={isPending}
+          onSubmit={async (input) => {
+            setError(undefined)
+            setIsPending(true)
+            try {
+              const result = await signIn(input)
+              sessionStorage.setItem(STORAGE_KEY, result.sessionToken)
+              setSessionToken(result.sessionToken)
+            } catch (submitError) {
+              setError(submitError instanceof Error ? submitError.message : "Unable to sign in.")
+            } finally {
+              setIsPending(false)
+            }
+          }}
+        />
+      </AdminAuthLayout>
     )
   }
 
   if (session === undefined) {
-    return <AdminSessionLoadingState />
+    return (
+      <AdminAuthLayout>
+        <AdminSessionLoadingState />
+      </AdminAuthLayout>
+    )
   }
 
   if (!session) {

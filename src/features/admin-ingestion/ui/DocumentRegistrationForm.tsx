@@ -35,13 +35,13 @@ export default function DocumentRegistrationForm({ onSubmit }: DocumentRegistrat
   const isDisabled = isPending || isSubmitting
 
   return (
-    <section className="relative flex flex-col bg-white">
-      <div className="bg-[#FAFAFA] p-6">
-        <h2 className="mb-2 text-[20px] font-medium tracking-tight text-[#000000] uppercase">Input Manual Data</h2>
+    <section className="relative flex flex-1 flex-col bg-white">
+      <div className="wire-border-b shrink-0 bg-[#FAFAFA] p-6">
+        <h2 className="text-[14px] font-medium tracking-widest text-[#000000] uppercase">Input Manual Data</h2>
       </div>
 
       <form
-        className="flex flex-col bg-white"
+        className="flex flex-1 flex-col bg-white p-6"
         onSubmit={async (event) => {
           event.preventDefault()
 
@@ -84,7 +84,7 @@ export default function DocumentRegistrationForm({ onSubmit }: DocumentRegistrat
           }
         }}
       >
-        <div className="flex flex-col gap-8 p-6 md:p-8">
+        <div className="flex flex-1 flex-col gap-6">
           <div className="grid gap-6 md:grid-cols-2">
             <label className="flex flex-col gap-3">
               <span className="font-mono text-[11px] tracking-widest text-[#000000] uppercase">Manufacturer</span>
@@ -163,7 +163,7 @@ export default function DocumentRegistrationForm({ onSubmit }: DocumentRegistrat
           </label>
 
           {error ? (
-            <div className="wire-border relative flex items-start gap-4 overflow-hidden bg-white p-4 font-mono text-[13px] text-[#000000]">
+            <div className="wire-border relative flex items-start gap-6 overflow-hidden bg-white p-6 font-mono text-[13px] text-[#000000]">
               <div className="diagonal-bg pointer-events-none absolute inset-0 opacity-20"></div>
               <span className="relative z-10 shrink-0 bg-[#000000] px-2 py-0.5 text-[10px] tracking-widest text-white uppercase">
                 ERR
@@ -173,7 +173,7 @@ export default function DocumentRegistrationForm({ onSubmit }: DocumentRegistrat
           ) : null}
         </div>
 
-        <div className="mt-4 flex flex-col justify-end gap-6 pt-6 sm:flex-row sm:items-center md:pt-8">
+        <div className="mt-auto flex flex-col justify-end gap-6 pt-6 sm:flex-row sm:items-center">
           <button
             className="wire-border w-full bg-[#000000] px-8 py-4 text-[12px] font-medium tracking-[0.2em] text-white uppercase transition-colors hover:bg-white hover:text-[#000000] active:scale-[0.98] disabled:pointer-events-none disabled:bg-[#FAFAFA] disabled:text-[#999999] sm:w-auto"
             disabled={isDisabled}

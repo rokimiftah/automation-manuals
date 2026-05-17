@@ -13,7 +13,7 @@ export function AdminLoginForm({
   const [password, setPassword] = useState("")
 
   return (
-    <section className="wire-border animate-expand relative mx-auto mt-[12vh] flex max-w-115 flex-col bg-white">
+    <section className="wire-border animate-expand relative flex w-full max-w-115 flex-col bg-white">
       <form
         className="flex flex-col gap-8 bg-white p-8 md:p-10"
         onSubmit={async (event) => {

@@ -12,6 +12,18 @@
     border-radius: 0; /* Absolute rigidity */
   }
 
+  /* Force pointer cursor globally */
+  button,
+  a {
+    cursor: pointer;
+  }
+
+  button:disabled,
+  a[aria-disabled="true"],
+  a[data-disabled="true"] {
+    cursor: not-allowed;
+  }
+
   /* Invisible scrollbar to maintain absolute minimalism */
   ::-webkit-scrollbar {
     width: 0px;

@@ -428,13 +428,6 @@ export const claimSearchAccess = internalMutation({
       }
     }
 
-    if (args.sessionId && sessionRequestCount >= SESSION_SEARCH_REQUEST_LIMIT) {
-      return {
-        allowed: false,
-        retryAfterMs
-      }
-    }
-
     const nextGlobalRequestCount = globalRequestCount + 1
 
     if (!state) {
@@ -452,6 +445,13 @@ export const claimSearchAccess = internalMutation({
         globalRequestCount: nextGlobalRequestCount,
         windowStart
       })
+    }
+
+    if (args.sessionId && sessionRequestCount >= SESSION_SEARCH_REQUEST_LIMIT) {
+      return {
+        allowed: false,
+        retryAfterMs
+      }
     }
 
     if (args.sessionId && session) {
@@ -555,21 +555,21 @@ export const ask = action({
       }
     }
 
-    const access = await ctx.runMutation(internal.search.claimSearchAccess, {
-      ...(sessionId === undefined ? {} : { sessionId })
-    })
-    if (!access.allowed) {
-      throw new ConvexError(
-        `Too many search requests. Please wait ${Math.ceil((access.retryAfterMs ?? SEARCH_RATE_WINDOW_MS) / 1000)} seconds and try again.`
-      )
-    }
-
     if (!sessionId) {
       const session = await ctx.runMutation(internal.chats.ensureSession, {
         title: question.slice(0, 80)
       })
       sessionId = session.sessionId
       sessionAccessToken = session.sessionAccessToken
+    }
+
+    const access = await ctx.runMutation(internal.search.claimSearchAccess, {
+      sessionId
+    })
+    if (!access.allowed) {
+      throw new ConvexError(
+        `Too many search requests. Please wait ${Math.ceil((access.retryAfterMs ?? SEARCH_RATE_WINDOW_MS) / 1000)} seconds and try again.`
+      )
     }
 
     if (!sessionId || !sessionAccessToken) {

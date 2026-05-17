@@ -61,8 +61,8 @@ describe("ask", () => {
     const runQuery = vi.fn().mockResolvedValueOnce([]).mockResolvedValueOnce([]).mockResolvedValueOnce(exactPage([]))
     const runMutation = vi
       .fn()
-      .mockResolvedValueOnce({ allowed: true })
       .mockResolvedValueOnce({ sessionAccessToken: "access-token-1", sessionId: "chatSessions_1" })
+      .mockResolvedValueOnce({ allowed: true })
       .mockResolvedValueOnce("chatMessages_1")
       .mockResolvedValueOnce("chatMessages_2")
     const vectorSearch = vi.fn().mockResolvedValue([])
@@ -79,7 +79,7 @@ describe("ask", () => {
       }
     )
 
-    expect(runMutation).toHaveBeenNthCalledWith(2, expect.anything(), {
+    expect(runMutation).toHaveBeenNthCalledWith(1, expect.anything(), {
       title: "Where should the module go?"
     })
     expect(packet.sessionId).toBe("chatSessions_1")
@@ -88,7 +88,10 @@ describe("ask", () => {
 
   it("fails closed before provider calls when the public search rate limit is exceeded", async () => {
     const runQuery = vi.fn()
-    const runMutation = vi.fn().mockResolvedValueOnce({ allowed: false, retryAfterMs: 15_000 })
+    const runMutation = vi
+      .fn()
+      .mockResolvedValueOnce({ sessionAccessToken: "access-token-1", sessionId: "chatSessions_1" })
+      .mockResolvedValueOnce({ allowed: false, retryAfterMs: 15_000 })
     const vectorSearch = vi.fn().mockResolvedValue([])
 
     await expect(

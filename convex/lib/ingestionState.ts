@@ -7,6 +7,7 @@ export type IngestionStatus =
   | "downloading_result"
   | "normalizing"
   | "embedding"
+  | "embedding_waiting_rate_limit"
   | "ready"
   | "failed"
 
@@ -18,7 +19,8 @@ const ALLOWED_NEXT: Record<IngestionStatus, IngestionStatus[]> = {
   processing_provider: ["downloading_result", "failed"],
   downloading_result: ["normalizing", "failed"],
   normalizing: ["embedding", "failed"],
-  embedding: ["ready", "failed"],
+  embedding: ["embedding_waiting_rate_limit", "ready", "failed"],
+  embedding_waiting_rate_limit: ["embedding", "failed"],
   ready: [],
   failed: ["queued"]
 }

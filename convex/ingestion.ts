@@ -82,6 +82,8 @@ type RecoverableIngestionJob = RetryableIngestionJob & {
 
 const STUCK_JOB_RECOVERY_WINDOW_MS = 15 * 60 * 1000
 const STUCK_JOB_RECOVERY_ERROR_MESSAGE = "Admin recovery marked this stuck ingestion job as failed."
+const FINALIZATION_WATCHDOG_DELAY_MS = 5 * 60 * 1000
+const PROVIDER_RECONCILE_INITIAL_DELAY_MS = 5_000
 
 function compareJobRecency(left: RetryableIngestionJob, right: RetryableIngestionJob) {
   if (left._creationTime !== right._creationTime) {
@@ -512,6 +514,9 @@ export const recordProviderSubmission = internalMutation({
       status: "waiting_provider",
       updatedAt: Date.now()
     })
+    await ctx.scheduler.runAfter(PROVIDER_RECONCILE_INITIAL_DELAY_MS, internal.ingestion.reconcileProviderJob, {
+      jobId: args.jobId
+    })
     return null
   }
 })
@@ -526,6 +531,9 @@ export const recordProviderProgress = internalMutation({
     providerResultUrl: v.optional(v.string()),
     providerState: v.string(),
     providerTraceId: v.optional(v.string()),
+    finalizeAfterMs: v.optional(v.number()),
+    finalizeDocumentId: v.optional(v.id("documents")),
+    reconcileAfterMs: v.optional(v.number()),
     status: ingestionStatusValidator
   },
   returns: v.null(),
@@ -541,6 +549,18 @@ export const recordProviderProgress = internalMutation({
 
     const now = Date.now()
     await ctx.db.patch("ingestionJobs", args.jobId, buildProviderProgressPatch(args, now))
+    if (args.finalizeDocumentId !== undefined) {
+      await ctx.scheduler.runAfter(Math.max(0, args.finalizeAfterMs ?? 0), internal.ingestionNode.finalizeProviderResult, {
+        documentId: args.finalizeDocumentId,
+        jobId: args.jobId
+      })
+    }
+
+    if (args.reconcileAfterMs !== undefined) {
+      await ctx.scheduler.runAfter(Math.max(0, args.reconcileAfterMs), internal.ingestion.reconcileProviderJob, {
+        jobId: args.jobId
+      })
+    }
     return null
   }
 })
@@ -575,6 +595,10 @@ export const claimProviderFinalization = internalMutation({
     await ctx.db.patch("ingestionJobs", args.jobId, {
       status: "normalizing",
       updatedAt: Date.now()
+    })
+    await ctx.scheduler.runAfter(FINALIZATION_WATCHDOG_DELAY_MS, internal.ingestionNode.finalizeProviderResult, {
+      documentId: job.documentId,
+      jobId: args.jobId
     })
     return true
   }
@@ -628,20 +652,15 @@ export const reconcileProviderJob = internalAction({
         ...(result.resultUrl === undefined ? {} : { providerResultUrl: result.resultUrl }),
         providerState: result.state,
         ...(providerResult.traceId === undefined ? {} : { providerTraceId: providerResult.traceId }),
+        ...(nextStatus === "downloading_result"
+          ? { finalizeDocumentId: job.documentId, reconcileAfterMs: selectBackoffDelay(nextStatus) }
+          : { reconcileAfterMs: selectBackoffDelay(nextStatus) }),
         status: nextStatus
       })
 
       if (nextStatus === "downloading_result") {
-        await ctx.scheduler.runAfter(0, internal.ingestionNode.finalizeProviderResult, {
-          documentId: job.documentId,
-          jobId: args.jobId
-        })
         return null
       }
-
-      await ctx.scheduler.runAfter(selectBackoffDelay(nextStatus), internal.ingestion.reconcileProviderJob, {
-        jobId: args.jobId
-      })
       return null
     } catch (error) {
       const errorMessage = error instanceof Error ? error.message : "Unknown provider reconciliation error"
@@ -652,6 +671,7 @@ export const reconcileProviderJob = internalAction({
         providerErrorMessage: errorMessage,
         providerReconcileFailureCount: decision.nextFailureCount,
         providerState: job.providerState || "pending",
+        ...(decision.shouldFail ? {} : { reconcileAfterMs: selectBackoffDelay(job.status) }),
         status: job.status
       })
 
@@ -664,9 +684,6 @@ export const reconcileProviderJob = internalAction({
         return null
       }
 
-      await ctx.scheduler.runAfter(selectBackoffDelay(job.status), internal.ingestion.reconcileProviderJob, {
-        jobId: args.jobId
-      })
       return null
     }
   }

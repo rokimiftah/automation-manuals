@@ -17,6 +17,7 @@ export const ingestionStatusValidator = v.union(
   v.literal("downloading_result"),
   v.literal("normalizing"),
   v.literal("embedding"),
+  v.literal("embedding_waiting_rate_limit"),
   v.literal("ready"),
   v.literal("failed")
 )

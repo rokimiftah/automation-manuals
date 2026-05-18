@@ -125,6 +125,10 @@ export default defineSchema({
     vendorSlug: v.string(),
     productSlug: v.string(),
     chunkType: chunkTypeValidator,
+    embeddingProvider: v.literal("jina"),
+    embeddingModel: v.string(),
+    embeddingTask: v.literal("retrieval.passage"),
+    embeddingDimensions: v.number(),
     isCurrent: v.boolean(),
     embedding: v.array(v.float64())
   })
@@ -135,6 +139,31 @@ export default defineSchema({
       dimensions: 1024,
       filterFields: ["documentCurrentKey", "documentId", "vendorSlug", "productSlug", "chunkType", "isCurrent"]
     }),
+  embeddingBatches: defineTable({
+    jobId: v.id("ingestionJobs"),
+    documentId: v.id("documents"),
+    batchIndex: v.number(),
+    chunkIds: v.array(v.id("chunks")),
+    status: v.union(
+      v.literal("pending"),
+      v.literal("processing"),
+      v.literal("rate_limited"),
+      v.literal("retrying"),
+      v.literal("completed"),
+      v.literal("failed")
+    ),
+    attemptCount: v.number(),
+    finalizedAt: v.optional(v.number()),
+    nextRunAt: v.optional(v.number()),
+    lastErrorMessage: v.optional(v.string()),
+    lastProviderKeyId: v.optional(v.string()),
+    createdAt: v.number(),
+    updatedAt: v.number()
+  })
+    .index("by_job", ["jobId"])
+    .index("by_document", ["documentId"])
+    .index("by_job_and_status", ["jobId", "status"])
+    .index("by_next_run", ["nextRunAt"]),
   chatSessions: defineTable({
     accessTokenHash: v.optional(v.string()),
     title: v.string(),
@@ -185,5 +214,21 @@ export default defineSchema({
   searchRateState: defineTable({
     globalRequestCount: v.number(),
     windowStart: v.number()
+  }),
+  providerApiKeyStates: defineTable({
+    provider: v.union(v.literal("jina"), v.literal("inception")),
+    keyId: v.string(),
+    windowStart: v.number(),
+    requestCount: v.number(),
+    inputTokenCount: v.number(),
+    outputTokenCount: v.number(),
+    inFlightCount: v.number(),
+    cooldownUntil: v.optional(v.number()),
+    disabledAt: v.optional(v.number()),
+    disabledReason: v.optional(v.string()),
+    lastRateLimitedAt: v.optional(v.number()),
+    updatedAt: v.number()
   })
+    .index("by_provider", ["provider"])
+    .index("by_provider_and_key", ["provider", "keyId"])
 })

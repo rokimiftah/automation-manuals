@@ -8,10 +8,9 @@ import { internal } from "./_generated/api"
 import { internalAction } from "./_generated/server"
 import { decodeMineruArchiveJson } from "./ingestion"
 import { getProviderEnv } from "./lib/env"
-import { buildDocumentPayload } from "./lib/ingestDocument"
+import { buildNormalizedDocumentPayload } from "./lib/ingestDocument"
 import { submitMineruBatch } from "./lib/mineru"
 import { normalizeMineruDocument } from "./lib/mineruResult"
-import { embedTexts, ocrPdfPage } from "./lib/mistral"
 import { getProviderReconcileDecision } from "./lib/providerRetry"
 
 const RESULT_DOWNLOAD_RETRY_DELAY_MS = 30_000
@@ -103,10 +102,6 @@ export const runDocumentJob = internalAction({
       })
       submissionRecorded = true
 
-      await ctx.scheduler.runAfter(5_000, internal.ingestion.reconcileProviderJob, {
-        jobId: args.jobId
-      })
-
       return null
     } catch (error) {
       const errorMessage = error instanceof Error ? error.message : "Unknown ingestion error"
@@ -138,7 +133,7 @@ export const finalizeProviderResult = internalAction({
   returns: v.null(),
   handler: async (ctx, args) => {
     const job = await ctx.runQuery(internal.ingestion.getJobById, { jobId: args.jobId })
-    if (!job || job.status !== "downloading_result") {
+    if (!job || (job.status !== "downloading_result" && job.status !== "normalizing")) {
       return null
     }
 
@@ -163,10 +158,14 @@ export const finalizeProviderResult = internalAction({
       const decision = getProviderReconcileDecision(job.providerReconcileFailureCount ?? 0)
 
       await ctx.runMutation(internal.ingestion.recordProviderProgress, {
+        ...(job.status === "normalizing"
+          ? { finalizeAfterMs: RESULT_DOWNLOAD_RETRY_DELAY_MS, finalizeDocumentId: args.documentId }
+          : {}),
         jobId: args.jobId,
         providerErrorMessage: errorMessage,
         providerReconcileFailureCount: decision.nextFailureCount,
         providerState: job.providerState || "done",
+        ...(decision.shouldFail || job.status === "normalizing" ? {} : { reconcileAfterMs: RESULT_DOWNLOAD_RETRY_DELAY_MS }),
         status: job.status
       })
 
@@ -179,16 +178,6 @@ export const finalizeProviderResult = internalAction({
         return null
       }
 
-      await ctx.scheduler.runAfter(RESULT_DOWNLOAD_RETRY_DELAY_MS, internal.ingestion.reconcileProviderJob, {
-        jobId: args.jobId
-      })
-      return null
-    }
-
-    const claimed = await ctx.runMutation(internal.ingestion.claimProviderFinalization, {
-      jobId: args.jobId
-    })
-    if (!claimed) {
       return null
     }
 
@@ -205,28 +194,20 @@ export const finalizeProviderResult = internalAction({
     try {
       const structuredJson = decodeMineruArchiveJson(archive)
       const normalized = normalizeMineruDocument(structuredJson)
-      const sourceUrl = await ctx.storage.getUrl(job.sourceStorageId)
-      if (!sourceUrl) {
-        throw new Error("Source file is no longer available")
+      const payload = buildNormalizedDocumentPayload(normalized.pages)
+
+      if (job.status === "downloading_result") {
+        const claimed = await ctx.runMutation(internal.ingestion.claimProviderFinalization, {
+          jobId: args.jobId
+        })
+        if (!claimed) {
+          return null
+        }
       }
 
-      const payload = await buildDocumentPayload({
-        embed: (inputs) => embedTexts(inputs),
-        onBeforeEmbed: async () => {
-          await ctx.runMutation(internal.ingestion.updateJobStatus, {
-            jobId: args.jobId,
-            status: "embedding"
-          })
-        },
-        ocr: (documentUrl, pageNumber) => ocrPdfPage(documentUrl, pageNumber),
-        parsedPages: normalized.pages,
-        sourceUrl
-      })
-
-      await ctx.runMutation(internal.documents.replaceParsedContent, {
+      await ctx.runMutation(internal.documents.stageParsedContent, {
         chunks: payload.chunks,
         documentId: args.documentId,
-        embeddings: payload.embeddings,
         jobId: args.jobId,
         pages: payload.pages,
         sourceFileName: job.sourceFileName,

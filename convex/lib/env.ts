@@ -8,12 +8,26 @@ type ProviderEnvInput = Partial<
     | "MINERU_DAILY_FILE_LIMIT"
     | "MINERU_SUBMIT_RATE_PER_MINUTE"
     | "MINERU_RESULT_QUERY_RATE_PER_MINUTE"
-    | "MISTRAL_API_KEY"
-    | "MISTRAL_CHAT_MODEL"
-    | "MISTRAL_EMBED_MODEL",
+    | "JINA_API_KEYS"
+    | "JINA_EMBED_MODEL"
+    | "JINA_RPM_PER_KEY"
+    | "JINA_TPM_PER_KEY"
+    | "JINA_MAX_CONCURRENT_PER_KEY"
+    | "INCEPTION_API_KEYS"
+    | "INCEPTION_BASE_URL"
+    | "INCEPTION_CHAT_MODEL"
+    | "INCEPTION_MAX_TOKENS"
+    | "INCEPTION_REASONING_EFFORT"
+    | "INCEPTION_TEMPERATURE"
+    | "INCEPTION_RPM_PER_KEY"
+    | "INCEPTION_INPUT_TPM_PER_KEY"
+    | "INCEPTION_OUTPUT_TPM_PER_KEY"
+    | "INCEPTION_MAX_CONCURRENT_PER_KEY",
     string | undefined
   >
 >
+
+type InceptionReasoningEffort = "instant" | "low" | "medium" | "high"
 
 export type ProviderEnv = {
   mineruApiToken: string
@@ -24,9 +38,21 @@ export type ProviderEnv = {
   mineruDailyFileLimit: number
   mineruSubmitRatePerMinute: number
   mineruResultQueryRatePerMinute: number
-  mistralApiKey: string
-  mistralChatModel: string
-  mistralEmbedModel: string
+  jinaApiKeys: string[]
+  jinaEmbedModel: string
+  jinaRpmPerKey: number
+  jinaTpmPerKey: number
+  jinaMaxConcurrentPerKey: number
+  inceptionApiKeys: string[]
+  inceptionBaseUrl: string
+  inceptionChatModel: string
+  inceptionMaxTokens: number
+  inceptionReasoningEffort: InceptionReasoningEffort
+  inceptionTemperature: number
+  inceptionRpmPerKey: number
+  inceptionInputTpmPerKey: number
+  inceptionOutputTpmPerKey: number
+  inceptionMaxConcurrentPerKey: number
 }
 
 function requireEnv(name: keyof ProviderEnvInput, value: string | undefined) {
@@ -43,6 +69,25 @@ function optionalEnv(value: string | undefined) {
   return trimmed ? trimmed : undefined
 }
 
+function stringEnv(value: string | undefined, fallback: string) {
+  const trimmed = value?.trim()
+  return trimmed || fallback
+}
+
+function keyListEnv(name: keyof ProviderEnvInput, value: string | undefined) {
+  const keys =
+    value
+      ?.split(",")
+      .map((key) => key.trim())
+      .filter(Boolean) ?? []
+
+  if (keys.length === 0) {
+    throw new Error(`${name} is required`)
+  }
+
+  return keys
+}
+
 function numberEnv(value: string | undefined, fallback: number) {
   const trimmed = value?.trim()
   if (!trimmed) {
@@ -51,6 +96,25 @@ function numberEnv(value: string | undefined, fallback: number) {
 
   const parsed = Number(trimmed)
   return Number.isFinite(parsed) ? parsed : fallback
+}
+
+function inceptionReasoningEffortEnv(value: string | undefined): InceptionReasoningEffort {
+  const trimmed = value?.trim()
+
+  switch (trimmed) {
+    case "instant":
+    case "low":
+    case "medium":
+    case "high":
+      return trimmed
+    default:
+      return "medium"
+  }
+}
+
+function inceptionTemperatureEnv(value: string | undefined) {
+  const temperature = numberEnv(value, 0.75)
+  return temperature >= 0.5 && temperature <= 1 ? temperature : 0.75
 }
 
 export function getProviderEnv(input: ProviderEnvInput = process.env) {
@@ -73,8 +137,20 @@ export function getProviderEnv(input: ProviderEnvInput = process.env) {
     mineruDailyFileLimit: numberEnv(input.MINERU_DAILY_FILE_LIMIT, 5000),
     mineruSubmitRatePerMinute: numberEnv(input.MINERU_SUBMIT_RATE_PER_MINUTE, 50),
     mineruResultQueryRatePerMinute: numberEnv(input.MINERU_RESULT_QUERY_RATE_PER_MINUTE, 1000),
-    mistralApiKey: requireEnv("MISTRAL_API_KEY", input.MISTRAL_API_KEY),
-    mistralChatModel: input.MISTRAL_CHAT_MODEL?.trim() || "mistral-small-latest",
-    mistralEmbedModel: input.MISTRAL_EMBED_MODEL?.trim() || "mistral-embed"
+    jinaApiKeys: keyListEnv("JINA_API_KEYS", input.JINA_API_KEYS),
+    jinaEmbedModel: stringEnv(input.JINA_EMBED_MODEL, "jina-embeddings-v5-text-small"),
+    jinaRpmPerKey: numberEnv(input.JINA_RPM_PER_KEY, 90),
+    jinaTpmPerKey: numberEnv(input.JINA_TPM_PER_KEY, 90000),
+    jinaMaxConcurrentPerKey: numberEnv(input.JINA_MAX_CONCURRENT_PER_KEY, 2),
+    inceptionApiKeys: keyListEnv("INCEPTION_API_KEYS", input.INCEPTION_API_KEYS),
+    inceptionBaseUrl: stringEnv(input.INCEPTION_BASE_URL, "https://api.inceptionlabs.ai/v1"),
+    inceptionChatModel: stringEnv(input.INCEPTION_CHAT_MODEL, "mercury-2"),
+    inceptionMaxTokens: numberEnv(input.INCEPTION_MAX_TOKENS, 8192),
+    inceptionReasoningEffort: inceptionReasoningEffortEnv(input.INCEPTION_REASONING_EFFORT),
+    inceptionTemperature: inceptionTemperatureEnv(input.INCEPTION_TEMPERATURE),
+    inceptionRpmPerKey: numberEnv(input.INCEPTION_RPM_PER_KEY, 90),
+    inceptionInputTpmPerKey: numberEnv(input.INCEPTION_INPUT_TPM_PER_KEY, 90000),
+    inceptionOutputTpmPerKey: numberEnv(input.INCEPTION_OUTPUT_TPM_PER_KEY, 9000),
+    inceptionMaxConcurrentPerKey: numberEnv(input.INCEPTION_MAX_CONCURRENT_PER_KEY, 1)
   } satisfies ProviderEnv
 }

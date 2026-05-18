@@ -1,11 +1,14 @@
 import { beforeEach, describe, expect, it, vi } from "vitest"
 
 import {
+  claimProviderFinalization,
   isRecoverableStuckJob,
   isRetryableJob,
   listJobs,
   mineruCallback,
   prepareMineruUpload,
+  recordProviderProgress,
+  recordProviderSubmission,
   recoverStuckJob,
   retry,
   selectMineruArchiveJson
@@ -67,6 +70,56 @@ const retryHandler = retry as typeof retry & {
 
 const recoverStuckJobHandler = recoverStuckJob as typeof recoverStuckJob & {
   _handler: (ctx: unknown, args: { jobId: never; sessionToken: string }) => Promise<null>
+}
+
+const recordProviderSubmissionHandler = recordProviderSubmission as typeof recordProviderSubmission & {
+  _handler: (
+    ctx: unknown,
+    args: {
+      jobId: never
+      priorityQuotaBucket: "priority_expected" | "standard_possible" | "unknown"
+      providerBatchId: string
+      providerTraceId?: string
+      sourceFileName: string
+      sourceMimeType: string
+      sourceStorageId: never
+    }
+  ) => Promise<null>
+}
+
+const recordProviderProgressHandler = recordProviderProgress as typeof recordProviderProgress & {
+  _handler: (
+    ctx: unknown,
+    args: {
+      finalizeAfterMs?: number
+      finalizeDocumentId?: never
+      jobId: never
+      providerDataId?: string
+      providerErrorCode?: number
+      providerErrorMessage?: string
+      providerReconcileFailureCount?: number
+      providerResultUrl?: string
+      providerState: string
+      providerTraceId?: string
+      reconcileAfterMs?: number
+      status:
+        | "queued"
+        | "downloading"
+        | "submitting"
+        | "waiting_provider"
+        | "processing_provider"
+        | "downloading_result"
+        | "normalizing"
+        | "embedding"
+        | "embedding_waiting_rate_limit"
+        | "ready"
+        | "failed"
+    }
+  ) => Promise<null>
+}
+
+const claimProviderFinalizationHandler = claimProviderFinalization as typeof claimProviderFinalization & {
+  _handler: (ctx: unknown, args: { jobId: never }) => Promise<boolean>
 }
 
 const mineruCallbackHandler = mineruCallback as typeof mineruCallback & {
@@ -293,6 +346,157 @@ describe("isRecoverableStuckJob", () => {
   })
 })
 
+describe("recordProviderSubmission", () => {
+  it("atomically schedules provider reconciliation with the submitted job update", async () => {
+    const patch = vi.fn().mockResolvedValue(undefined)
+    const runAfter = vi.fn().mockResolvedValue("_scheduled_functions_1")
+
+    await expect(
+      recordProviderSubmissionHandler._handler(
+        {
+          db: {
+            get: vi.fn().mockResolvedValue({
+              _id: "ingestionJobs_1",
+              status: "submitting"
+            }),
+            patch
+          },
+          scheduler: {
+            runAfter
+          }
+        } as never,
+        {
+          jobId: "ingestionJobs_1" as never,
+          priorityQuotaBucket: "unknown",
+          providerBatchId: "mineru_batch_1",
+          providerTraceId: "trace-1",
+          sourceFileName: "manual.pdf",
+          sourceMimeType: "application/pdf",
+          sourceStorageId: "_storage_1" as never
+        }
+      )
+    ).resolves.toBeNull()
+
+    expect(patch).toHaveBeenCalledWith(
+      "ingestionJobs",
+      "ingestionJobs_1",
+      expect.objectContaining({
+        providerBatchId: "mineru_batch_1",
+        status: "waiting_provider"
+      })
+    )
+    expect(runAfter).toHaveBeenCalledWith(5_000, expect.anything(), {
+      jobId: "ingestionJobs_1"
+    })
+  })
+})
+
+describe("claimProviderFinalization", () => {
+  it("atomically claims finalization and schedules a watchdog retry", async () => {
+    const patch = vi.fn().mockResolvedValue(undefined)
+    const runAfter = vi.fn().mockResolvedValue("_scheduled_functions_1")
+
+    await expect(
+      claimProviderFinalizationHandler._handler(
+        {
+          db: {
+            get: vi.fn().mockResolvedValue({
+              _id: "ingestionJobs_1",
+              documentId: "documents_1",
+              status: "downloading_result"
+            }),
+            patch
+          },
+          scheduler: { runAfter }
+        } as never,
+        { jobId: "ingestionJobs_1" as never }
+      )
+    ).resolves.toBe(true)
+
+    expect(patch).toHaveBeenCalledWith(
+      "ingestionJobs",
+      "ingestionJobs_1",
+      expect.objectContaining({
+        status: "normalizing"
+      })
+    )
+    expect(runAfter).toHaveBeenCalledWith(5 * 60 * 1000, expect.anything(), {
+      documentId: "documents_1",
+      jobId: "ingestionJobs_1"
+    })
+  })
+})
+
+describe("recordProviderProgress", () => {
+  it("atomically schedules finalization when provider progress reaches result download", async () => {
+    const patch = vi.fn().mockResolvedValue(undefined)
+    const runAfter = vi.fn().mockResolvedValue("_scheduled_functions_1")
+
+    await expect(
+      recordProviderProgressHandler._handler(
+        {
+          db: {
+            get: vi.fn().mockResolvedValue({
+              _id: "ingestionJobs_1",
+              status: "processing_provider"
+            }),
+            patch
+          },
+          scheduler: {
+            runAfter
+          }
+        } as never,
+        {
+          finalizeDocumentId: "documents_1" as never,
+          jobId: "ingestionJobs_1" as never,
+          providerResultUrl: "https://mineru.example/result.zip",
+          providerState: "done",
+          status: "downloading_result"
+        }
+      )
+    ).resolves.toBeNull()
+
+    expect(runAfter).toHaveBeenCalledWith(0, expect.anything(), {
+      documentId: "documents_1",
+      jobId: "ingestionJobs_1"
+    })
+  })
+
+  it("atomically schedules reconciliation retries with recoverable progress updates", async () => {
+    const patch = vi.fn().mockResolvedValue(undefined)
+    const runAfter = vi.fn().mockResolvedValue("_scheduled_functions_1")
+
+    await expect(
+      recordProviderProgressHandler._handler(
+        {
+          db: {
+            get: vi.fn().mockResolvedValue({
+              _id: "ingestionJobs_1",
+              status: "downloading_result"
+            }),
+            patch
+          },
+          scheduler: {
+            runAfter
+          }
+        } as never,
+        {
+          jobId: "ingestionJobs_1" as never,
+          providerErrorMessage: "Failed to download MinerU result: 503 Service Unavailable",
+          providerReconcileFailureCount: 1,
+          providerState: "done",
+          reconcileAfterMs: 30_000,
+          status: "downloading_result"
+        }
+      )
+    ).resolves.toBeNull()
+
+    expect(runAfter).toHaveBeenCalledWith(30_000, expect.anything(), {
+      jobId: "ingestionJobs_1"
+    })
+  })
+})
+
 describe("listJobs", () => {
   beforeEach(() => {
     requireAdminQuerySession.mockReset()
@@ -386,9 +590,6 @@ describe("prepareMineruUpload", () => {
     submitMineruBatch.mockReset()
     getProviderEnv.mockReturnValue({
       mineruApiToken: "mineru-token",
-      mistralApiKey: "mistral-token",
-      mistralChatModel: "mistral-small-latest",
-      mistralEmbedModel: "mistral-embed",
       mineruDailyPriorityPages: 1000,
       mineruDailyFileLimit: 5000,
       mineruSubmitRatePerMinute: 50,
@@ -678,10 +879,7 @@ describe("mineruCallback", () => {
       mineruDailyFileLimit: 5000,
       mineruDailyPriorityPages: 1000,
       mineruResultQueryRatePerMinute: 1000,
-      mineruSubmitRatePerMinute: 50,
-      mistralApiKey: "mistral-test-key",
-      mistralChatModel: "mistral-small-latest",
-      mistralEmbedModel: "mistral-embed"
+      mineruSubmitRatePerMinute: 50
     })
 
     const content = JSON.stringify({ batch_id: 123 })

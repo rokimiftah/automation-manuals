@@ -1,20 +1,35 @@
+import { getFunctionName } from "convex/server"
+import { ConvexError } from "convex/values"
+
 import { beforeEach, describe, expect, it, vi } from "vitest"
 
-import { ask } from "./search"
+const buildProviderKeyPool = vi.fn((provider: "jina" | "inception", rawKeys: string[]) => {
+  return rawKeys.map((secret, index) => ({ id: `${provider}:${index + 1}`, secret: secret.trim() }))
+})
+const embedSearchQuery = vi.fn()
+const generateGroundedAnswer = vi.fn()
+const getProviderEnv = vi.fn()
+const resolveProviderKey = vi.fn((pool: Array<{ id: string; secret: string }>, keyId: string) => {
+  const key = pool.find((item) => item.id === keyId)
+  if (!key) {
+    throw new Error(`Provider key ${keyId} is not configured`)
+  }
 
-const { embedTexts, generateGroundedAnswer } = vi.hoisted(() => ({
-  embedTexts: vi.fn(),
-  generateGroundedAnswer: vi.fn()
+  return key.secret
+})
+
+vi.mock("./lib/env", () => ({ getProviderEnv }))
+
+vi.mock("./lib/providerKeys", () => ({ buildProviderKeyPool, resolveProviderKey }))
+
+vi.mock("./lib/jina", () => ({
+  embedSearchQuery,
+  JINA_EMBEDDING_PROVIDER: "jina"
 }))
 
-vi.mock("./lib/mistral", async () => {
-  const actual = await vi.importActual<typeof import("./lib/mistral")>("./lib/mistral")
-  return {
-    ...actual,
-    embedTexts,
-    generateGroundedAnswer
-  }
-})
+vi.mock("./lib/inception", () => ({ generateGroundedAnswer }))
+
+const { ask } = await import("./search")
 
 const askHandler = ask as typeof ask & {
   _handler: (
@@ -44,12 +59,91 @@ function exactPage<T>(page: T[], overrides?: Partial<{ continueCursor: string; i
   }
 }
 
+const defaultProviderEnv = {
+  inceptionApiKeys: ["mercury-test-key-1", "mercury-test-key-2"],
+  inceptionBaseUrl: "https://api.inception.test/v1",
+  inceptionChatModel: "mercury-test-model",
+  inceptionInputTpmPerKey: 90_000,
+  inceptionMaxConcurrentPerKey: 1,
+  inceptionMaxTokens: 8192,
+  inceptionOutputTpmPerKey: 9_000,
+  inceptionReasoningEffort: "low" as const,
+  inceptionRpmPerKey: 90,
+  inceptionTemperature: 0.6,
+  jinaApiKeys: ["jina-test-key-1", "jina-test-key-2"],
+  jinaEmbedModel: "jina-test-model",
+  jinaMaxConcurrentPerKey: 2,
+  jinaRpmPerKey: 90,
+  jinaTpmPerKey: 90_000,
+  mineruApiToken: "mineru-test-token",
+  mineruDailyFileLimit: 5000,
+  mineruDailyPriorityPages: 1000,
+  mineruResultQueryRatePerMinute: 1000,
+  mineruSubmitRatePerMinute: 50
+}
+
+type ProviderReservation = { available: false; retryAfterMs: number } | { available: true; keyId: string }
+
+function createRunMutation(
+  appResults: unknown[],
+  options: {
+    inceptionReservation?: ProviderReservation
+    jinaReservation?: ProviderReservation
+    throwOnProviderSuccessFor?: "inception" | "jina"
+  } = {}
+) {
+  const appResultQueue = [...appResults]
+
+  return vi.fn(async (reference: unknown, args: Record<string, unknown>) => {
+    const functionName = getFunctionName(reference as never)
+
+    if (functionName === "providerRateLimits:reserveProviderKey") {
+      return args.provider === "inception"
+        ? (options.inceptionReservation ?? { available: true, keyId: "inception:1" })
+        : (options.jinaReservation ?? { available: true, keyId: "jina:1" })
+    }
+
+    if (
+      functionName === "providerRateLimits:disableProviderKey" ||
+      functionName === "providerRateLimits:recordProviderRateLimit" ||
+      functionName === "providerRateLimits:recordProviderSuccess" ||
+      functionName === "providerRateLimits:recordProviderTransientFailure"
+    ) {
+      if (functionName === "providerRateLimits:recordProviderSuccess" && args.provider === options.throwOnProviderSuccessFor) {
+        throw new Error("provider accounting write failed")
+      }
+
+      return null
+    }
+
+    return appResultQueue.shift()
+  })
+}
+
+function getErrorMessage(error: unknown) {
+  if (error instanceof ConvexError) {
+    return String(error.data)
+  }
+
+  return error instanceof Error ? error.message : String(error)
+}
+
+function getMutationArgs(runMutation: ReturnType<typeof createRunMutation>, functionName: string) {
+  return runMutation.mock.calls
+    .filter(([reference]) => getFunctionName(reference as never) === functionName)
+    .map(([, args]) => args as Record<string, unknown>)
+}
+
 describe("ask", () => {
   beforeEach(() => {
-    embedTexts.mockReset()
+    buildProviderKeyPool.mockClear()
+    embedSearchQuery.mockReset()
     generateGroundedAnswer.mockReset()
+    getProviderEnv.mockReset()
+    resolveProviderKey.mockClear()
 
-    embedTexts.mockResolvedValue([[0.1, 0.2]])
+    getProviderEnv.mockReturnValue(defaultProviderEnv)
+    embedSearchQuery.mockResolvedValue([0.1, 0.2])
     generateGroundedAnswer.mockResolvedValue({
       answerSteps: ["Check the chassis."],
       answerSummary: "Install the module beside the controller.",
@@ -59,12 +153,12 @@ describe("ask", () => {
 
   it("creates a new session and returns the session access token", async () => {
     const runQuery = vi.fn().mockResolvedValueOnce([]).mockResolvedValueOnce([]).mockResolvedValueOnce(exactPage([]))
-    const runMutation = vi
-      .fn()
-      .mockResolvedValueOnce({ sessionAccessToken: "access-token-1", sessionId: "chatSessions_1" })
-      .mockResolvedValueOnce({ allowed: true })
-      .mockResolvedValueOnce("chatMessages_1")
-      .mockResolvedValueOnce("chatMessages_2")
+    const runMutation = createRunMutation([
+      { sessionAccessToken: "access-token-1", sessionId: "chatSessions_1" },
+      { allowed: true },
+      "chatMessages_1",
+      "chatMessages_2"
+    ])
     const vectorSearch = vi.fn().mockResolvedValue([])
 
     const packet = await askHandler._handler(
@@ -88,10 +182,10 @@ describe("ask", () => {
 
   it("fails closed before provider calls when the public search rate limit is exceeded", async () => {
     const runQuery = vi.fn()
-    const runMutation = vi
-      .fn()
-      .mockResolvedValueOnce({ sessionAccessToken: "access-token-1", sessionId: "chatSessions_1" })
-      .mockResolvedValueOnce({ allowed: false, retryAfterMs: 15_000 })
+    const runMutation = createRunMutation([
+      { sessionAccessToken: "access-token-1", sessionId: "chatSessions_1" },
+      { allowed: false, retryAfterMs: 15_000 }
+    ])
     const vectorSearch = vi.fn().mockResolvedValue([])
 
     await expect(
@@ -108,8 +202,9 @@ describe("ask", () => {
       )
     ).rejects.toThrow(/too many search requests/i)
 
-    expect(embedTexts).not.toHaveBeenCalled()
+    expect(embedSearchQuery).not.toHaveBeenCalled()
     expect(generateGroundedAnswer).not.toHaveBeenCalled()
+    expect(getMutationArgs(runMutation, "providerRateLimits:reserveProviderKey")).toEqual([])
     expect(vectorSearch).not.toHaveBeenCalled()
   })
 
@@ -135,13 +230,13 @@ describe("ask", () => {
       .mockResolvedValueOnce([])
       .mockResolvedValueOnce(exactPage([]))
 
-    const runMutation = vi
-      .fn()
-      .mockResolvedValueOnce({ allowed: true })
-      .mockResolvedValueOnce("chatMessages_1")
-      .mockResolvedValueOnce("chatMessages_2")
-      .mockResolvedValueOnce(null)
-      .mockResolvedValueOnce({ sessionAccessToken: "access-token-2" })
+    const runMutation = createRunMutation(
+      [{ allowed: true }, "chatMessages_1", "chatMessages_2", null, { sessionAccessToken: "access-token-2" }],
+      {
+        inceptionReservation: { available: true, keyId: "inception:2" },
+        jinaReservation: { available: true, keyId: "jina:2" }
+      }
+    )
 
     const vectorSearch = vi.fn().mockResolvedValue([{ _id: "chunkEmbeddings_1" as never, _score: 0.4 }])
 
@@ -163,13 +258,218 @@ describe("ask", () => {
       "chunkEmbeddings",
       "by_embedding",
       expect.objectContaining({
-        limit: 6
+        limit: 6,
+        vector: [0.1, 0.2]
       })
     )
+    expect(embedSearchQuery).toHaveBeenCalledWith("Where should the module go?", {
+      apiKey: "jina-test-key-2",
+      keyId: "jina:2",
+      model: "jina-test-model"
+    })
+    const vectorOptions = vectorSearch.mock.calls[0]?.[2] as {
+      filter: (builder: { eq: (field: string, value: boolean) => void }) => void
+    }
+    const eq = vi.fn()
+    vectorOptions.filter({ eq })
+    expect(eq).toHaveBeenCalledWith("isCurrent", true)
     expect(generateGroundedAnswer).toHaveBeenCalledTimes(1)
-    expect(runMutation).toHaveBeenCalledTimes(5)
+    expect(generateGroundedAnswer).toHaveBeenCalledWith(
+      "Where should the module go?",
+      expect.any(String),
+      expect.objectContaining({ code: "en" }),
+      {
+        apiKey: "mercury-test-key-2",
+        baseUrl: "https://api.inception.test/v1",
+        keyId: "inception:2",
+        maxTokens: 8192,
+        model: "mercury-test-model",
+        reasoningEffort: "low",
+        temperature: 0.6
+      }
+    )
+    expect(getMutationArgs(runMutation, "chats:appendMessage")).toHaveLength(2)
     expect(packet.answerabilityStatus).toBe("grounded")
     expect(packet.answerSummary).toBe("Install the module beside the controller.")
+  })
+
+  it("returns a temporary capacity error without saving an assistant message when all Mercury keys are cooling down", async () => {
+    const runQuery = vi
+      .fn()
+      .mockResolvedValueOnce({
+        _id: "chatSessions_1" as never,
+        createdAt: 1,
+        title: "Where should the module go?",
+        updatedAt: 1
+      })
+      .mockResolvedValueOnce([
+        {
+          assetId: "documentAssets_1" as never,
+          citationLabel: "Page 12",
+          chunkId: "chunks_1" as never,
+          content: "Install the module beside the controller.",
+          pageNumber: 12,
+          score: 0.97
+        }
+      ])
+    const runMutation = createRunMutation([{ allowed: true }, "chatMessages_1"], {
+      inceptionReservation: { available: false, retryAfterMs: 30_000 }
+    })
+    const vectorSearch = vi.fn().mockResolvedValue([{ _id: "chunkEmbeddings_1" as never, _score: 0.97 }])
+
+    await expect(
+      askHandler._handler(
+        {
+          runMutation,
+          runQuery,
+          vectorSearch
+        } as never,
+        {
+          question: "Where should the module go?",
+          sessionAccessToken: "access-token-1",
+          sessionId: "chatSessions_1" as never
+        }
+      )
+    ).rejects.toThrow(/capacity|temporarily unavailable/i)
+
+    expect(generateGroundedAnswer).not.toHaveBeenCalled()
+    expect(getMutationArgs(runMutation, "chats:appendMessage")).toEqual([
+      {
+        content: "Where should the module go?",
+        role: "user",
+        sessionId: "chatSessions_1"
+      }
+    ])
+    expect(getMutationArgs(runMutation, "search:saveEvidence")).toEqual([])
+  })
+
+  it("returns a temporary capacity error when Mercury success accounting fails", async () => {
+    const runQuery = vi
+      .fn()
+      .mockResolvedValueOnce({
+        _id: "chatSessions_1" as never,
+        createdAt: 1,
+        title: "Where should the module go?",
+        updatedAt: 1
+      })
+      .mockResolvedValueOnce([
+        {
+          assetId: "documentAssets_1" as never,
+          citationLabel: "Page 12",
+          chunkId: "chunks_1" as never,
+          content: "Install the module beside the controller.",
+          pageNumber: 12,
+          score: 0.97
+        }
+      ])
+    const runMutation = createRunMutation([{ allowed: true }, "chatMessages_1"], {
+      throwOnProviderSuccessFor: "inception"
+    })
+    const vectorSearch = vi.fn().mockResolvedValue([{ _id: "chunkEmbeddings_1" as never, _score: 0.97 }])
+
+    await expect(
+      askHandler._handler(
+        {
+          runMutation,
+          runQuery,
+          vectorSearch
+        } as never,
+        {
+          question: "Where should the module go?",
+          sessionAccessToken: "access-token-1",
+          sessionId: "chatSessions_1" as never
+        }
+      )
+    ).rejects.toThrow(/capacity|temporarily unavailable/i)
+
+    expect(generateGroundedAnswer).toHaveBeenCalledTimes(1)
+    expect(getMutationArgs(runMutation, "providerRateLimits:recordProviderTransientFailure")).toEqual([
+      {
+        keyId: "inception:1",
+        provider: "inception"
+      }
+    ])
+    expect(getMutationArgs(runMutation, "chats:appendMessage")).toEqual([
+      {
+        content: "Where should the module go?",
+        role: "user",
+        sessionId: "chatSessions_1"
+      }
+    ])
+  })
+
+  it("sanitizes provider env setup failures before returning them to users", async () => {
+    getProviderEnv.mockImplementationOnce(() => {
+      throw new Error("JINA_API_KEYS is required")
+    })
+    const runQuery = vi.fn().mockResolvedValueOnce({
+      _id: "chatSessions_1" as never,
+      createdAt: 1,
+      title: "Where should the module go?",
+      updatedAt: 1
+    })
+    const runMutation = createRunMutation([{ allowed: true }, "chatMessages_1"])
+    const vectorSearch = vi.fn().mockResolvedValue([])
+
+    let thrown: unknown
+    try {
+      await askHandler._handler(
+        {
+          runMutation,
+          runQuery,
+          vectorSearch
+        } as never,
+        {
+          question: "Where should the module go?",
+          sessionAccessToken: "access-token-1",
+          sessionId: "chatSessions_1" as never
+        }
+      )
+    } catch (error) {
+      thrown = error
+    }
+
+    expect(getErrorMessage(thrown)).toMatch(/Embedding provider configuration needs administrator attention/i)
+    expect(getErrorMessage(thrown)).not.toContain("JINA_API_KEYS")
+    expect(embedSearchQuery).not.toHaveBeenCalled()
+    expect(vectorSearch).not.toHaveBeenCalled()
+  })
+
+  it("sanitizes provider key-pool setup failures before returning them to users", async () => {
+    buildProviderKeyPool.mockImplementationOnce(() => {
+      throw new Error("JINA_API_KEYS is required")
+    })
+    const runQuery = vi.fn().mockResolvedValueOnce({
+      _id: "chatSessions_1" as never,
+      createdAt: 1,
+      title: "Where should the module go?",
+      updatedAt: 1
+    })
+    const runMutation = createRunMutation([{ allowed: true }, "chatMessages_1"])
+    const vectorSearch = vi.fn().mockResolvedValue([])
+
+    let thrown: unknown
+    try {
+      await askHandler._handler(
+        {
+          runMutation,
+          runQuery,
+          vectorSearch
+        } as never,
+        {
+          question: "Where should the module go?",
+          sessionAccessToken: "access-token-1",
+          sessionId: "chatSessions_1" as never
+        }
+      )
+    } catch (error) {
+      thrown = error
+    }
+
+    expect(getErrorMessage(thrown)).toMatch(/Embedding provider configuration needs administrator attention/i)
+    expect(getErrorMessage(thrown)).not.toContain("JINA_API_KEYS")
+    expect(embedSearchQuery).not.toHaveBeenCalled()
+    expect(vectorSearch).not.toHaveBeenCalled()
   })
 
   it("passes Indonesian response-language instructions into grounded answer generation", async () => {
@@ -192,13 +492,13 @@ describe("ask", () => {
         }
       ])
 
-    const runMutation = vi
-      .fn()
-      .mockResolvedValueOnce({ allowed: true })
-      .mockResolvedValueOnce("chatMessages_1")
-      .mockResolvedValueOnce("chatMessages_2")
-      .mockResolvedValueOnce(null)
-      .mockResolvedValueOnce({ sessionAccessToken: "access-token-2" })
+    const runMutation = createRunMutation([
+      { allowed: true },
+      "chatMessages_1",
+      "chatMessages_2",
+      null,
+      { sessionAccessToken: "access-token-2" }
+    ])
 
     const vectorSearch = vi.fn().mockResolvedValue([{ _id: "chunkEmbeddings_1" as never, _score: 0.97 }])
 
@@ -218,7 +518,11 @@ describe("ask", () => {
     expect(generateGroundedAnswer).toHaveBeenCalledWith(
       "Bagaimana cara memasang modul ini?",
       expect.any(String),
-      expect.objectContaining({ code: "id" })
+      expect.objectContaining({ code: "id" }),
+      expect.objectContaining({
+        apiKey: "mercury-test-key-1",
+        keyId: "inception:1"
+      })
     )
   })
 
@@ -245,13 +549,13 @@ describe("ask", () => {
         ])
       )
 
-    const runMutation = vi
-      .fn()
-      .mockResolvedValueOnce({ allowed: true })
-      .mockResolvedValueOnce("chatMessages_1")
-      .mockResolvedValueOnce("chatMessages_2")
-      .mockResolvedValueOnce(null)
-      .mockResolvedValueOnce({ sessionAccessToken: "access-token-2" })
+    const runMutation = createRunMutation([
+      { allowed: true },
+      "chatMessages_1",
+      "chatMessages_2",
+      null,
+      { sessionAccessToken: "access-token-2" }
+    ])
 
     const vectorSearch = vi.fn().mockResolvedValue([])
 
@@ -266,6 +570,13 @@ describe("ask", () => {
         sessionAccessToken: "access-token-1",
         sessionId: "chatSessions_1" as never
       }
+    )
+    expect(getMutationArgs(runMutation, "providerRateLimits:reserveProviderKey")).toContainEqual(
+      expect.objectContaining({
+        estimatedOutputTokens: 8_192,
+        outputTpmLimit: 9_000,
+        provider: "inception"
+      })
     )
 
     expect(runQuery).toHaveBeenCalledTimes(4)
@@ -301,13 +612,13 @@ describe("ask", () => {
         }
       ])
 
-    const runMutation = vi
-      .fn()
-      .mockResolvedValueOnce({ allowed: true })
-      .mockResolvedValueOnce("chatMessages_1")
-      .mockResolvedValueOnce("chatMessages_2")
-      .mockResolvedValueOnce(null)
-      .mockResolvedValueOnce({ sessionAccessToken: "access-token-2" })
+    const runMutation = createRunMutation([
+      { allowed: true },
+      "chatMessages_1",
+      "chatMessages_2",
+      null,
+      { sessionAccessToken: "access-token-2" }
+    ])
 
     const vectorSearch = vi.fn().mockResolvedValue([{ _id: "chunkEmbeddings_1" as never, _score: 0.97 }])
 
@@ -368,13 +679,13 @@ describe("ask", () => {
         ])
       )
 
-    const runMutation = vi
-      .fn()
-      .mockResolvedValueOnce({ allowed: true })
-      .mockResolvedValueOnce("chatMessages_1")
-      .mockResolvedValueOnce("chatMessages_2")
-      .mockResolvedValueOnce(null)
-      .mockResolvedValueOnce({ sessionAccessToken: "access-token-2" })
+    const runMutation = createRunMutation([
+      { allowed: true },
+      "chatMessages_1",
+      "chatMessages_2",
+      null,
+      { sessionAccessToken: "access-token-2" }
+    ])
 
     const vectorSearch = vi.fn().mockResolvedValue([
       { _id: "chunkEmbeddings_1" as never, _score: 0.42 },
@@ -435,13 +746,13 @@ describe("ask", () => {
         ])
       )
 
-    const runMutation = vi
-      .fn()
-      .mockResolvedValueOnce({ allowed: true })
-      .mockResolvedValueOnce("chatMessages_1")
-      .mockResolvedValueOnce("chatMessages_2")
-      .mockResolvedValueOnce(null)
-      .mockResolvedValueOnce({ sessionAccessToken: "access-token-2" })
+    const runMutation = createRunMutation([
+      { allowed: true },
+      "chatMessages_1",
+      "chatMessages_2",
+      null,
+      { sessionAccessToken: "access-token-2" }
+    ])
 
     const vectorSearch = vi.fn().mockResolvedValue([{ _id: "chunkEmbeddings_1" as never, _score: 0.99 }])
 
@@ -476,12 +787,12 @@ describe("ask", () => {
       .mockResolvedValueOnce([])
       .mockResolvedValueOnce(exactPage([]))
 
-    const runMutation = vi
-      .fn()
-      .mockResolvedValueOnce({ allowed: true })
-      .mockResolvedValueOnce("chatMessages_1")
-      .mockResolvedValueOnce("chatMessages_2")
-      .mockResolvedValueOnce({ sessionAccessToken: "access-token-2" })
+    const runMutation = createRunMutation([
+      { allowed: true },
+      "chatMessages_1",
+      "chatMessages_2",
+      { sessionAccessToken: "access-token-2" }
+    ])
 
     const vectorSearch = vi.fn().mockResolvedValue([])
 
@@ -501,7 +812,7 @@ describe("ask", () => {
     expect(runQuery).toHaveBeenCalledTimes(4)
     expect(packet.answerabilityStatus).toBe("insufficient_evidence")
     expect(generateGroundedAnswer).not.toHaveBeenCalled()
-    expect(runMutation).toHaveBeenCalledTimes(4)
+    expect(getMutationArgs(runMutation, "chats:appendMessage")).toHaveLength(2)
   })
 
   it("returns an Indonesian refusal packet when neither path finds evidence", async () => {
@@ -517,12 +828,12 @@ describe("ask", () => {
       .mockResolvedValueOnce([])
       .mockResolvedValueOnce(exactPage([]))
 
-    const runMutation = vi
-      .fn()
-      .mockResolvedValueOnce({ allowed: true })
-      .mockResolvedValueOnce("chatMessages_1")
-      .mockResolvedValueOnce("chatMessages_2")
-      .mockResolvedValueOnce({ sessionAccessToken: "access-token-2" })
+    const runMutation = createRunMutation([
+      { allowed: true },
+      "chatMessages_1",
+      "chatMessages_2",
+      { sessionAccessToken: "access-token-2" }
+    ])
 
     const vectorSearch = vi.fn().mockResolvedValue([])
 
@@ -586,13 +897,13 @@ describe("ask", () => {
         ])
       )
 
-    const runMutation = vi
-      .fn()
-      .mockResolvedValueOnce({ allowed: true })
-      .mockResolvedValueOnce("chatMessages_1")
-      .mockResolvedValueOnce("chatMessages_2")
-      .mockResolvedValueOnce(null)
-      .mockResolvedValueOnce({ sessionAccessToken: "access-token-2" })
+    const runMutation = createRunMutation([
+      { allowed: true },
+      "chatMessages_1",
+      "chatMessages_2",
+      null,
+      { sessionAccessToken: "access-token-2" }
+    ])
 
     const vectorSearch = vi.fn().mockResolvedValue([])
 
@@ -646,13 +957,13 @@ describe("ask", () => {
       ])
       .mockResolvedValueOnce(exactPage([]))
 
-    const runMutation = vi
-      .fn()
-      .mockResolvedValueOnce({ allowed: true })
-      .mockResolvedValueOnce("chatMessages_1")
-      .mockResolvedValueOnce("chatMessages_2")
-      .mockResolvedValueOnce(null)
-      .mockResolvedValueOnce({ sessionAccessToken: "access-token-2" })
+    const runMutation = createRunMutation([
+      { allowed: true },
+      "chatMessages_1",
+      "chatMessages_2",
+      null,
+      { sessionAccessToken: "access-token-2" }
+    ])
 
     const vectorSearch = vi.fn().mockResolvedValue([])
 
@@ -695,13 +1006,13 @@ describe("ask", () => {
       ])
       .mockResolvedValueOnce([])
 
-    const runMutation = vi
-      .fn()
-      .mockResolvedValueOnce({ allowed: true })
-      .mockResolvedValueOnce("chatMessages_1")
-      .mockResolvedValueOnce("chatMessages_2")
-      .mockResolvedValueOnce(null)
-      .mockResolvedValueOnce({ sessionAccessToken: "access-token-2" })
+    const runMutation = createRunMutation([
+      { allowed: true },
+      "chatMessages_1",
+      "chatMessages_2",
+      null,
+      { sessionAccessToken: "access-token-2" }
+    ])
 
     const vectorSearch = vi.fn().mockResolvedValue([{ _id: "chunkEmbeddings_1" as never, _score: 0.4 }])
 

@@ -1,4 +1,5 @@
 import type { MutationCtx } from "./_generated/server"
+import type { IngestionStatus } from "./lib/ingestionState"
 import type { GenericId } from "convex/values"
 
 import { ConvexError, v } from "convex/values"
@@ -27,6 +28,53 @@ function requireText(field: string, value: string) {
   return trimmed
 }
 
+const JINA_EMBEDDING_PROVIDER = "jina" as const
+const JINA_DOCUMENT_TASK = "retrieval.passage" as const
+const JINA_EMBEDDING_DIMENSIONS = 1024
+
+const parsedChunkValidator = v.object({
+  citationLabel: v.string(),
+  chunkType: chunkTypeValidator,
+  content: v.string(),
+  pageNumber: v.number()
+})
+
+const parsedPageValidator = v.object({
+  markdown: v.string(),
+  needsOcrFallback: v.boolean(),
+  pageNumber: v.number(),
+  printedPageNumber: v.optional(v.string())
+})
+
+type ParsedChunkInput = {
+  citationLabel: string
+  chunkType: "text" | "table" | "diagram_description" | "warning" | "spec"
+  content: string
+  pageNumber: number
+}
+
+type ParsedPageInput = {
+  markdown: string
+  needsOcrFallback: boolean
+  pageNumber: number
+  printedPageNumber?: string
+}
+
+type ParsedContentInput = {
+  chunks: ParsedChunkInput[]
+  documentId: GenericId<"documents">
+  jobId: GenericId<"ingestionJobs">
+  pages: ParsedPageInput[]
+  sourceFileName: string
+  sourceMimeType: string
+  sourceStorageId: GenericId<"_storage">
+}
+
+type CurrentDocumentMetadata = {
+  productSlug: string
+  vendorSlug: string
+}
+
 type DocumentJobRef = {
   _creationTime: number
   _id: GenericId<"ingestionJobs">
@@ -44,6 +92,185 @@ function compareDocumentJobRecency(left: DocumentJobRef, right: DocumentJobRef) 
   }
 
   return String(left._id).localeCompare(String(right._id))
+}
+
+function canTransitionToFailed(status: IngestionStatus) {
+  try {
+    assertNextIngestionStatus(status, "failed")
+    return true
+  } catch {
+    return false
+  }
+}
+
+async function ensureLatestJobCanCommit(
+  ctx: MutationCtx,
+  args: { documentId: GenericId<"documents">; jobId: GenericId<"ingestionJobs"> },
+  job: { documentId: GenericId<"documents">; status: IngestionStatus } | null,
+  now: number
+) {
+  const documentJobs = await ctx.db
+    .query("ingestionJobs")
+    .withIndex("by_document", (q) => q.eq("documentId", args.documentId))
+    .collect()
+  const latestDocumentJob = documentJobs.reduce<DocumentJobRef | null>((latest, candidate) => {
+    if (!latest || compareDocumentJobRecency(candidate, latest) > 0) {
+      return candidate
+    }
+
+    return latest
+  }, null)
+  if (latestDocumentJob?._id === args.jobId) {
+    return true
+  }
+
+  if (job?.documentId === args.documentId && canTransitionToFailed(job.status)) {
+    await ctx.db.patch("ingestionJobs", args.jobId, {
+      errorMessage: "A newer ingestion job replaced this result before it could be committed.",
+      status: "failed",
+      updatedAt: now
+    })
+  }
+
+  return false
+}
+
+async function supersedeParsedArtifacts(ctx: MutationCtx, args: ParsedContentInput, now: number) {
+  const currentAssets = await ctx.db
+    .query("documentAssets")
+    .withIndex("by_document_and_current", (q) => q.eq("documentId", args.documentId).eq("isCurrent", true))
+    .collect()
+  for (const asset of currentAssets) {
+    await ctx.db.patch("documentAssets", asset._id, { isCurrent: false })
+  }
+
+  const currentPages = await ctx.db
+    .query("documentPages")
+    .withIndex("by_document_and_current", (q) => q.eq("documentId", args.documentId).eq("isCurrent", true))
+    .collect()
+  for (const page of currentPages) {
+    await ctx.db.patch("documentPages", page._id, { isCurrent: false })
+  }
+
+  const currentChunks = await ctx.db
+    .query("chunks")
+    .withIndex("by_document_and_current", (q) => q.eq("documentId", args.documentId).eq("isCurrent", true))
+    .collect()
+  for (const chunk of currentChunks) {
+    await ctx.db.patch("chunks", chunk._id, { isCurrent: false })
+  }
+
+  const currentEmbeddings = await ctx.db
+    .query("chunkEmbeddings")
+    .withIndex("by_document_and_current", (q) => q.eq("documentId", args.documentId).eq("isCurrent", true))
+    .collect()
+  for (const embedding of currentEmbeddings) {
+    await ctx.db.delete("chunkEmbeddings", embedding._id)
+  }
+
+  const sourceAssetId = await ctx.db.insert("documentAssets", {
+    createdAt: now,
+    documentId: args.documentId,
+    fileName: args.sourceFileName,
+    ingestionJobId: args.jobId,
+    isCurrent: true,
+    kind: "source_pdf",
+    mimeType: args.sourceMimeType,
+    storageId: args.sourceStorageId
+  })
+
+  await Promise.all(
+    args.pages.map((page) =>
+      ctx.db.insert("documentPages", {
+        documentId: args.documentId,
+        ingestionJobId: args.jobId,
+        isCurrent: true,
+        markdown: page.markdown,
+        needsOcrFallback: page.needsOcrFallback,
+        pageNumber: page.pageNumber,
+        ...(page.printedPageNumber === undefined ? {} : { printedPageNumber: page.printedPageNumber })
+      })
+    )
+  )
+
+  const chunkIds = await Promise.all(
+    args.chunks.map((chunk) =>
+      ctx.db.insert("chunks", {
+        citationLabel: chunk.citationLabel,
+        chunkType: chunk.chunkType,
+        content: chunk.content,
+        documentId: args.documentId,
+        ingestionJobId: args.jobId,
+        isCurrent: true,
+        pageNumber: chunk.pageNumber
+      })
+    )
+  )
+
+  return { chunkIds, sourceAssetId }
+}
+
+async function scheduleEmbeddingBatchCreation(
+  ctx: MutationCtx,
+  args: { chunkIds: GenericId<"chunks">[]; documentId: GenericId<"documents">; jobId: GenericId<"ingestionJobs"> }
+) {
+  if (args.chunkIds.length === 0) {
+    return
+  }
+
+  await ctx.scheduler.runAfter(0, internal.embeddingBatches.createBatchesForJob, {
+    chunkIds: args.chunkIds,
+    documentId: args.documentId,
+    jobId: args.jobId
+  })
+}
+
+async function markFinalizationFailed(
+  ctx: MutationCtx,
+  args: { documentId: GenericId<"documents">; jobId: GenericId<"ingestionJobs">; jobStatus?: IngestionStatus },
+  errorMessage: string,
+  now: number
+) {
+  if (args.jobStatus !== undefined) {
+    assertNextIngestionStatus(args.jobStatus, "failed")
+    await ctx.db.patch("ingestionJobs", args.jobId, {
+      errorMessage,
+      status: "failed",
+      updatedAt: now
+    })
+  }
+
+  await ctx.db.patch("documents", args.documentId, {
+    status: "failed",
+    updatedAt: now
+  })
+}
+
+async function insertCurrentChunkEmbedding(
+  ctx: MutationCtx,
+  input: {
+    chunkId: GenericId<"chunks">
+    chunkType: ParsedChunkInput["chunkType"]
+    document: CurrentDocumentMetadata
+    documentId: GenericId<"documents">
+    embedding: number[]
+    embeddingModel: string
+  }
+) {
+  await ctx.db.insert("chunkEmbeddings", {
+    chunkId: input.chunkId,
+    chunkType: input.chunkType,
+    documentCurrentKey: `${input.documentId}:current`,
+    documentId: input.documentId,
+    embedding: input.embedding,
+    embeddingDimensions: JINA_EMBEDDING_DIMENSIONS,
+    embeddingModel: input.embeddingModel,
+    embeddingProvider: JINA_EMBEDDING_PROVIDER,
+    embeddingTask: JINA_DOCUMENT_TASK,
+    isCurrent: true,
+    productSlug: input.document.productSlug,
+    vendorSlug: input.document.vendorSlug
+  })
 }
 
 async function upsertVendor(ctx: MutationCtx, name: string) {
@@ -110,195 +337,136 @@ export const generateSourceUploadUrl = mutation({
   }
 })
 
-export const replaceParsedContent = internalMutation({
+export const stageParsedContent = internalMutation({
   args: {
-    chunks: v.array(
-      v.object({
-        citationLabel: v.string(),
-        chunkType: chunkTypeValidator,
-        content: v.string(),
-        pageNumber: v.number()
-      })
-    ),
+    chunks: v.array(parsedChunkValidator),
     documentId: v.id("documents"),
-    embeddings: v.array(v.array(v.float64())),
     jobId: v.id("ingestionJobs"),
-    pages: v.array(
-      v.object({
-        markdown: v.string(),
-        needsOcrFallback: v.boolean(),
-        pageNumber: v.number(),
-        printedPageNumber: v.optional(v.string())
-      })
-    ),
+    pages: v.array(parsedPageValidator),
     sourceFileName: v.string(),
     sourceMimeType: v.string(),
     sourceStorageId: v.id("_storage")
   },
-  returns: v.null(),
+  returns: v.array(v.id("chunks")),
   handler: async (ctx, args) => {
-    if (args.embeddings.length !== args.chunks.length) {
-      throw new Error("Chunk embeddings are misaligned")
-    }
-
     const document = await ctx.db.get("documents", args.documentId)
     if (!document) {
-      return null
+      return []
     }
 
     const job = await ctx.db.get("ingestionJobs", args.jobId)
-    if (job) {
-      assertNextIngestionStatus(job.status, "ready")
+    const now = Date.now()
+    if (!(await ensureLatestJobCanCommit(ctx, args, job, now))) {
+      return []
     }
 
-    const now = Date.now()
-    const documentJobs = await ctx.db
-      .query("ingestionJobs")
-      .withIndex("by_document", (q) => q.eq("documentId", args.documentId))
-      .collect()
-    const latestDocumentJob = documentJobs.reduce<DocumentJobRef | null>((latest, candidate) => {
-      if (!latest || compareDocumentJobRecency(candidate, latest) > 0) {
-        return candidate
-      }
+    if (job?.status === "embedding" || job?.status === "embedding_waiting_rate_limit" || job?.status === "ready") {
+      return []
+    }
 
-      return latest
-    }, null)
-    if (latestDocumentJob?._id !== args.jobId) {
-      if (job && job.status !== "failed") {
-        assertNextIngestionStatus(job.status, "failed")
+    if (args.chunks.length === 0) {
+      await markFinalizationFailed(
+        ctx,
+        { documentId: args.documentId, jobId: args.jobId, ...(job === null ? {} : { jobStatus: job.status }) },
+        "At least one searchable chunk is required before a document can become ready",
+        now
+      )
+      return []
+    }
+
+    if (job) {
+      if (job.status === "downloading_result") {
+        assertNextIngestionStatus(job.status, "normalizing")
+      } else {
+        assertNextIngestionStatus(job.status, "embedding")
+      }
+    }
+
+    const { chunkIds } = await supersedeParsedArtifacts(ctx, args, now)
+    await ctx.db.patch("documents", args.documentId, {
+      status: "processing",
+      updatedAt: now
+    })
+
+    if (args.chunks.length > 0) {
+      if (job) {
         await ctx.db.patch("ingestionJobs", args.jobId, {
-          errorMessage: "A newer ingestion job replaced this result before it could be committed.",
-          status: "failed",
+          status: "embedding",
           updatedAt: now
         })
       }
-      return null
+
+      await scheduleEmbeddingBatchCreation(ctx, {
+        chunkIds,
+        documentId: args.documentId,
+        jobId: args.jobId
+      })
     }
 
-    assertReadyDocumentArtifacts({
-      chunkCount: args.chunks.length,
-      hasAlignedEmbeddings: args.embeddings.length === args.chunks.length,
-      hasSourceAsset: true,
-      pageCount: args.pages.length
-    })
+    return chunkIds
+  }
+})
 
-    const currentAssets = await ctx.db
-      .query("documentAssets")
-      .withIndex("by_document_and_current", (q) => q.eq("documentId", args.documentId).eq("isCurrent", true))
-      .collect()
-    for (const asset of currentAssets) {
-      await ctx.db.patch("documentAssets", asset._id, { isCurrent: false })
+export const insertChunkEmbeddingsBatch = internalMutation({
+  args: {
+    attemptCount: v.number(),
+    batchId: v.id("embeddingBatches"),
+    chunkIds: v.array(v.id("chunks")),
+    embeddingModel: v.string(),
+    embeddings: v.array(v.array(v.float64())),
+    jobId: v.id("ingestionJobs")
+  },
+  returns: v.number(),
+  handler: async (ctx, args) => {
+    if (args.chunkIds.length !== args.embeddings.length) {
+      throw new Error("Chunk embeddings are misaligned")
     }
 
-    const currentPages = await ctx.db
-      .query("documentPages")
-      .withIndex("by_document_and_current", (q) => q.eq("documentId", args.documentId).eq("isCurrent", true))
-      .collect()
-    for (const page of currentPages) {
-      await ctx.db.patch("documentPages", page._id, { isCurrent: false })
+    const batch = await ctx.db.get(args.batchId)
+    if (
+      !batch ||
+      batch.jobId !== args.jobId ||
+      batch.status !== "processing" ||
+      batch.attemptCount !== args.attemptCount ||
+      batch.chunkIds.length !== args.chunkIds.length ||
+      batch.chunkIds.some((chunkId, index) => chunkId !== args.chunkIds[index])
+    ) {
+      return 0
     }
 
-    const currentChunks = await ctx.db
-      .query("chunks")
-      .withIndex("by_document_and_current", (q) => q.eq("documentId", args.documentId).eq("isCurrent", true))
-      .collect()
-    for (const chunk of currentChunks) {
-      await ctx.db.patch("chunks", chunk._id, { isCurrent: false })
-    }
-
-    const currentEmbeddings = await ctx.db
-      .query("chunkEmbeddings")
-      .withIndex("by_document_and_current", (q) => q.eq("documentId", args.documentId).eq("isCurrent", true))
-      .collect()
-    for (const embedding of currentEmbeddings) {
-      await ctx.db.delete("chunkEmbeddings", embedding._id)
-    }
-
-    const sourceAssetId = await ctx.db.insert("documentAssets", {
-      createdAt: now,
-      documentId: args.documentId,
-      fileName: args.sourceFileName,
-      ingestionJobId: args.jobId,
-      isCurrent: true,
-      kind: "source_pdf",
-      mimeType: args.sourceMimeType,
-      storageId: args.sourceStorageId
-    })
-
-    await Promise.all(
-      args.pages.map((page) =>
-        ctx.db.insert("documentPages", {
-          documentId: args.documentId,
-          ingestionJobId: args.jobId,
-          isCurrent: true,
-          markdown: page.markdown,
-          needsOcrFallback: page.needsOcrFallback,
-          pageNumber: page.pageNumber,
-          ...(page.printedPageNumber === undefined ? {} : { printedPageNumber: page.printedPageNumber })
-        })
-      )
-    )
-
-    const chunkIds = await Promise.all(
-      args.chunks.map((chunk) =>
-        ctx.db.insert("chunks", {
-          citationLabel: chunk.citationLabel,
-          chunkType: chunk.chunkType,
-          content: chunk.content,
-          documentId: args.documentId,
-          ingestionJobId: args.jobId,
-          isCurrent: true,
-          pageNumber: chunk.pageNumber
-        })
-      )
-    )
-
-    for (const [index, embedding] of args.embeddings.entries()) {
-      const chunk = args.chunks[index]
-      const chunkId = chunkIds[index]
-      if (!chunk || !chunkId) {
-        throw new Error("Chunk embeddings are misaligned")
+    let insertedCount = 0
+    for (const [index, chunkId] of args.chunkIds.entries()) {
+      const currentEmbeddings = await ctx.db
+        .query("chunkEmbeddings")
+        .withIndex("by_chunk", (q) => q.eq("chunkId", chunkId))
+        .collect()
+      if (currentEmbeddings.some((embedding) => embedding.isCurrent)) {
+        continue
       }
 
-      await ctx.db.insert("chunkEmbeddings", {
+      const chunk = await ctx.db.get("chunks", chunkId)
+      if (!chunk?.isCurrent) {
+        continue
+      }
+
+      const document = await ctx.db.get("documents", chunk.documentId)
+      const embedding = args.embeddings[index]
+      if (!document || !embedding) {
+        continue
+      }
+
+      await insertCurrentChunkEmbedding(ctx, {
         chunkId,
         chunkType: chunk.chunkType,
-        documentCurrentKey: `${args.documentId}:current`,
-        documentId: args.documentId,
+        document,
+        documentId: chunk.documentId,
         embedding,
-        isCurrent: true,
-        productSlug: document.productSlug,
-        vendorSlug: document.vendorSlug
+        embeddingModel: args.embeddingModel
       })
+      insertedCount += 1
     }
 
-    if (args.chunks.length > 0) {
-      await ctx.db.patch("documents", args.documentId, {
-        status: "processing",
-        updatedAt: now
-      })
-
-      // Keep the document in processing until exact-term indexing finishes, so
-      // global exact search and document readiness become visible together.
-      await ctx.scheduler.runAfter(0, internal.search.backfillDocumentExactTermsBatch, {
-        documentId: args.documentId,
-        jobId: args.jobId,
-        offset: 0,
-        phase: "cleanup"
-      })
-      return null
-    }
-
-    await ctx.db.patch("documents", args.documentId, buildReadyDocumentPatch({ now, sourceAssetId }))
-
-    if (job) {
-      await ctx.db.patch("ingestionJobs", args.jobId, {
-        status: "ready",
-        updatedAt: now
-      })
-    }
-
-    return null
+    return insertedCount
   }
 })
 
@@ -370,28 +538,33 @@ export const deleteDocument = mutation({
       return null
     }
 
-    const [documentAssets, documentPages, documentChunks, documentEmbeddings, documentJobs] = await Promise.all([
-      ctx.db
-        .query("documentAssets")
-        .withIndex("by_document_and_current", (q) => q.eq("documentId", args.documentId))
-        .collect(),
-      ctx.db
-        .query("documentPages")
-        .withIndex("by_document_and_current", (q) => q.eq("documentId", args.documentId))
-        .collect(),
-      ctx.db
-        .query("chunks")
-        .withIndex("by_document_and_current", (q) => q.eq("documentId", args.documentId))
-        .collect(),
-      ctx.db
-        .query("chunkEmbeddings")
-        .withIndex("by_document_and_current", (q) => q.eq("documentId", args.documentId))
-        .collect(),
-      ctx.db
-        .query("ingestionJobs")
-        .withIndex("by_document", (q) => q.eq("documentId", args.documentId))
-        .collect()
-    ])
+    const [documentAssets, documentPages, documentChunks, documentEmbeddings, documentJobs, documentEmbeddingBatches] =
+      await Promise.all([
+        ctx.db
+          .query("documentAssets")
+          .withIndex("by_document_and_current", (q) => q.eq("documentId", args.documentId))
+          .collect(),
+        ctx.db
+          .query("documentPages")
+          .withIndex("by_document_and_current", (q) => q.eq("documentId", args.documentId))
+          .collect(),
+        ctx.db
+          .query("chunks")
+          .withIndex("by_document_and_current", (q) => q.eq("documentId", args.documentId))
+          .collect(),
+        ctx.db
+          .query("chunkEmbeddings")
+          .withIndex("by_document_and_current", (q) => q.eq("documentId", args.documentId))
+          .collect(),
+        ctx.db
+          .query("ingestionJobs")
+          .withIndex("by_document", (q) => q.eq("documentId", args.documentId))
+          .collect(),
+        ctx.db
+          .query("embeddingBatches")
+          .withIndex("by_document", (q) => q.eq("documentId", args.documentId))
+          .collect()
+      ])
     const chunkTerms = await ctx.db
       .query("chunkTerms")
       .withIndex("by_document", (q) => q.eq("documentId", args.documentId))
@@ -477,6 +650,10 @@ export const deleteDocument = mutation({
       await ctx.db.delete("chunkTerms", term._id)
     }
 
+    for (const batch of documentEmbeddingBatches) {
+      await ctx.db.delete("embeddingBatches", batch._id)
+    }
+
     for (const page of documentPages) {
       await ctx.db.delete("documentPages", page._id)
     }
@@ -512,7 +689,7 @@ export const markFailed = internalMutation({
   handler: async (ctx, args) => {
     const now = Date.now()
     const job = await ctx.db.get("ingestionJobs", args.jobId)
-    if (job) {
+    if (job?.documentId === args.documentId) {
       if (job.status !== "failed") {
         assertNextIngestionStatus(job.status, "failed")
         await ctx.db.patch("ingestionJobs", args.jobId, {

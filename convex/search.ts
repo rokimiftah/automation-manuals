@@ -1,5 +1,6 @@
-import type { MutationCtx } from "./_generated/server"
+import type { ActionCtx, MutationCtx } from "./_generated/server"
 import type { AnswerPacket } from "./lib/answerPacket"
+import type { ProviderName } from "./lib/providerKeys"
 import type { GenericId } from "convex/values"
 
 import { paginationOptsValidator } from "convex/server"
@@ -9,9 +10,18 @@ import { internal } from "./_generated/api"
 import { action, internalMutation, internalQuery, mutation } from "./_generated/server"
 import { requireAdminWriteSession } from "./lib/adminSession"
 import { answerPacketValidator, buildGroundedPacket, buildRefusalPacket, selectEvidenceByCitationIds } from "./lib/answerPacket"
+import { getProviderEnv } from "./lib/env"
 import { buildChunkTerms, extractExactSearchTerms } from "./lib/exactTerms"
 import { isLookupLikeQuery, mergeCandidates, rankExactCandidates } from "./lib/hybridRetrieval"
-import { embedTexts, generateGroundedAnswer } from "./lib/mistral"
+import { generateGroundedAnswer } from "./lib/inception"
+import { embedSearchQuery, JINA_EMBEDDING_PROVIDER } from "./lib/jina"
+import {
+  ProviderPermanentError,
+  ProviderQuotaExhaustedError,
+  ProviderRateLimitError,
+  ProviderTransientError
+} from "./lib/providerErrors"
+import { buildProviderKeyPool, resolveProviderKey } from "./lib/providerKeys"
 import { detectQuestionLanguage } from "./lib/questionLanguage"
 
 type SearchResult = {
@@ -70,12 +80,143 @@ const SESSION_SEARCH_REQUEST_LIMIT = 10
 
 const WEAK_VECTOR_EVIDENCE_THRESHOLD = 0.5
 
+const INCEPTION_PROVIDER = "inception" as const
+
+type ProviderReservation = { available: false; retryAfterMs: number } | { available: true; keyId: string }
+
+type ProviderLabel = "Answer" | "Embedding"
+
 export function getVectorSearchLimit(documentId?: GenericId<"documents">) {
   return documentId ? DOCUMENT_SCOPED_VECTOR_LIMIT : DEFAULT_VECTOR_LIMIT
 }
 
 export function getTopEvidenceScore(evidence: Array<{ score: number }>) {
   return evidence.reduce((topScore, item) => Math.max(topScore, item.score), 0)
+}
+
+function estimateTokenCount(text: string) {
+  return Math.max(1, Math.ceil(text.length / 4))
+}
+
+function getProviderRetryAfterMs(retryAfterMs: number | undefined) {
+  return Math.max(1, retryAfterMs ?? SEARCH_RATE_WINDOW_MS)
+}
+
+function providerCapacityError(label: ProviderLabel, retryAfterMs: number | undefined) {
+  const retrySeconds = Math.ceil(getProviderRetryAfterMs(retryAfterMs) / 1000)
+  return new ConvexError(
+    `${label} provider capacity is temporarily unavailable. Please wait ${retrySeconds} seconds and try again.`
+  )
+}
+
+function providerPermanentError(label: ProviderLabel) {
+  return new ConvexError(`${label} provider configuration needs administrator attention.`)
+}
+
+async function reserveProviderKey(
+  ctx: Pick<ActionCtx, "runMutation">,
+  args: {
+    estimatedInputTokens: number
+    estimatedOutputTokens: number
+    inputTpmLimit: number
+    keyIds: string[]
+    maxConcurrent: number
+    outputTpmLimit: number
+    provider: ProviderName
+    rpmLimit: number
+  },
+  label: ProviderLabel
+) {
+  let reservation: ProviderReservation
+  try {
+    reservation = (await ctx.runMutation(internal.providerRateLimits.reserveProviderKey, args)) as ProviderReservation
+  } catch {
+    throw providerCapacityError(label, undefined)
+  }
+
+  if (!reservation.available) {
+    throw providerCapacityError(label, reservation.retryAfterMs)
+  }
+
+  return reservation.keyId
+}
+
+async function recordProviderSuccess(
+  ctx: Pick<ActionCtx, "runMutation">,
+  provider: ProviderName,
+  keyId: string,
+  label: ProviderLabel
+) {
+  try {
+    await ctx.runMutation(internal.providerRateLimits.recordProviderSuccess, {
+      keyId,
+      provider
+    })
+  } catch {
+    try {
+      await ctx.runMutation(internal.providerRateLimits.recordProviderTransientFailure, {
+        keyId,
+        provider
+      })
+    } catch {
+      // Keep user-facing errors sanitized even when provider accounting is degraded.
+    }
+    throw providerCapacityError(label, undefined)
+  }
+}
+
+function setupProviderKeyPool<T>(label: ProviderLabel, setup: () => T) {
+  try {
+    return setup()
+  } catch {
+    throw providerPermanentError(label)
+  }
+}
+
+async function handleProviderFailure(
+  ctx: Pick<ActionCtx, "runMutation">,
+  args: { error: unknown; label: ProviderLabel; provider: ProviderName; reservedKeyId: string }
+): Promise<never> {
+  if (args.error instanceof ProviderRateLimitError) {
+    await ctx.runMutation(internal.providerRateLimits.recordProviderRateLimit, {
+      keyId: args.error.keyId,
+      provider: args.provider,
+      retryAfterMs: getProviderRetryAfterMs(args.error.retryAfterMs)
+    })
+    throw providerCapacityError(args.label, args.error.retryAfterMs)
+  }
+
+  if (args.error instanceof ProviderQuotaExhaustedError) {
+    await ctx.runMutation(internal.providerRateLimits.disableProviderKey, {
+      keyId: args.error.keyId,
+      provider: args.provider,
+      reason: "quota_exhausted"
+    })
+    throw providerCapacityError(args.label, undefined)
+  }
+
+  if (args.error instanceof ProviderTransientError) {
+    await ctx.runMutation(internal.providerRateLimits.recordProviderTransientFailure, {
+      keyId: args.error.keyId ?? args.reservedKeyId,
+      provider: args.provider
+    })
+    throw providerCapacityError(args.label, undefined)
+  }
+
+  if (args.error instanceof ProviderPermanentError) {
+    await ctx.runMutation(internal.providerRateLimits.disableProviderKey, {
+      keyId: args.error.keyId ?? args.reservedKeyId,
+      provider: args.provider,
+      reason: "permanent_error"
+    })
+    throw providerPermanentError(args.label)
+  }
+
+  await ctx.runMutation(internal.providerRateLimits.recordProviderTransientFailure, {
+    keyId: args.reservedKeyId,
+    provider: args.provider
+  })
+  throw providerPermanentError(args.label)
 }
 
 const searchResultValidator = v.object({
@@ -605,14 +746,53 @@ export const ask = action({
       sessionId
     })
 
-    const [embedding] = await embedTexts([question])
-    const matches = embedding
-      ? await ctx.vectorSearch("chunkEmbeddings", "by_embedding", {
-          filter: (q) => (args.documentId ? q.eq("documentCurrentKey", `${args.documentId}:current`) : q.eq("isCurrent", true)),
-          limit: getVectorSearchLimit(args.documentId),
-          vector: embedding
+    const { jinaKeyPool, providerEnv } = setupProviderKeyPool("Embedding", () => {
+      const env = getProviderEnv()
+      return {
+        jinaKeyPool: buildProviderKeyPool(JINA_EMBEDDING_PROVIDER, env.jinaApiKeys),
+        providerEnv: env
+      }
+    })
+    const inceptionKeyPool = setupProviderKeyPool("Answer", () =>
+      buildProviderKeyPool(INCEPTION_PROVIDER, providerEnv.inceptionApiKeys)
+    )
+    const jinaKeyId = await reserveProviderKey(
+      ctx,
+      {
+        estimatedInputTokens: estimateTokenCount(question),
+        estimatedOutputTokens: 0,
+        inputTpmLimit: providerEnv.jinaTpmPerKey,
+        keyIds: jinaKeyPool.map((key) => key.id),
+        maxConcurrent: providerEnv.jinaMaxConcurrentPerKey,
+        outputTpmLimit: providerEnv.jinaTpmPerKey,
+        provider: JINA_EMBEDDING_PROVIDER,
+        rpmLimit: providerEnv.jinaRpmPerKey
+      },
+      "Embedding"
+    )
+    const embedding = await (async () => {
+      try {
+        return await embedSearchQuery(question, {
+          apiKey: resolveProviderKey(jinaKeyPool, jinaKeyId),
+          keyId: jinaKeyId,
+          model: providerEnv.jinaEmbedModel
         })
-      : []
+      } catch (error) {
+        return await handleProviderFailure(ctx, {
+          error,
+          label: "Embedding",
+          provider: JINA_EMBEDDING_PROVIDER,
+          reservedKeyId: jinaKeyId
+        })
+      }
+    })()
+    await recordProviderSuccess(ctx, JINA_EMBEDDING_PROVIDER, jinaKeyId, "Embedding")
+
+    const matches = await ctx.vectorSearch("chunkEmbeddings", "by_embedding", {
+      filter: (q) => (args.documentId ? q.eq("documentCurrentKey", `${args.documentId}:current`) : q.eq("isCurrent", true)),
+      limit: getVectorSearchLimit(args.documentId),
+      vector: embedding
+    })
 
     const evidence: SearchResult[] = await ctx.runQuery(internal.search.loadSearchResults, { matches })
     const shouldRunExactFallback = isLookupLikeQuery(question) || getTopEvidenceScore(evidence) < WEAK_VECTOR_EVIDENCE_THRESHOLD
@@ -685,7 +865,41 @@ export const ask = action({
     }
 
     const context = evidenceWithIds.map((item) => `[${item.evidenceId}] ${item.citationLabel}: ${item.content}`).join("\n\n")
-    const groundedAnswer = await generateGroundedAnswer(question, context, responseLanguage)
+    const inceptionKeyId = await reserveProviderKey(
+      ctx,
+      {
+        estimatedInputTokens: estimateTokenCount(`${question}\n\n${context}`),
+        estimatedOutputTokens: Math.max(1, providerEnv.inceptionMaxTokens),
+        inputTpmLimit: providerEnv.inceptionInputTpmPerKey,
+        keyIds: inceptionKeyPool.map((key) => key.id),
+        maxConcurrent: providerEnv.inceptionMaxConcurrentPerKey,
+        outputTpmLimit: providerEnv.inceptionOutputTpmPerKey,
+        provider: INCEPTION_PROVIDER,
+        rpmLimit: providerEnv.inceptionRpmPerKey
+      },
+      "Answer"
+    )
+    const groundedAnswer = await (async () => {
+      try {
+        return await generateGroundedAnswer(question, context, responseLanguage, {
+          apiKey: resolveProviderKey(inceptionKeyPool, inceptionKeyId),
+          baseUrl: providerEnv.inceptionBaseUrl,
+          keyId: inceptionKeyId,
+          maxTokens: providerEnv.inceptionMaxTokens,
+          model: providerEnv.inceptionChatModel,
+          reasoningEffort: providerEnv.inceptionReasoningEffort,
+          temperature: providerEnv.inceptionTemperature
+        })
+      } catch (error) {
+        return await handleProviderFailure(ctx, {
+          error,
+          label: "Answer",
+          provider: INCEPTION_PROVIDER,
+          reservedKeyId: inceptionKeyId
+        })
+      }
+    })()
+    await recordProviderSuccess(ctx, INCEPTION_PROVIDER, inceptionKeyId, "Answer")
     const selectedEvidence = selectEvidenceByCitationIds(evidenceWithIds, groundedAnswer.citationIds)
     const packet: AnswerPacket =
       groundedAnswer.answerSteps.length === 0 || selectedEvidence.length === 0

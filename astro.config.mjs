@@ -16,21 +16,18 @@ const __dirname = path.dirname(fileURLToPath(import.meta.url))
  * causing Vite 7 to append `.js` during dependency optimization reload.
  * The regex filter `^astro:server-app$` in Astro's resolveId hook does not
  * match `astro:server-app.js`, so resolution fails. This plugin intercepts
- * the `.js` variant and delegates to Astro's original resolution.
+ * the `.js` variant and returns a filesystem path Vite can load.
  */
 function vitePluginAstroServerAppCompat() {
   const ASTRO_DEV_SERVER_APP_ID = "astro:server-app"
-  const createAstroServerAppUrl = new URL(
-    "./node_modules/astro/dist/vite-plugin-app/createAstroServerApp.js",
-    `file://${__dirname}/`
-  ).toString()
+  const createAstroServerAppPath = path.join(__dirname, "node_modules/astro/dist/vite-plugin-app/createAstroServerApp.js")
   const plugin = {
     name: "astro:server-app-compat",
     enforce: /** @type {"pre"} */ ("pre"),
     /** @param {string} id */
     resolveId(id) {
       if (id === `${ASTRO_DEV_SERVER_APP_ID}.js`) {
-        return createAstroServerAppUrl
+        return createAstroServerAppPath
       }
     }
   }

@@ -304,13 +304,14 @@ function PdfPageViewer({ fileUrl, pageNumber }: { fileUrl: string; pageNumber: n
     }
 
     const targetPage = pageRefs.current.get(safePageNumber)
-    if (!targetPage) {
+    const viewerElement = ref.current
+    if (!targetPage || !viewerElement) {
       return
     }
 
-    targetPage.scrollIntoView({ block: "start" })
+    viewerElement.scrollTo({ top: targetPage.offsetTop })
     lastScrolledKeyRef.current = scrollKey
-  }, [fileUrl, pageCount, pageNumber, pdfDocumentState, viewerWidth])
+  }, [fileUrl, pageCount, pageNumber, pdfDocumentState, viewerWidth, ref.current])
 
   if (loadError) {
     return <BrowserPdfFallback fileUrl={fileUrl} pageNumber={pageNumber} />
@@ -321,7 +322,7 @@ function PdfPageViewer({ fileUrl, pageNumber }: { fileUrl: string; pageNumber: n
   return (
     <div
       ref={ref}
-      className="h-full min-h-0 w-full touch-pan-y overflow-y-auto overscroll-contain bg-white"
+      className="relative h-full min-h-0 w-full touch-pan-y overflow-y-auto overscroll-contain bg-white"
       data-file-url={fileUrl}
       data-page-number={pageNumber}
       data-testid="pdf-viewer"
@@ -421,7 +422,7 @@ export default function EvidenceViewer({ asset }: { asset: SupportingAsset | nul
   const pageNumber = asset.pageNumber
 
   return (
-    <section className="wire-border relative flex h-[calc(100dvh-3rem)] min-h-0 flex-1 flex-col overflow-hidden bg-white lg:h-auto lg:overflow-visible">
+    <section className="wire-border relative flex h-[min(32rem,calc(100dvh-3rem))] min-h-0 flex-col overflow-hidden bg-white lg:h-auto lg:flex-1 lg:overflow-visible">
       <div className="wire-border-b flex flex-col justify-between gap-6 bg-[#FAFAFA] p-6 md:flex-row md:items-center">
         <div className="flex min-w-0 items-center gap-6">
           <span className="h-1.5 w-1.5 shrink-0 bg-[#000000]"></span>

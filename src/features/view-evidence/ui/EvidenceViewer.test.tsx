@@ -8,6 +8,9 @@ import EvidenceViewer from "./EvidenceViewer"
 const useQuery = vi.fn()
 let scrollTargets: HTMLElement[] = []
 let scrollIntoViewDescriptor: PropertyDescriptor | undefined
+let scrollToCalls: Array<{ top?: number }> = []
+let scrollToDescriptor: PropertyDescriptor | undefined
+let offsetTopDescriptor: PropertyDescriptor | undefined
 
 const { getDocumentMock, getPageMock, renderCalls, renderTaskCancelMock, workerState, pdfjsState } = vi.hoisted(() => {
   const workerState = { workerSrc: "" }
@@ -88,11 +91,26 @@ describe("EvidenceViewer", () => {
     renderTaskCancelMock.mockClear()
     workerState.workerSrc = ""
     scrollTargets = []
+    scrollToCalls = []
     scrollIntoViewDescriptor = Object.getOwnPropertyDescriptor(HTMLElement.prototype, "scrollIntoView")
+    scrollToDescriptor = Object.getOwnPropertyDescriptor(HTMLElement.prototype, "scrollTo")
+    offsetTopDescriptor = Object.getOwnPropertyDescriptor(HTMLElement.prototype, "offsetTop")
     Object.defineProperty(HTMLElement.prototype, "scrollIntoView", {
       configurable: true,
       value(this: HTMLElement) {
         scrollTargets.push(this)
+      }
+    })
+    Object.defineProperty(HTMLElement.prototype, "scrollTo", {
+      configurable: true,
+      value(options?: ScrollToOptions) {
+        scrollToCalls.push({ top: options?.top })
+      }
+    })
+    Object.defineProperty(HTMLElement.prototype, "offsetTop", {
+      configurable: true,
+      get(this: HTMLElement) {
+        return Number(this.dataset.pageNumber ?? 0) * 120
       }
     })
     vi.spyOn(HTMLElement.prototype, "getBoundingClientRect").mockReturnValue({
@@ -117,6 +135,16 @@ describe("EvidenceViewer", () => {
       Object.defineProperty(HTMLElement.prototype, "scrollIntoView", scrollIntoViewDescriptor)
     } else {
       Reflect.deleteProperty(HTMLElement.prototype, "scrollIntoView")
+    }
+    if (scrollToDescriptor) {
+      Object.defineProperty(HTMLElement.prototype, "scrollTo", scrollToDescriptor)
+    } else {
+      Reflect.deleteProperty(HTMLElement.prototype, "scrollTo")
+    }
+    if (offsetTopDescriptor) {
+      Object.defineProperty(HTMLElement.prototype, "offsetTop", offsetTopDescriptor)
+    } else {
+      Reflect.deleteProperty(HTMLElement.prototype, "offsetTop")
     }
   })
 
@@ -145,7 +173,8 @@ describe("EvidenceViewer", () => {
     expect(pdfViewer).toHaveClass("h-full", "min-h-0", "overflow-y-auto")
     expect(pdfViewer).not.toHaveClass("min-h-100")
     expect(pdfViewer.parentElement).toHaveClass("min-h-0", "overflow-hidden")
-    expect(pdfViewer.closest("section")).toHaveClass("h-[calc(100dvh-3rem)]", "overflow-hidden")
+    expect(pdfViewer.closest("section")).toHaveClass("h-[min(32rem,calc(100dvh-3rem))]", "overflow-hidden", "lg:flex-1")
+    expect(pdfViewer.closest("section")).not.toHaveClass("h-[calc(100dvh-3rem)]", "flex-1")
     expect(useQuery.mock.calls[0]?.[1]).toEqual({
       assetId: "documentAssets_1",
       citationLabel: "Engine manual"
@@ -156,7 +185,8 @@ describe("EvidenceViewer", () => {
     expect(getPageMock).toHaveBeenCalledTimes(70)
     expect(getPageMock.mock.calls.map(([pageNumber]) => pageNumber)).toEqual(Array.from({ length: 70 }, (_, index) => index + 1))
     expect(renderCalls[0]).toMatchObject({ canvasHeight: 1080, canvasWidth: 720, pageNumber: 1, viewportWidth: 720 })
-    expect(scrollTargets[0]).toBe(screen.getAllByTestId("pdf-page")[69])
+    expect(scrollTargets).toHaveLength(0)
+    expect(scrollToCalls[0]).toEqual({ top: 8400 })
     expect(workerState.workerSrc).toContain("pdf.worker.min.mjs")
     expect(screen.queryByTitle("Engine manual")).not.toBeInTheDocument()
   })
@@ -180,7 +210,7 @@ describe("EvidenceViewer", () => {
     )
 
     await screen.findAllByTestId("pdf-page")
-    await waitFor(() => expect(scrollTargets).toHaveLength(1))
+    await waitFor(() => expect(scrollToCalls).toHaveLength(1))
 
     useQuery.mockReturnValue({
       _id: "documentAssets_2",
@@ -203,8 +233,9 @@ describe("EvidenceViewer", () => {
     )
     await screen.findAllByTestId("pdf-page")
 
-    await waitFor(() => expect(scrollTargets).toHaveLength(2))
-    expect(scrollTargets[1]).toBe(screen.getAllByTestId("pdf-page")[9])
+    await waitFor(() => expect(scrollToCalls).toHaveLength(2))
+    expect(scrollTargets).toHaveLength(0)
+    expect(scrollToCalls[1]).toEqual({ top: 1200 })
   })
 
   it("falls back to the browser PDF viewer when pdfjs-dist cannot load the document", async () => {

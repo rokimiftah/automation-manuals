@@ -49,7 +49,14 @@ const reserveProviderKeyHandler = reserveProviderKey as typeof reserveProviderKe
 const recordProviderSuccessHandler = recordProviderSuccess as typeof recordProviderSuccess & {
   _handler: (
     ctx: unknown,
-    args: { inputTokens?: number; keyId: string; outputTokens?: number; provider: Provider }
+    args: {
+      inputTokens?: number
+      keyId: string
+      outputTokens?: number
+      provider: Provider
+      reservedInputTokens?: number
+      reservedOutputTokens?: number
+    }
   ) => Promise<null>
 }
 
@@ -350,6 +357,25 @@ describe("provider rate limits", () => {
     ).resolves.toBeNull()
 
     expect(rows[0]).toMatchObject({ inFlightCount: 1, inputTokenCount: 22, outputTokenCount: 12, updatedAt: NOW })
+  })
+
+  it("reconciles reserved token estimates with actual success usage", async () => {
+    const { ctx, rows } = createProviderStateCtx([
+      providerState({ _id: "state_1", inFlightCount: 1, inputTokenCount: 900, outputTokenCount: 8192 })
+    ])
+
+    await expect(
+      recordProviderSuccessHandler._handler(ctx as never, {
+        inputTokens: 220,
+        keyId: "jina:1",
+        outputTokens: 34,
+        provider: "jina",
+        reservedInputTokens: 900,
+        reservedOutputTokens: 8192
+      })
+    ).resolves.toBeNull()
+
+    expect(rows[0]).toMatchObject({ inFlightCount: 0, inputTokenCount: 220, outputTokenCount: 34, updatedAt: NOW })
   })
 
   it("records provider rate limits by setting cooldown and releasing in-flight count", async () => {

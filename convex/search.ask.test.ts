@@ -63,6 +63,7 @@ const defaultProviderEnv = {
   inceptionApiKeys: ["mercury-test-key-1", "mercury-test-key-2"],
   inceptionBaseUrl: "https://api.inception.test/v1",
   inceptionChatModel: "mercury-test-model",
+  inceptionEstimatedOutputTokens: 1024,
   inceptionInputTpmPerKey: 90_000,
   inceptionMaxConcurrentPerKey: 1,
   inceptionMaxTokens: 8192,
@@ -239,6 +240,15 @@ describe("ask", () => {
     )
 
     const vectorSearch = vi.fn().mockResolvedValue([{ _id: "chunkEmbeddings_1" as never, _score: 0.4 }])
+    generateGroundedAnswer.mockResolvedValueOnce({
+      answerSteps: ["Check the chassis."],
+      answerSummary: "Install the module beside the controller.",
+      citationIds: ["E1"],
+      usage: {
+        inputTokens: 211,
+        outputTokens: 33
+      }
+    })
 
     const packet = await askHandler._handler(
       {
@@ -288,9 +298,62 @@ describe("ask", () => {
         temperature: 0.6
       }
     )
+    expect(getMutationArgs(runMutation, "providerRateLimits:recordProviderSuccess")).toContainEqual(
+      expect.objectContaining({
+        inputTokens: 211,
+        keyId: "inception:2",
+        outputTokens: 33,
+        provider: "inception",
+        reservedInputTokens: expect.any(Number),
+        reservedOutputTokens: 1024
+      })
+    )
     expect(getMutationArgs(runMutation, "chats:appendMessage")).toHaveLength(2)
     expect(packet.answerabilityStatus).toBe("grounded")
     expect(packet.answerSummary).toBe("Install the module beside the controller.")
+  })
+
+  it("releases the max output token reservation when Mercury omits usage", async () => {
+    const runQuery = vi.fn().mockResolvedValueOnce([
+      {
+        assetId: "documentAssets_1" as never,
+        citationLabel: "Page 12",
+        chunkId: "chunks_1" as never,
+        content: "Install the module beside the controller.",
+        pageNumber: 12,
+        score: 0.97
+      }
+    ])
+    const runMutation = createRunMutation([
+      { sessionAccessToken: "access-token-1", sessionId: "chatSessions_1" },
+      { allowed: true },
+      "chatMessages_1",
+      "chatMessages_2",
+      null
+    ])
+    const vectorSearch = vi.fn().mockResolvedValue([{ _id: "chunkEmbeddings_1" as never, _score: 0.97 }])
+
+    await askHandler._handler(
+      {
+        runMutation,
+        runQuery,
+        vectorSearch
+      } as never,
+      {
+        question: "Where should the module go?",
+        sessionId: undefined as never
+      }
+    )
+
+    const successWrites = getMutationArgs(runMutation, "providerRateLimits:recordProviderSuccess")
+    const answerSuccess = successWrites.find((args) => args.provider === "inception")
+    expect(answerSuccess).toMatchObject({
+      keyId: "inception:1",
+      outputTokens: expect.any(Number),
+      provider: "inception",
+      reservedOutputTokens: 1024
+    })
+    expect(answerSuccess?.outputTokens).toBeLessThan(8192)
   })
 
   it("returns a temporary capacity error without saving an assistant message when all Mercury keys are cooling down", async () => {
@@ -573,7 +636,7 @@ describe("ask", () => {
     )
     expect(getMutationArgs(runMutation, "providerRateLimits:reserveProviderKey")).toContainEqual(
       expect.objectContaining({
-        estimatedOutputTokens: 8_192,
+        estimatedOutputTokens: 1_024,
         outputTpmLimit: 9_000,
         provider: "inception"
       })

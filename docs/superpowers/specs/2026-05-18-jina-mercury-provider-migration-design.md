@@ -139,6 +139,8 @@ json_schema: ... }`. Official source:
 - `INCEPTION_REASONING_EFFORT`: optional fallback `medium`; valid values are
   `instant`, `low`, `medium`, and `high`.
 - `INCEPTION_MAX_TOKENS`: optional numeric fallback 8192.
+- `INCEPTION_ESTIMATED_OUTPUT_TOKENS`: optional numeric fallback 1024 for local
+  per-answer capacity reservations; actual usage is reconciled after success.
 - `INCEPTION_TEMPERATURE`: optional numeric fallback 0.75.
 - `INCEPTION_RPM_PER_KEY`: optional numeric fallback 90.
 - `INCEPTION_INPUT_TPM_PER_KEY`: optional numeric fallback 90000.

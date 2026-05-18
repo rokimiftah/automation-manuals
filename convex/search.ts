@@ -98,6 +98,16 @@ function estimateTokenCount(text: string) {
   return Math.max(1, Math.ceil(text.length / 4))
 }
 
+function estimateGroundedAnswerOutputTokens(answer: { answerSteps: string[]; answerSummary: string; citationIds: string[] }) {
+  return estimateTokenCount(
+    JSON.stringify({
+      answerSteps: answer.answerSteps,
+      answerSummary: answer.answerSummary,
+      citationIds: answer.citationIds
+    })
+  )
+}
+
 function getProviderRetryAfterMs(retryAfterMs: number | undefined) {
   return Math.max(1, retryAfterMs ?? SEARCH_RATE_WINDOW_MS)
 }
@@ -145,11 +155,21 @@ async function recordProviderSuccess(
   ctx: Pick<ActionCtx, "runMutation">,
   provider: ProviderName,
   keyId: string,
-  label: ProviderLabel
+  label: ProviderLabel,
+  accounting?: {
+    inputTokens?: number
+    outputTokens?: number
+    reservedInputTokens?: number
+    reservedOutputTokens?: number
+  }
 ) {
   try {
     await ctx.runMutation(internal.providerRateLimits.recordProviderSuccess, {
+      ...(accounting?.inputTokens === undefined ? {} : { inputTokens: accounting.inputTokens }),
       keyId,
+      ...(accounting?.outputTokens === undefined ? {} : { outputTokens: accounting.outputTokens }),
+      ...(accounting?.reservedInputTokens === undefined ? {} : { reservedInputTokens: accounting.reservedInputTokens }),
+      ...(accounting?.reservedOutputTokens === undefined ? {} : { reservedOutputTokens: accounting.reservedOutputTokens }),
       provider
     })
   } catch {
@@ -865,11 +885,16 @@ export const ask = action({
     }
 
     const context = evidenceWithIds.map((item) => `[${item.evidenceId}] ${item.citationLabel}: ${item.content}`).join("\n\n")
+    const inceptionEstimatedInputTokens = estimateTokenCount(`${question}\n\n${context}`)
+    const inceptionEstimatedOutputTokens = Math.max(
+      1,
+      Math.min(providerEnv.inceptionMaxTokens, providerEnv.inceptionEstimatedOutputTokens)
+    )
     const inceptionKeyId = await reserveProviderKey(
       ctx,
       {
-        estimatedInputTokens: estimateTokenCount(`${question}\n\n${context}`),
-        estimatedOutputTokens: Math.max(1, providerEnv.inceptionMaxTokens),
+        estimatedInputTokens: inceptionEstimatedInputTokens,
+        estimatedOutputTokens: inceptionEstimatedOutputTokens,
         inputTpmLimit: providerEnv.inceptionInputTpmPerKey,
         keyIds: inceptionKeyPool.map((key) => key.id),
         maxConcurrent: providerEnv.inceptionMaxConcurrentPerKey,
@@ -899,7 +924,13 @@ export const ask = action({
         })
       }
     })()
-    await recordProviderSuccess(ctx, INCEPTION_PROVIDER, inceptionKeyId, "Answer")
+    const inceptionOutputTokens = groundedAnswer.usage?.outputTokens ?? estimateGroundedAnswerOutputTokens(groundedAnswer)
+    await recordProviderSuccess(ctx, INCEPTION_PROVIDER, inceptionKeyId, "Answer", {
+      ...(groundedAnswer.usage?.inputTokens === undefined ? {} : { inputTokens: groundedAnswer.usage.inputTokens }),
+      outputTokens: inceptionOutputTokens,
+      reservedInputTokens: inceptionEstimatedInputTokens,
+      reservedOutputTokens: inceptionEstimatedOutputTokens
+    })
     const selectedEvidence = selectEvidenceByCitationIds(evidenceWithIds, groundedAnswer.citationIds)
     const packet: AnswerPacket =
       groundedAnswer.answerSteps.length === 0 || selectedEvidence.length === 0

@@ -31,6 +31,22 @@ function createChatResponse(content: unknown, init?: ResponseInit) {
   )
 }
 
+function createChatResponseWithUsage(content: unknown, usage: Record<string, unknown>, init?: ResponseInit) {
+  return new Response(
+    JSON.stringify({
+      choices: [
+        {
+          message: {
+            content
+          }
+        }
+      ],
+      usage
+    }),
+    init
+  )
+}
+
 function getRequest(fetchImpl: FetchMock): CapturedRequest {
   const call = fetchImpl.mock.calls[0]
   if (!call) {
@@ -332,6 +348,36 @@ describe("generateGroundedAnswer", () => {
       answerSteps: ["Check the rail"],
       answerSummary: "Install beside the controller.",
       citationIds: ["E2"]
+    })
+  })
+
+  it("returns provider token usage when chat completion usage is present", async () => {
+    const fetchImpl = vi.fn(async () =>
+      createChatResponseWithUsage(
+        '{"answerSummary":"Use the safety relay.","answerSteps":["Wire channel A"],"citationIds":["E1"]}',
+        {
+          completion_tokens: 31,
+          prompt_tokens: 209,
+          total_tokens: 240
+        }
+      )
+    )
+
+    await expect(
+      generateGroundedAnswer(
+        "How should I wire it?",
+        "Use the safety relay. [E1]",
+        { code: "en", instruction: "Answer in English." },
+        { apiKey: "key", fetchImpl }
+      )
+    ).resolves.toEqual({
+      answerSteps: ["Wire channel A"],
+      answerSummary: "Use the safety relay.",
+      citationIds: ["E1"],
+      usage: {
+        inputTokens: 209,
+        outputTokens: 31
+      }
     })
   })
 

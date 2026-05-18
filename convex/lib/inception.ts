@@ -40,6 +40,12 @@ type GroundedAnswer = {
   answerSteps: string[]
   answerSummary: string
   citationIds: string[]
+  usage?: ProviderTokenUsage
+}
+
+type ProviderTokenUsage = {
+  inputTokens?: number
+  outputTokens?: number
 }
 
 const INCEPTION_PROVIDER = "inception"
@@ -239,6 +245,32 @@ function parseGroundedAnswer(content: unknown): GroundedAnswer {
   }
 }
 
+function tokenCount(value: unknown) {
+  if (typeof value !== "number" || !Number.isFinite(value) || value < 0) {
+    return undefined
+  }
+
+  return Math.floor(value)
+}
+
+function parseProviderUsage(usage: unknown): ProviderTokenUsage | undefined {
+  if (!usage || typeof usage !== "object") {
+    return undefined
+  }
+
+  const usageRecord = usage as Record<string, unknown>
+  const inputTokens = tokenCount(usageRecord.prompt_tokens ?? usageRecord.input_tokens)
+  const outputTokens = tokenCount(usageRecord.completion_tokens ?? usageRecord.output_tokens)
+  if (inputTokens === undefined && outputTokens === undefined) {
+    return undefined
+  }
+
+  return {
+    ...(inputTokens === undefined ? {} : { inputTokens }),
+    ...(outputTokens === undefined ? {} : { outputTokens })
+  }
+}
+
 export async function generateGroundedAnswer(
   question: string,
   context: string,
@@ -290,12 +322,14 @@ export async function generateGroundedAnswer(
     await throwForHttpError(response, resolvedOptions.keyId)
   }
 
-  let payload: { choices?: Array<{ message?: { content?: unknown } }> }
+  let payload: { choices?: Array<{ message?: { content?: unknown } }>; usage?: unknown }
   try {
-    payload = (await response.json()) as { choices?: Array<{ message?: { content?: unknown } }> }
+    payload = (await response.json()) as { choices?: Array<{ message?: { content?: unknown } }>; usage?: unknown }
   } catch {
     throw new ProviderPermanentError({ provider: INCEPTION_PROVIDER })
   }
 
-  return parseGroundedAnswer(payload.choices?.[0]?.message?.content)
+  const groundedAnswer = parseGroundedAnswer(payload.choices?.[0]?.message?.content)
+  const usage = parseProviderUsage(payload.usage)
+  return usage === undefined ? groundedAnswer : { ...groundedAnswer, usage }
 }

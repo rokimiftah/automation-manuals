@@ -9,6 +9,7 @@ describe("getProviderEnv", () => {
         INCEPTION_API_KEYS: " inception-key-1, inception-key-2 ",
         INCEPTION_BASE_URL: " https://api.inceptionlabs.ai/v1 ",
         INCEPTION_CHAT_MODEL: " mercury-2 ",
+        INCEPTION_ESTIMATED_OUTPUT_TOKENS: " 512 ",
         INCEPTION_INPUT_TPM_PER_KEY: " 90000 ",
         INCEPTION_MAX_CONCURRENT_PER_KEY: " 1 ",
         INCEPTION_MAX_TOKENS: " 8192 ",
@@ -34,6 +35,7 @@ describe("getProviderEnv", () => {
       inceptionApiKeys: ["inception-key-1", "inception-key-2"],
       inceptionBaseUrl: "https://api.inceptionlabs.ai/v1",
       inceptionChatModel: "mercury-2",
+      inceptionEstimatedOutputTokens: 512,
       inceptionInputTpmPerKey: 90000,
       inceptionMaxConcurrentPerKey: 1,
       inceptionMaxTokens: 8192,
@@ -97,6 +99,7 @@ describe("getProviderEnv", () => {
     expect(result).toMatchObject({
       inceptionBaseUrl: "https://api.inceptionlabs.ai/v1",
       inceptionChatModel: "mercury-2",
+      inceptionEstimatedOutputTokens: 1024,
       inceptionInputTpmPerKey: 90000,
       inceptionMaxConcurrentPerKey: 1,
       inceptionMaxTokens: 8192,

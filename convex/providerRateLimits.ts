@@ -38,6 +38,14 @@ function releaseInFlightCount(state: ProviderKeyState) {
   return Math.max(0, state.inFlightCount - 1)
 }
 
+function reconcileTokenCount(current: number, reserved: number | undefined, actual: number | undefined) {
+  if (actual === undefined) {
+    return current
+  }
+
+  return Math.max(0, current - safeCount(reserved) + safeCount(actual))
+}
+
 function getActiveInFlightCount(state: ProviderKeyState | null, now: number) {
   if (!state) {
     return 0
@@ -180,7 +188,9 @@ export const recordProviderSuccess = internalMutation({
     provider: providerValidator,
     keyId: v.string(),
     inputTokens: v.optional(v.number()),
-    outputTokens: v.optional(v.number())
+    outputTokens: v.optional(v.number()),
+    reservedInputTokens: v.optional(v.number()),
+    reservedOutputTokens: v.optional(v.number())
   },
   returns: v.null(),
   handler: async (ctx, args) => {
@@ -197,8 +207,8 @@ export const recordProviderSuccess = internalMutation({
     }
 
     if (state.windowStart === windowStart) {
-      patch.inputTokenCount = state.inputTokenCount + safeCount(args.inputTokens)
-      patch.outputTokenCount = state.outputTokenCount + safeCount(args.outputTokens)
+      patch.inputTokenCount = reconcileTokenCount(state.inputTokenCount, args.reservedInputTokens, args.inputTokens)
+      patch.outputTokenCount = reconcileTokenCount(state.outputTokenCount, args.reservedOutputTokens, args.outputTokens)
     }
 
     await ctx.db.patch("providerApiKeyStates", state._id, patch)

@@ -16,6 +16,7 @@ type ProviderEnvInput = Partial<
     | "INCEPTION_API_KEYS"
     | "INCEPTION_BASE_URL"
     | "INCEPTION_CHAT_MODEL"
+    | "INCEPTION_ESTIMATED_OUTPUT_TOKENS"
     | "INCEPTION_MAX_TOKENS"
     | "INCEPTION_REASONING_EFFORT"
     | "INCEPTION_TEMPERATURE"
@@ -46,6 +47,7 @@ export type ProviderEnv = {
   inceptionApiKeys: string[]
   inceptionBaseUrl: string
   inceptionChatModel: string
+  inceptionEstimatedOutputTokens: number
   inceptionMaxTokens: number
   inceptionReasoningEffort: InceptionReasoningEffort
   inceptionTemperature: number
@@ -145,6 +147,7 @@ export function getProviderEnv(input: ProviderEnvInput = process.env) {
     inceptionApiKeys: keyListEnv("INCEPTION_API_KEYS", input.INCEPTION_API_KEYS),
     inceptionBaseUrl: stringEnv(input.INCEPTION_BASE_URL, "https://api.inceptionlabs.ai/v1"),
     inceptionChatModel: stringEnv(input.INCEPTION_CHAT_MODEL, "mercury-2"),
+    inceptionEstimatedOutputTokens: numberEnv(input.INCEPTION_ESTIMATED_OUTPUT_TOKENS, 1024),
     inceptionMaxTokens: numberEnv(input.INCEPTION_MAX_TOKENS, 8192),
     inceptionReasoningEffort: inceptionReasoningEffortEnv(input.INCEPTION_REASONING_EFFORT),
     inceptionTemperature: inceptionTemperatureEnv(input.INCEPTION_TEMPERATURE),

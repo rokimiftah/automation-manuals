@@ -152,7 +152,7 @@ describe("EvidenceViewer", () => {
     })
     await screen.findAllByTestId("pdf-page")
     await waitFor(() => expect(renderCalls).toHaveLength(70))
-    expect(getDocumentMock).toHaveBeenCalledWith("https://storage.example/manual.pdf")
+    expect(getDocumentMock).toHaveBeenCalledWith({ url: "https://storage.example/manual.pdf", wasmUrl: "/pdfjs/wasm/" })
     expect(getPageMock).toHaveBeenCalledTimes(70)
     expect(getPageMock.mock.calls.map(([pageNumber]) => pageNumber)).toEqual(Array.from({ length: 70 }, (_, index) => index + 1))
     expect(renderCalls[0]).toMatchObject({ canvasHeight: 1080, canvasWidth: 720, pageNumber: 1, viewportWidth: 720 })

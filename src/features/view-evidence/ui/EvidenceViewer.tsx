@@ -16,6 +16,11 @@ type PdfDocumentState = {
   pdfDocument: PdfDocumentProxy
 }
 
+function buildPdfJsWasmUrl() {
+  const baseUrl = import.meta.env.BASE_URL
+  return `${baseUrl.endsWith("/") ? baseUrl : `${baseUrl}/`}pdfjs/wasm/`
+}
+
 function getErrorMessage(error: unknown, fallback: string) {
   return error instanceof Error ? error.message : fallback
 }
@@ -251,7 +256,7 @@ function PdfPageViewer({ fileUrl, pageNumber }: { fileUrl: string; pageNumber: n
 
     let cancelled = false
     let pdfDocument: PdfDocumentProxy | null = null
-    const loadingTask = pdfModule.getDocument(fileUrl)
+    const loadingTask = pdfModule.getDocument({ url: fileUrl, wasmUrl: buildPdfJsWasmUrl() })
 
     setPageCount(null)
     setPdfDocumentState(null)

@@ -66,26 +66,17 @@ function getCanvasOutputScale() {
 
 function PdfPageCanvas({
   onRenderError,
-  onRenderSuccess,
   pageNumber,
   pdfDocument,
   width
 }: {
   onRenderError: (error: unknown) => void
-  onRenderSuccess: (pageNumber: number) => void
   pageNumber: number
   pdfDocument: PdfDocumentProxy
   width: number
 }) {
   const canvasRef = useRef<HTMLCanvasElement | null>(null)
-  const onRenderErrorRef = useRef(onRenderError)
-  const onRenderSuccessRef = useRef(onRenderSuccess)
   const [renderStatus, setRenderStatus] = useState<"loading" | "ready">("loading")
-
-  useEffect(() => {
-    onRenderErrorRef.current = onRenderError
-    onRenderSuccessRef.current = onRenderSuccess
-  }, [onRenderError, onRenderSuccess])
 
   useEffect(() => {
     const canvas = canvasRef.current
@@ -138,11 +129,10 @@ function PdfPageCanvas({
         renderTask = null
         if (!cancelled) {
           setRenderStatus("ready")
-          onRenderSuccessRef.current(pageNumber)
         }
       } catch (error) {
         if (!cancelled) {
-          onRenderErrorRef.current(error)
+          onRenderError(error)
         }
       } finally {
         if (page) {
@@ -159,7 +149,7 @@ function PdfPageCanvas({
       renderTask?.cancel()
       page?.cleanup()
     }
-  }, [pageNumber, pdfDocument, width])
+  }, [onRenderError, pageNumber, pdfDocument, width])
 
   return (
     <div className="relative min-h-100 bg-white">
@@ -215,7 +205,6 @@ function PdfPageViewer({ fileUrl, pageNumber }: { fileUrl: string; pageNumber: n
   const [pdfDocumentState, setPdfDocumentState] = useState<PdfDocumentState | null>(null)
   const [loadError, setLoadError] = useState<string | null>(null)
   const [pageCount, setPageCount] = useState<number | null>(null)
-  const [renderedPageNumbers, setRenderedPageNumbers] = useState<Set<number>>(() => new Set())
   const pageRefs = useRef(new Map<number, HTMLDivElement>())
   const lastScrolledKeyRef = useRef<string | null>(null)
 
@@ -227,7 +216,6 @@ function PdfPageViewer({ fileUrl, pageNumber }: { fileUrl: string; pageNumber: n
     setPageCount(null)
     setPdfDocumentState(null)
     setLoadError(null)
-    setRenderedPageNumbers(new Set())
     pageRefs.current.clear()
   }, [fileUrl])
 
@@ -268,7 +256,6 @@ function PdfPageViewer({ fileUrl, pageNumber }: { fileUrl: string; pageNumber: n
     setPageCount(null)
     setPdfDocumentState(null)
     setLoadError(null)
-    setRenderedPageNumbers(new Set())
     pageRefs.current.clear()
 
     async function loadPdfDocument() {
@@ -305,11 +292,6 @@ function PdfPageViewer({ fileUrl, pageNumber }: { fileUrl: string; pageNumber: n
     }
 
     const safePageNumber = getSafePageNumber(pageNumber, pageCount)
-    for (let currentPageNumber = 1; currentPageNumber <= safePageNumber; currentPageNumber += 1) {
-      if (!renderedPageNumbers.has(currentPageNumber)) {
-        return
-      }
-    }
 
     const scrollKey = `${fileUrl}:${safePageNumber}`
     if (lastScrolledKeyRef.current === scrollKey) {
@@ -323,7 +305,7 @@ function PdfPageViewer({ fileUrl, pageNumber }: { fileUrl: string; pageNumber: n
 
     targetPage.scrollIntoView({ block: "start" })
     lastScrolledKeyRef.current = scrollKey
-  }, [fileUrl, pageCount, pageNumber, pdfDocumentState, renderedPageNumbers, viewerWidth])
+  }, [fileUrl, pageCount, pageNumber, pdfDocumentState, viewerWidth])
 
   if (loadError) {
     return <BrowserPdfFallback fileUrl={fileUrl} pageNumber={pageNumber} />
@@ -334,7 +316,7 @@ function PdfPageViewer({ fileUrl, pageNumber }: { fileUrl: string; pageNumber: n
   return (
     <div
       ref={ref}
-      className="h-full min-h-100 w-full touch-pan-y overflow-y-auto overscroll-contain bg-white"
+      className="h-full min-h-0 w-full touch-pan-y overflow-y-auto overscroll-contain bg-white"
       data-file-url={fileUrl}
       data-page-number={pageNumber}
       data-testid="pdf-viewer"
@@ -361,17 +343,6 @@ function PdfPageViewer({ fileUrl, pageNumber }: { fileUrl: string; pageNumber: n
                 <PdfPageCanvas
                   onRenderError={(error) => {
                     setLoadError(getErrorMessage(error, "Unable to render the PDF page."))
-                  }}
-                  onRenderSuccess={(renderedPageNumber) => {
-                    setRenderedPageNumbers((currentRenderedPageNumbers) => {
-                      if (currentRenderedPageNumbers.has(renderedPageNumber)) {
-                        return currentRenderedPageNumbers
-                      }
-
-                      const nextRenderedPageNumbers = new Set(currentRenderedPageNumbers)
-                      nextRenderedPageNumbers.add(renderedPageNumber)
-                      return nextRenderedPageNumbers
-                    })
                   }}
                   pageNumber={currentPageNumber}
                   pdfDocument={pdfDocumentState.pdfDocument}
@@ -445,14 +416,14 @@ export default function EvidenceViewer({ asset }: { asset: SupportingAsset | nul
   const pageNumber = asset.pageNumber
 
   return (
-    <section className="wire-border relative flex min-h-0 flex-1 flex-col bg-white">
+    <section className="wire-border relative flex h-[calc(100dvh-3rem)] min-h-0 flex-1 flex-col overflow-hidden bg-white lg:h-auto lg:overflow-visible">
       <div className="wire-border-b flex flex-col justify-between gap-6 bg-[#FAFAFA] p-6 md:flex-row md:items-center">
         <div className="flex min-w-0 items-center gap-6">
           <span className="h-1.5 w-1.5 shrink-0 bg-[#000000]"></span>
           <h3 className="truncate text-[14px] font-medium tracking-wide text-[#000000] uppercase">{asset.label}</h3>
         </div>
       </div>
-      <div className="min-h-0 flex-1 p-6">
+      <div className="min-h-0 flex-1 overflow-hidden p-6">
         <PdfPageViewer fileUrl={viewerAsset.url} pageNumber={pageNumber} />
       </div>
     </section>

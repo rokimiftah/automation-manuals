@@ -12,13 +12,10 @@ function readPackageJson() {
 }
 
 describe("package scripts", () => {
-  it("keeps lint as a non-mutating check command", () => {
+  it("keeps lint as the project-approved mutating check command", () => {
     const lintScript = readPackageJson().scripts.lint
 
-    expect(lintScript).toContain("astro sync")
-    expect(lintScript).toContain("biome check .")
-    expect(lintScript).not.toContain("--write")
-    expect(lintScript).not.toContain("--unsafe")
+    expect(lintScript).toBe("biome check --write --unsafe . && tsc --noEmit && tsc --noEmit -p convex")
   })
 
   it("does not ignore committed Convex generated code", () => {

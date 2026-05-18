@@ -9,77 +9,64 @@ const useQuery = vi.fn()
 let scrollTargets: HTMLElement[] = []
 let scrollIntoViewDescriptor: PropertyDescriptor | undefined
 
-const { getDocumentMock, getPageMock, renderCalls, renderResolvers, renderTaskCancelMock, workerState, pdfjsState } = vi.hoisted(
-  () => {
-    const workerState = { workerSrc: "" }
-    const pdfjsState: {
-      deferRendering: boolean
-      documentFailure: string | null
-      numPages: number
-      renderFailure: string | null
-    } = {
-      deferRendering: false,
-      documentFailure: null,
-      numPages: 70,
-      renderFailure: null
-    }
-    const renderCalls: Array<{
-      canvasHeight: number
-      canvasWidth: number
-      pageNumber: number
-      transform?: unknown
-      viewportWidth: number
-    }> = []
-    const renderResolvers = new Map<number, () => void>()
-    const renderTaskCancelMock = vi.fn()
-    const getPageMock = vi.fn((pageNumber: number) =>
-      Promise.resolve({
-        cleanup: vi.fn(),
-        getViewport: ({ scale }: { scale: number }) => ({ height: 900 * scale, width: 600 * scale }),
-        render: ({
-          canvas,
-          transform,
-          viewport
-        }: {
-          canvas: HTMLCanvasElement
-          transform?: unknown
-          viewport: { width: number }
-        }) => {
-          renderCalls.push({
-            canvasHeight: canvas.height,
-            canvasWidth: canvas.width,
-            pageNumber,
-            transform,
-            viewportWidth: viewport.width
-          })
-
-          return {
-            cancel: renderTaskCancelMock,
-            promise: pdfjsState.renderFailure
-              ? Promise.reject(new Error(pdfjsState.renderFailure))
-              : pdfjsState.deferRendering
-                ? new Promise<void>((resolve) => {
-                    renderResolvers.set(pageNumber, resolve)
-                  })
-                : Promise.resolve()
-          }
-        }
-      })
-    )
-    const getDocumentMock = vi.fn((_source?: unknown) => ({
-      destroy: vi.fn(() => Promise.resolve()),
-      promise: pdfjsState.documentFailure
-        ? Promise.reject(new Error(pdfjsState.documentFailure))
-        : Promise.resolve({
-            destroy: vi.fn(() => Promise.resolve()),
-            getPage: getPageMock,
-            numPages: pdfjsState.numPages
-          })
-    }))
-
-    return { getDocumentMock, getPageMock, pdfjsState, renderCalls, renderResolvers, renderTaskCancelMock, workerState }
+const { getDocumentMock, getPageMock, renderCalls, renderTaskCancelMock, workerState, pdfjsState } = vi.hoisted(() => {
+  const workerState = { workerSrc: "" }
+  const pdfjsState: {
+    documentFailure: string | null
+    renderFailure: string | null
+  } = {
+    documentFailure: null,
+    renderFailure: null
   }
-)
+  const renderCalls: Array<{
+    canvasHeight: number
+    canvasWidth: number
+    pageNumber: number
+    transform?: unknown
+    viewportWidth: number
+  }> = []
+  const renderTaskCancelMock = vi.fn()
+  const getPageMock = vi.fn((pageNumber: number) =>
+    Promise.resolve({
+      cleanup: vi.fn(),
+      getViewport: ({ scale }: { scale: number }) => ({ height: 900 * scale, width: 600 * scale }),
+      render: ({
+        canvas,
+        transform,
+        viewport
+      }: {
+        canvas: HTMLCanvasElement
+        transform?: unknown
+        viewport: { width: number }
+      }) => {
+        renderCalls.push({
+          canvasHeight: canvas.height,
+          canvasWidth: canvas.width,
+          pageNumber,
+          transform,
+          viewportWidth: viewport.width
+        })
+
+        return {
+          cancel: renderTaskCancelMock,
+          promise: pdfjsState.renderFailure ? Promise.reject(new Error(pdfjsState.renderFailure)) : Promise.resolve()
+        }
+      }
+    })
+  )
+  const getDocumentMock = vi.fn((_source?: unknown) => ({
+    destroy: vi.fn(() => Promise.resolve()),
+    promise: pdfjsState.documentFailure
+      ? Promise.reject(new Error(pdfjsState.documentFailure))
+      : Promise.resolve({
+          destroy: vi.fn(() => Promise.resolve()),
+          getPage: getPageMock,
+          numPages: 70
+        })
+  }))
+
+  return { getDocumentMock, getPageMock, pdfjsState, renderCalls, renderTaskCancelMock, workerState }
+})
 
 vi.mock("convex/react", () => ({
   useQuery: (...args: unknown[]) => useQuery(...args)
@@ -95,12 +82,9 @@ describe("EvidenceViewer", () => {
     useQuery.mockReset()
     getDocumentMock.mockClear()
     getPageMock.mockClear()
-    pdfjsState.deferRendering = false
     pdfjsState.documentFailure = null
-    pdfjsState.numPages = 70
     pdfjsState.renderFailure = null
     renderCalls.length = 0
-    renderResolvers.clear()
     renderTaskCancelMock.mockClear()
     workerState.workerSrc = ""
     scrollTargets = []
@@ -155,8 +139,13 @@ describe("EvidenceViewer", () => {
     )
 
     expect(screen.getByText("Engine manual")).toBeInTheDocument()
-    expect(screen.getByTestId("pdf-viewer")).toHaveAttribute("data-file-url", "https://storage.example/manual.pdf")
-    expect(screen.getByTestId("pdf-viewer")).toHaveAttribute("data-page-number", "70")
+    const pdfViewer = screen.getByTestId("pdf-viewer")
+    expect(pdfViewer).toHaveAttribute("data-file-url", "https://storage.example/manual.pdf")
+    expect(pdfViewer).toHaveAttribute("data-page-number", "70")
+    expect(pdfViewer).toHaveClass("h-full", "min-h-0", "overflow-y-auto")
+    expect(pdfViewer).not.toHaveClass("min-h-100")
+    expect(pdfViewer.parentElement).toHaveClass("min-h-0", "overflow-hidden")
+    expect(pdfViewer.closest("section")).toHaveClass("h-[calc(100dvh-3rem)]", "overflow-hidden")
     expect(useQuery.mock.calls[0]?.[1]).toEqual({
       assetId: "documentAssets_1",
       citationLabel: "Engine manual"
@@ -167,7 +156,6 @@ describe("EvidenceViewer", () => {
     expect(getPageMock).toHaveBeenCalledTimes(70)
     expect(getPageMock.mock.calls.map(([pageNumber]) => pageNumber)).toEqual(Array.from({ length: 70 }, (_, index) => index + 1))
     expect(renderCalls[0]).toMatchObject({ canvasHeight: 1080, canvasWidth: 720, pageNumber: 1, viewportWidth: 720 })
-    await waitFor(() => expect(scrollTargets).toHaveLength(1))
     expect(scrollTargets[0]).toBe(screen.getAllByTestId("pdf-page")[69])
     expect(workerState.workerSrc).toContain("pdf.worker.min.mjs")
     expect(screen.queryByTitle("Engine manual")).not.toBeInTheDocument()
@@ -217,45 +205,6 @@ describe("EvidenceViewer", () => {
 
     await waitFor(() => expect(scrollTargets).toHaveLength(2))
     expect(scrollTargets[1]).toBe(screen.getAllByTestId("pdf-page")[9])
-  })
-
-  it("waits for pages through the citation page to render before scrolling", async () => {
-    pdfjsState.deferRendering = true
-    pdfjsState.numPages = 3
-    useQuery.mockReturnValue({
-      _id: "documentAssets_1",
-      kind: "source_pdf",
-      pageNumber: 3,
-      url: "https://storage.example/manual.pdf"
-    })
-
-    render(
-      <EvidenceViewer
-        asset={{
-          assetId: "documentAssets_1" as never,
-          label: "Engine manual",
-          pageNumber: 3
-        }}
-      />
-    )
-
-    await waitFor(() => expect(screen.getAllByTestId("pdf-page")).toHaveLength(3))
-    await waitFor(() => expect(renderCalls).toHaveLength(3))
-
-    expect(scrollTargets).toHaveLength(0)
-
-    renderResolvers.get(3)?.()
-    await Promise.resolve()
-    expect(scrollTargets).toHaveLength(0)
-
-    renderResolvers.get(1)?.()
-    await Promise.resolve()
-    expect(scrollTargets).toHaveLength(0)
-
-    renderResolvers.get(2)?.()
-
-    await waitFor(() => expect(scrollTargets).toHaveLength(1))
-    expect(scrollTargets[0]).toBe(screen.getAllByTestId("pdf-page")[2])
   })
 
   it("falls back to the browser PDF viewer when pdfjs-dist cannot load the document", async () => {

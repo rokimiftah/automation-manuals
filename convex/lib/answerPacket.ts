@@ -22,8 +22,10 @@ export type SupportingAsset = {
 export type AnswerPacket = {
   answerSteps: string[]
   answerSummary: string
-  answerabilityStatus: "grounded" | "insufficient_evidence"
+  answerabilityStatus: "grounded" | "insufficient_evidence" | "needs_clarification"
   citations: AnswerCitation[]
+  clarifyingQuestion?: string
+  interpretedProblem?: string
   sessionAccessToken: string
   sessionId: GenericId<"chatSessions">
   supportingAssets: SupportingAsset[]
@@ -56,6 +58,8 @@ export const answerPacketValidator = v.object({
   answerSummary: v.string(),
   answerabilityStatus: answerabilityStatusValidator,
   citations: v.array(answerCitationValidator),
+  clarifyingQuestion: v.optional(v.string()),
+  interpretedProblem: v.optional(v.string()),
   sessionAccessToken: v.string(),
   sessionId: v.id("chatSessions"),
   supportingAssets: v.array(supportingAssetValidator)
@@ -96,6 +100,25 @@ export function buildRefusalPacket(
     answerSummary: getRefusalSummaryForLanguage(language),
     answerabilityStatus: "insufficient_evidence",
     citations: [],
+    sessionAccessToken,
+    sessionId,
+    supportingAssets: []
+  }
+}
+
+export function buildClarificationPacket(
+  sessionId: GenericId<"chatSessions">,
+  sessionAccessToken: string,
+  interpretedProblem: string,
+  clarifyingQuestion: string
+): AnswerPacket {
+  return {
+    answerSteps: [],
+    answerSummary: clarifyingQuestion,
+    answerabilityStatus: "needs_clarification",
+    citations: [],
+    clarifyingQuestion,
+    interpretedProblem,
     sessionAccessToken,
     sessionId,
     supportingAssets: []

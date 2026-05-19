@@ -353,11 +353,11 @@ describe("embedSearchQuery", () => {
       async () => new Response(JSON.stringify({ error: { code: "invalid_api_key", message: "key question" } }), { status: 401 })
     )
 
-    const error = await captureError(embedSearchQuery("question", { apiKey: "key", fetchImpl }))
+    const error = await captureError(embedSearchQuery("question", { apiKey: "key", fetchImpl, keyId: "jina:9" }))
 
     expect(error).toBeInstanceOf(ProviderPermanentError)
-    expect(error).toMatchObject({ message: "jina provider request failed permanently" })
-    expect((error as Error).message).not.toContain("key")
+    expect(error).toMatchObject({ keyId: "jina:9", provider: "jina" })
+    expect((error as Error).message).not.toContain("invalid_api_key")
     expect((error as Error).message).not.toContain("question")
   })
 

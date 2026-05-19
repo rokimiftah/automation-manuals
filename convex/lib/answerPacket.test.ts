@@ -1,6 +1,6 @@
 import { describe, expect, it } from "vitest"
 
-import { buildGroundedPacket, buildRefusalPacket, selectEvidenceByCitationIds } from "./answerPacket"
+import { buildClarificationPacket, buildGroundedPacket, buildRefusalPacket, selectEvidenceByCitationIds } from "./answerPacket"
 
 describe("buildRefusalPacket", () => {
   it("returns an empty citation packet for insufficient evidence", () => {
@@ -202,6 +202,29 @@ describe("buildGroundedPacket", () => {
           pageNumber: 12
         }
       ]
+    })
+  })
+})
+
+describe("buildClarificationPacket", () => {
+  it("returns a citation-free packet that asks one focused follow-up question", () => {
+    expect(
+      buildClarificationPacket(
+        "chatSessions_1" as never,
+        "access-token-1",
+        "Installation fault F002 after first power-on.",
+        "Kode F002 dapat berbeda antar vendor atau model. Sebutkan vendor dan model drive/inverter."
+      )
+    ).toEqual({
+      answerSteps: [],
+      answerSummary: "Kode F002 dapat berbeda antar vendor atau model. Sebutkan vendor dan model drive/inverter.",
+      answerabilityStatus: "needs_clarification",
+      citations: [],
+      clarifyingQuestion: "Kode F002 dapat berbeda antar vendor atau model. Sebutkan vendor dan model drive/inverter.",
+      interpretedProblem: "Installation fault F002 after first power-on.",
+      sessionAccessToken: "access-token-1",
+      sessionId: "chatSessions_1",
+      supportingAssets: []
     })
   })
 })

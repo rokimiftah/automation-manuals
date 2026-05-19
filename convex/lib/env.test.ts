@@ -104,7 +104,7 @@ describe("getProviderEnv", () => {
       inceptionMaxConcurrentPerKey: 1,
       inceptionMaxTokens: 8192,
       inceptionOutputTpmPerKey: 9000,
-      inceptionReasoningEffort: "medium",
+      inceptionReasoningEffort: "low",
       inceptionRpmPerKey: 90,
       inceptionTemperature: 0.75,
       jinaEmbedModel: "jina-embeddings-v5-text-small",

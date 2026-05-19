@@ -1,1 +1,1 @@
-export type AnswerabilityStatus = "grounded" | "insufficient_evidence"
+export type AnswerabilityStatus = "grounded" | "insufficient_evidence" | "needs_clarification"

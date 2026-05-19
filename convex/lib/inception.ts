@@ -52,7 +52,7 @@ const INCEPTION_PROVIDER = "inception"
 const DEFAULT_BASE_URL = "https://api.inceptionlabs.ai/v1"
 const DEFAULT_MODEL = "mercury-2"
 const DEFAULT_MAX_TOKENS = 8192
-const DEFAULT_REASONING_EFFORT = "medium"
+const DEFAULT_REASONING_EFFORT = "low"
 const DEFAULT_TEMPERATURE = 0.75
 
 const GROUNDED_ANSWER_SCHEMA = {
@@ -201,8 +201,13 @@ async function throwForHttpError(response: Response, keyId: string): Promise<nev
     throw new ProviderTransientError({ keyId, provider: INCEPTION_PROVIDER })
   }
 
-  if (errorSignalIncludesQuota(await readErrorSignal(response))) {
+  const errorSignal = await readErrorSignal(response)
+  if (errorSignalIncludesQuota(errorSignal)) {
     throw new ProviderQuotaExhaustedError({ keyId, provider: INCEPTION_PROVIDER })
+  }
+
+  if (response.status === 401 || response.status === 403) {
+    throw new ProviderPermanentError({ keyId, provider: INCEPTION_PROVIDER })
   }
 
   throw new ProviderPermanentError({ provider: INCEPTION_PROVIDER })
@@ -322,14 +327,22 @@ export async function generateGroundedAnswer(
     await throwForHttpError(response, resolvedOptions.keyId)
   }
 
-  let payload: { choices?: Array<{ message?: { content?: unknown } }>; usage?: unknown }
+  let payload: { choices?: Array<{ finish_reason?: unknown; message?: { content?: unknown } }>; usage?: unknown }
   try {
-    payload = (await response.json()) as { choices?: Array<{ message?: { content?: unknown } }>; usage?: unknown }
+    payload = (await response.json()) as {
+      choices?: Array<{ finish_reason?: unknown; message?: { content?: unknown } }>
+      usage?: unknown
+    }
   } catch {
     throw new ProviderPermanentError({ provider: INCEPTION_PROVIDER })
   }
 
-  const groundedAnswer = parseGroundedAnswer(payload.choices?.[0]?.message?.content)
+  const choice = payload.choices?.[0]
+  if (choice?.finish_reason === "length") {
+    throw new ProviderTransientError({ keyId: resolvedOptions.keyId, provider: INCEPTION_PROVIDER })
+  }
+
+  const groundedAnswer = parseGroundedAnswer(choice?.message?.content)
   const usage = parseProviderUsage(payload.usage)
   return usage === undefined ? groundedAnswer : { ...groundedAnswer, usage }
 }

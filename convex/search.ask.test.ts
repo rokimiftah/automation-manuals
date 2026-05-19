@@ -3,6 +3,8 @@ import { ConvexError } from "convex/values"
 
 import { beforeEach, describe, expect, it, vi } from "vitest"
 
+import { ProviderPermanentError } from "./lib/providerErrors"
+
 const buildProviderKeyPool = vi.fn((provider: "jina" | "inception", rawKeys: string[]) => {
   return rawKeys.map((secret, index) => ({ id: `${provider}:${index + 1}`, secret: secret.trim() }))
 })
@@ -36,6 +38,7 @@ const askHandler = ask as typeof ask & {
     ctx: unknown,
     args: {
       documentId?: never
+      previousInterpretedProblem?: string
       question: string
       sessionAccessToken?: string
       sessionId: never
@@ -43,8 +46,10 @@ const askHandler = ask as typeof ask & {
   ) => Promise<{
     answerSteps: string[]
     answerSummary: string
-    answerabilityStatus: "grounded" | "insufficient_evidence"
+    answerabilityStatus: "grounded" | "insufficient_evidence" | "needs_clarification"
     citations: Array<{ chunkId: never; pageNumber: number; citationLabel: string; assetId?: never }>
+    clarifyingQuestion?: string
+    interpretedProblem?: string
     sessionAccessToken: string
     sessionId: never
     supportingAssets: Array<{ assetId: never; label: string; pageNumber: number }>
@@ -150,6 +155,489 @@ describe("ask", () => {
       answerSummary: "Install the module beside the controller.",
       citationIds: ["E1"]
     })
+  })
+
+  it("asks for vendor and model before provider calls for ambiguous installation fault codes", async () => {
+    const runQuery = vi.fn().mockResolvedValueOnce([
+      {
+        documentId: "documents_1" as never,
+        language: "English",
+        productSlug: "sinamics-g120",
+        title: "SINAMICS G120 Operating Instructions",
+        vendorSlug: "siemens",
+        version: "v1"
+      }
+    ])
+    const runMutation = createRunMutation([
+      { sessionAccessToken: "access-token-1", sessionId: "chatSessions_1" },
+      { allowed: true },
+      "chatMessages_1",
+      "chatMessages_2"
+    ])
+    const vectorSearch = vi.fn().mockResolvedValue([])
+
+    const packet = await askHandler._handler(
+      {
+        runMutation,
+        runQuery,
+        vectorSearch
+      } as never,
+      {
+        question: "Saya install drive baru, setelah power on muncul F002. Motor belum jalan.",
+        sessionId: undefined as never
+      }
+    )
+
+    expect(packet.answerabilityStatus).toBe("needs_clarification")
+    expect(packet.answerSummary).toMatch(/vendor dan model/i)
+    expect(packet.citations).toEqual([])
+    expect(embedSearchQuery).not.toHaveBeenCalled()
+    expect(generateGroundedAnswer).not.toHaveBeenCalled()
+    expect(getProviderEnv).not.toHaveBeenCalled()
+    expect(getMutationArgs(runMutation, "providerRateLimits:reserveProviderKey")).toEqual([])
+    expect(vectorSearch).not.toHaveBeenCalled()
+    expect(getMutationArgs(runMutation, "chats:appendMessage")).toEqual([
+      {
+        content: "Saya install drive baru, setelah power on muncul F002. Motor belum jalan.",
+        role: "user",
+        sessionId: "chatSessions_1"
+      },
+      {
+        answerabilityStatus: "needs_clarification",
+        content:
+          "Kode atau gejala tersebut dapat berbeda antar vendor dan model. Sebutkan vendor dan model produk agar saya bisa mengambil manual resmi yang tepat.",
+        role: "assistant",
+        sessionId: "chatSessions_1"
+      }
+    ])
+  })
+
+  it("asks for vendor and model before provider calls for no-code operational symptoms", async () => {
+    const runQuery = vi
+      .fn()
+      .mockResolvedValueOnce([
+        {
+          documentId: "documents_1" as never,
+          language: "English",
+          productSlug: "sinamics-g120",
+          title: "SINAMICS G120 Operating Instructions",
+          vendorSlug: "siemens",
+          version: "v1"
+        }
+      ])
+      .mockResolvedValueOnce([
+        {
+          assetId: "documentAssets_1" as never,
+          citationLabel: "Page 9",
+          chunkId: "chunks_1" as never,
+          content: "Generic motor troubleshooting guidance.",
+          pageNumber: 9,
+          score: 0.93
+        }
+      ])
+    const runMutation = createRunMutation([
+      { sessionAccessToken: "access-token-1", sessionId: "chatSessions_1" },
+      { allowed: true },
+      "chatMessages_1",
+      "chatMessages_2",
+      null
+    ])
+    const vectorSearch = vi.fn().mockResolvedValue([{ _id: "chunkEmbeddings_1" as never, _score: 0.93 }])
+
+    const packet = await askHandler._handler(
+      {
+        runMutation,
+        runQuery,
+        vectorSearch
+      } as never,
+      {
+        question: "Motor belum jalan setelah power on",
+        sessionId: undefined as never
+      }
+    )
+
+    expect(packet.answerabilityStatus).toBe("needs_clarification")
+    expect(packet.interpretedProblem).toBe("Motor belum jalan setelah power on")
+    expect(packet.citations).toEqual([])
+    expect(embedSearchQuery).not.toHaveBeenCalled()
+    expect(generateGroundedAnswer).not.toHaveBeenCalled()
+    expect(getProviderEnv).not.toHaveBeenCalled()
+    expect(getMutationArgs(runMutation, "providerRateLimits:reserveProviderKey")).toEqual([])
+    expect(vectorSearch).not.toHaveBeenCalled()
+  })
+
+  it("continues retrieval for general informational lookups without clarification", async () => {
+    const runQuery = vi.fn().mockResolvedValueOnce([
+      {
+        assetId: "documentAssets_1" as never,
+        citationLabel: "Page 2",
+        chunkId: "chunks_1" as never,
+        content: "Manual overview and product family summary.",
+        pageNumber: 2,
+        score: 0.93
+      }
+    ])
+    const runMutation = createRunMutation([
+      { sessionAccessToken: "access-token-1", sessionId: "chatSessions_1" },
+      { allowed: true },
+      "chatMessages_1",
+      "chatMessages_2",
+      null
+    ])
+    const vectorSearch = vi.fn().mockResolvedValue([{ _id: "chunkEmbeddings_1" as never, _score: 0.93 }])
+
+    const packet = await askHandler._handler(
+      {
+        runMutation,
+        runQuery,
+        vectorSearch
+      } as never,
+      {
+        question: "manual overview",
+        sessionId: undefined as never
+      }
+    )
+
+    expect(packet.answerabilityStatus).toBe("grounded")
+    expect(packet.answerabilityStatus).not.toBe("needs_clarification")
+    expect(embedSearchQuery).toHaveBeenCalledWith("manual overview", expect.any(Object))
+    expect(vectorSearch).toHaveBeenCalledTimes(1)
+    expect(generateGroundedAnswer).toHaveBeenCalledTimes(1)
+  })
+
+  it("resumes clarification follow-up with the prior interpreted problem as retrieval context", async () => {
+    const previousInterpretedProblem = "Saya install drive baru, setelah power on muncul F002. Motor belum jalan."
+    const followUp = "Siemens SINAMICS G120"
+    const runQuery = vi
+      .fn()
+      .mockResolvedValueOnce({
+        _id: "chatSessions_1" as never,
+        createdAt: 1,
+        title: previousInterpretedProblem,
+        updatedAt: 1
+      })
+      .mockResolvedValueOnce([
+        {
+          documentId: "documents_1" as never,
+          language: "English",
+          productSlug: "sinamics-g120",
+          title: "SINAMICS G120 Operating Instructions",
+          vendorSlug: "siemens",
+          version: "v1"
+        }
+      ])
+      .mockResolvedValueOnce([
+        {
+          assetId: "documentAssets_1" as never,
+          citationLabel: "Page 42",
+          chunkId: "chunks_1" as never,
+          content: "F002 troubleshooting instructions for SINAMICS G120.",
+          pageNumber: 42,
+          score: 0.4
+        }
+      ])
+      .mockResolvedValueOnce([])
+      .mockResolvedValueOnce(exactPage([]))
+    const runMutation = createRunMutation([
+      { allowed: true },
+      "chatMessages_1",
+      "chatMessages_2",
+      null,
+      { sessionAccessToken: "access-token-2" }
+    ])
+    const vectorSearch = vi.fn().mockResolvedValue([{ _id: "chunkEmbeddings_1" as never, _score: 0.4 }])
+
+    generateGroundedAnswer.mockResolvedValueOnce({
+      answerSteps: ["Check the cited SINAMICS fault table."],
+      answerSummary: "F002 is answered from the SINAMICS G120 evidence.",
+      citationIds: ["E1"]
+    })
+
+    const packet = await askHandler._handler(
+      {
+        runMutation,
+        runQuery,
+        vectorSearch
+      } as never,
+      {
+        previousInterpretedProblem,
+        question: followUp,
+        sessionAccessToken: "access-token-1",
+        sessionId: "chatSessions_1" as never
+      }
+    )
+
+    expect(packet.answerabilityStatus).toBe("grounded")
+    expect(packet.answerabilityStatus).not.toBe("needs_clarification")
+    expect(runQuery).toHaveBeenNthCalledWith(3, expect.anything(), {
+      matches: [{ _id: "chunkEmbeddings_1", _score: 0.4 }],
+      scope: {
+        productSlug: "sinamics-g120",
+        vendorSlug: "siemens"
+      }
+    })
+    expect(runQuery).toHaveBeenNthCalledWith(
+      4,
+      expect.anything(),
+      expect.objectContaining({
+        question: expect.stringContaining("F002"),
+        scope: {
+          productSlug: "sinamics-g120",
+          vendorSlug: "siemens"
+        },
+        terms: expect.arrayContaining(["f002"])
+      })
+    )
+    const effectiveQuestion = embedSearchQuery.mock.calls[0]?.[0] as string
+    expect(effectiveQuestion).toContain("F002")
+    expect(effectiveQuestion).toContain("Siemens SINAMICS G120")
+    expect(embedSearchQuery).toHaveBeenCalledWith(effectiveQuestion, expect.any(Object))
+    expect(generateGroundedAnswer).toHaveBeenCalledWith(
+      effectiveQuestion,
+      expect.any(String),
+      expect.any(Object),
+      expect.any(Object)
+    )
+    expect(getMutationArgs(runMutation, "chats:appendMessage")[0]).toEqual({
+      content: followUp,
+      role: "user",
+      sessionId: "chatSessions_1"
+    })
+  })
+
+  it("continues retrieval for non-diagnostic identifier lookups", async () => {
+    const runQuery = vi
+      .fn()
+      .mockResolvedValueOnce([
+        {
+          documentId: "documents_1" as never,
+          language: "English",
+          productSlug: "sinamics-g120",
+          title: "SINAMICS G120 Operating Instructions",
+          vendorSlug: "siemens",
+          version: "v1"
+        }
+      ])
+      .mockResolvedValueOnce([])
+      .mockResolvedValueOnce([
+        {
+          assetId: "documentAssets_1" as never,
+          citationLabel: "Page 8",
+          chunkId: "chunks_1" as never,
+          content: "1756-L7SP catalog identifier details.",
+          pageNumber: 8,
+          score: 1
+        }
+      ])
+      .mockResolvedValueOnce(exactPage([]))
+
+    const runMutation = createRunMutation([
+      { sessionAccessToken: "access-token-1", sessionId: "chatSessions_1" },
+      { allowed: true },
+      "chatMessages_1",
+      "chatMessages_2",
+      null
+    ])
+    const vectorSearch = vi.fn().mockResolvedValue([])
+
+    generateGroundedAnswer.mockResolvedValueOnce({
+      answerSteps: ["Open the catalog reference."],
+      answerSummary: "1756-L7SP is answered from the catalog evidence.",
+      citationIds: ["E1"]
+    })
+
+    const packet = await askHandler._handler(
+      {
+        runMutation,
+        runQuery,
+        vectorSearch
+      } as never,
+      {
+        question: "1756-L7SP",
+        sessionId: undefined as never
+      }
+    )
+
+    expect(packet.answerabilityStatus).toBe("grounded")
+    expect(packet.answerabilityStatus).not.toBe("needs_clarification")
+    expect(embedSearchQuery).toHaveBeenCalledWith("1756-L7SP", expect.any(Object))
+    expect(vectorSearch).toHaveBeenCalledTimes(1)
+    expect(generateGroundedAnswer).toHaveBeenCalledTimes(1)
+  })
+
+  it("passes detected vendor and product scope into retrieval for known multi-vendor fault questions", async () => {
+    const runQuery = vi
+      .fn()
+      .mockResolvedValueOnce([
+        {
+          documentId: "documents_1" as never,
+          language: "English",
+          productSlug: "sinamics-g120",
+          title: "SINAMICS G120 Operating Instructions",
+          vendorSlug: "siemens",
+          version: "v1"
+        }
+      ])
+      .mockResolvedValueOnce([
+        {
+          assetId: "documentAssets_1" as never,
+          citationLabel: "Page 42",
+          chunkId: "chunks_1" as never,
+          content: "F002 troubleshooting instructions for SINAMICS G120.",
+          pageNumber: 42,
+          score: 0.93
+        }
+      ])
+      .mockResolvedValueOnce([])
+      .mockResolvedValueOnce(exactPage([]))
+
+    const runMutation = createRunMutation([
+      { sessionAccessToken: "access-token-1", sessionId: "chatSessions_1" },
+      { allowed: true },
+      "chatMessages_1",
+      "chatMessages_2",
+      null
+    ])
+    const vectorSearch = vi.fn().mockResolvedValue([{ _id: "chunkEmbeddings_1" as never, _score: 0.93 }])
+
+    generateGroundedAnswer.mockResolvedValueOnce({
+      answerSteps: ["Check the cited SINAMICS fault table."],
+      answerSummary: "F002 is answered from the SINAMICS G120 evidence.",
+      citationIds: ["E1"]
+    })
+
+    const packet = await askHandler._handler(
+      {
+        runMutation,
+        runQuery,
+        vectorSearch
+      } as never,
+      {
+        question: "Siemens SINAMICS G120 F002 after first power on",
+        sessionId: undefined as never
+      }
+    )
+
+    expect(packet.answerabilityStatus).toBe("grounded")
+    expect(packet.citations).toEqual([
+      {
+        assetId: "documentAssets_1",
+        citationLabel: "Page 42",
+        chunkId: "chunks_1",
+        pageNumber: 42
+      }
+    ])
+    expect(runQuery).toHaveBeenNthCalledWith(2, expect.anything(), {
+      matches: [{ _id: "chunkEmbeddings_1", _score: 0.93 }],
+      scope: {
+        productSlug: "sinamics-g120",
+        vendorSlug: "siemens"
+      }
+    })
+    expect(vectorSearch).toHaveBeenCalledWith(
+      "chunkEmbeddings",
+      "by_embedding",
+      expect.objectContaining({
+        limit: 6,
+        vector: [0.1, 0.2]
+      })
+    )
+    const vectorOptions = vectorSearch.mock.calls[0]?.[2] as {
+      filter: (builder: { eq: (field: string, value: boolean | string) => void }) => void
+    }
+    const eq = vi.fn()
+    vectorOptions.filter({ eq })
+    expect(eq).toHaveBeenCalledWith("productSlug", "sinamics-g120")
+  })
+
+  it("runs exact fallback for scoped operational diagnostics even when vector evidence is strong", async () => {
+    const runQuery = vi
+      .fn()
+      .mockResolvedValueOnce([
+        {
+          documentId: "documents_1" as never,
+          language: "English",
+          productSlug: "sinamics-g120",
+          title: "SINAMICS G120 Operating Instructions",
+          vendorSlug: "siemens",
+          version: "v1"
+        }
+      ])
+      .mockResolvedValueOnce([
+        {
+          assetId: "documentAssets_1" as never,
+          citationLabel: "Page 18",
+          chunkId: "chunks_generic" as never,
+          content: "Generic first power-on checklist for SINAMICS drives.",
+          pageNumber: 18,
+          score: 0.98
+        }
+      ])
+      .mockResolvedValueOnce([
+        {
+          assetId: "documentAssets_2" as never,
+          citationLabel: "Page 214",
+          chunkId: "chunks_f002" as never,
+          content: "Fault F002 table: DC link overvoltage after first power on.",
+          pageNumber: 214,
+          score: 0.9
+        }
+      ])
+      .mockResolvedValueOnce(exactPage([]))
+
+    const runMutation = createRunMutation([
+      { sessionAccessToken: "access-token-1", sessionId: "chatSessions_1" },
+      { allowed: true },
+      "chatMessages_1",
+      "chatMessages_2",
+      null
+    ])
+    const vectorSearch = vi.fn().mockResolvedValue([{ _id: "chunkEmbeddings_1" as never, _score: 0.98 }])
+
+    generateGroundedAnswer.mockResolvedValueOnce({
+      answerSteps: ["Use the F002 fault table."],
+      answerSummary: "F002 is grounded by the exact fault table.",
+      citationIds: ["E2"]
+    })
+
+    const packet = await askHandler._handler(
+      {
+        runMutation,
+        runQuery,
+        vectorSearch
+      } as never,
+      {
+        question: "Siemens SINAMICS G120 F002 after first power on",
+        sessionId: undefined as never
+      }
+    )
+
+    expect(runQuery).toHaveBeenCalledTimes(4)
+    expect(runQuery).toHaveBeenNthCalledWith(
+      3,
+      expect.anything(),
+      expect.objectContaining({
+        question: "Siemens SINAMICS G120 F002 after first power on",
+        scope: {
+          productSlug: "sinamics-g120",
+          vendorSlug: "siemens"
+        },
+        terms: expect.arrayContaining(["f002"])
+      })
+    )
+
+    const context = generateGroundedAnswer.mock.calls[0]?.[1] as string
+    expect(context).toContain("Generic first power-on checklist for SINAMICS drives.")
+    expect(context).toContain("Fault F002 table: DC link overvoltage after first power on.")
+    expect(packet.answerabilityStatus).toBe("grounded")
+    expect(packet.citations).toEqual([
+      {
+        assetId: "documentAssets_2",
+        citationLabel: "Page 214",
+        chunkId: "chunks_f002",
+        pageNumber: 214
+      }
+    ])
   })
 
   it("creates a new session and returns the session access token", async () => {
@@ -347,13 +835,14 @@ describe("ask", () => {
 
     const successWrites = getMutationArgs(runMutation, "providerRateLimits:recordProviderSuccess")
     const answerSuccess = successWrites.find((args) => args.provider === "inception")
+    const outputTokens = answerSuccess?.outputTokens
     expect(answerSuccess).toMatchObject({
       keyId: "inception:1",
       outputTokens: expect.any(Number),
       provider: "inception",
       reservedOutputTokens: 1024
     })
-    expect(answerSuccess?.outputTokens).toBeLessThan(8192)
+    expect(outputTokens).toBeLessThan(8192)
   })
 
   it("returns a temporary capacity error without saving an assistant message when all Mercury keys are cooling down", async () => {
@@ -457,6 +946,54 @@ describe("ask", () => {
         content: "Where should the module go?",
         role: "user",
         sessionId: "chatSessions_1"
+      }
+    ])
+  })
+
+  it("releases answer reservations without disabling keys for malformed answer responses", async () => {
+    generateGroundedAnswer.mockRejectedValueOnce(new ProviderPermanentError({ provider: "inception" }))
+
+    const runQuery = vi
+      .fn()
+      .mockResolvedValueOnce({
+        _id: "chatSessions_1" as never,
+        createdAt: 1,
+        title: "Where should the module go?",
+        updatedAt: 1
+      })
+      .mockResolvedValueOnce([
+        {
+          assetId: "documentAssets_1" as never,
+          citationLabel: "Page 12",
+          chunkId: "chunks_1" as never,
+          content: "Install the module beside the controller.",
+          pageNumber: 12,
+          score: 0.97
+        }
+      ])
+    const runMutation = createRunMutation([{ allowed: true }, "chatMessages_1"])
+    const vectorSearch = vi.fn().mockResolvedValue([{ _id: "chunkEmbeddings_1" as never, _score: 0.97 }])
+
+    await expect(
+      askHandler._handler(
+        {
+          runMutation,
+          runQuery,
+          vectorSearch
+        } as never,
+        {
+          question: "Where should the module go?",
+          sessionAccessToken: "access-token-1",
+          sessionId: "chatSessions_1" as never
+        }
+      )
+    ).rejects.toThrow(/configuration needs administrator attention/i)
+
+    expect(getMutationArgs(runMutation, "providerRateLimits:disableProviderKey")).toEqual([])
+    expect(getMutationArgs(runMutation, "providerRateLimits:recordProviderTransientFailure")).toEqual([
+      {
+        keyId: "inception:1",
+        provider: "inception"
       }
     ])
   })

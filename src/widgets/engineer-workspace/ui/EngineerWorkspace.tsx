@@ -31,6 +31,13 @@ export default function EngineerWorkspace() {
     sessionId: Id<"chatSessions">
   }
 
+  type AskArgs = {
+    previousInterpretedProblem?: string
+    question: string
+    sessionAccessToken?: string
+    sessionId?: Id<"chatSessions">
+  }
+
   return (
     <AppShell>
       <div className="flex w-full flex-col gap-6 lg:h-full lg:min-h-0 lg:flex-row">
@@ -45,13 +52,17 @@ export default function EngineerWorkspace() {
 
                   try {
                     let result: AskResult
+                    const previousInterpretedProblem =
+                      packet?.answerabilityStatus === "needs_clarification" ? packet.interpretedProblem?.trim() : undefined
+                    const askArgs: AskArgs = {
+                      ...(previousInterpretedProblem ? { previousInterpretedProblem } : {}),
+                      question,
+                      sessionAccessToken: sessionAccessToken ?? undefined,
+                      sessionId: sessionId ?? undefined
+                    }
 
                     try {
-                      result = await ask({
-                        question,
-                        sessionAccessToken: sessionAccessToken ?? undefined,
-                        sessionId: sessionId ?? undefined
-                      })
+                      result = await ask(askArgs)
                     } catch (submitError) {
                       if (!sessionId || !isMissingSessionError(submitError)) {
                         throw submitError
@@ -59,7 +70,7 @@ export default function EngineerWorkspace() {
 
                       setSessionAccessToken(null)
                       setSessionId(null)
-                      result = await ask({ question, sessionAccessToken: undefined, sessionId: undefined })
+                      result = await ask({ ...askArgs, sessionAccessToken: undefined, sessionId: undefined })
                     }
 
                     startTransition(() => {

@@ -48,7 +48,12 @@ export default defineSchema({
     createdAt: v.number(),
     updatedAt: v.number(),
     createdByAdmin: v.string()
-  }).index("by_product", ["productId"]),
+  })
+    .index("by_product", ["productId"])
+    .index("by_status", ["status"])
+    .index("by_status_and_product", ["status", "productSlug"])
+    .index("by_status_and_vendor", ["status", "vendorSlug"])
+    .index("by_status_vendor_product", ["status", "vendorSlug", "productSlug"]),
   ingestionJobs: defineTable({
     documentId: v.id("documents"),
     requestedByAdmin: v.string(),
@@ -113,11 +118,18 @@ export default defineSchema({
   chunkTerms: defineTable({
     chunkId: v.id("chunks"),
     documentId: v.id("documents"),
-    term: v.string()
+    term: v.string(),
+    version: v.optional(v.number())
   })
     .index("by_chunk", ["chunkId"])
     .index("by_document", ["documentId"])
+    .index("by_document_and_term", ["documentId", "term"])
     .index("by_term", ["term"]),
+  exactTermBackfillState: defineTable({
+    key: v.string(),
+    cursor: v.optional(v.string()),
+    updatedAt: v.number()
+  }).index("by_key", ["key"]),
   chunkEmbeddings: defineTable({
     chunkId: v.id("chunks"),
     documentId: v.id("documents"),
@@ -197,6 +209,7 @@ export default defineSchema({
     question: v.string(),
     category: v.string(),
     severity: severityValidator,
+    expectedAnswerabilityStatus: v.optional(answerabilityStatusValidator),
     expectedDocumentTitle: v.string(),
     expectedPageNumbers: v.array(v.number()),
     expectedRefusal: v.boolean()

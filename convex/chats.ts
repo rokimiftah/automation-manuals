@@ -4,7 +4,7 @@ import type { QueryCtx } from "./_generated/server"
 import { ConvexError, v } from "convex/values"
 
 import { internalMutation, internalQuery, mutation, query } from "./_generated/server"
-import { messageRoleValidator } from "./lib/validators"
+import { answerabilityStatusValidator, messageRoleValidator } from "./lib/validators"
 
 const encoder = new TextEncoder()
 const CHAT_SESSION_TTL_MS = 24 * 60 * 60 * 1000
@@ -221,7 +221,7 @@ export const revokeSession = mutation({
 
 export const appendMessage = internalMutation({
   args: {
-    answerabilityStatus: v.optional(v.union(v.literal("grounded"), v.literal("insufficient_evidence"))),
+    answerabilityStatus: v.optional(answerabilityStatusValidator),
     content: v.string(),
     role: messageRoleValidator,
     sessionId: v.id("chatSessions")

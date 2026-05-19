@@ -149,8 +149,13 @@ async function throwForHttpError(response: Response, keyId: string): Promise<nev
     throw new ProviderTransientError({ keyId, provider: JINA_EMBEDDING_PROVIDER })
   }
 
-  if ([400, 401, 403].includes(response.status) && errorSignalIncludesQuota(await readErrorSignal(response))) {
+  const errorSignal = await readErrorSignal(response)
+  if ([400, 401, 403].includes(response.status) && errorSignalIncludesQuota(errorSignal)) {
     throw new ProviderQuotaExhaustedError({ keyId, provider: JINA_EMBEDDING_PROVIDER })
+  }
+
+  if (response.status === 401 || response.status === 403) {
+    throw new ProviderPermanentError({ keyId, provider: JINA_EMBEDDING_PROVIDER })
   }
 
   throw new ProviderPermanentError({ provider: JINA_EMBEDDING_PROVIDER })

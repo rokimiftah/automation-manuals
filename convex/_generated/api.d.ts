@@ -20,6 +20,7 @@ import type * as ingestion from "../ingestion.js";
 import type * as ingestionNode from "../ingestionNode.js";
 import type * as lib_adminSession from "../lib/adminSession.js";
 import type * as lib_answerPacket from "../lib/answerPacket.js";
+import type * as lib_diagnosticQuery from "../lib/diagnosticQuery.js";
 import type * as lib_documentReadiness from "../lib/documentReadiness.js";
 import type * as lib_env from "../lib/env.js";
 import type * as lib_evaluationSeed from "../lib/evaluationSeed.js";
@@ -62,6 +63,7 @@ declare const fullApi: ApiFromModules<{
   ingestionNode: typeof ingestionNode;
   "lib/adminSession": typeof lib_adminSession;
   "lib/answerPacket": typeof lib_answerPacket;
+  "lib/diagnosticQuery": typeof lib_diagnosticQuery;
   "lib/documentReadiness": typeof lib_documentReadiness;
   "lib/env": typeof lib_env;
   "lib/evaluationSeed": typeof lib_evaluationSeed;

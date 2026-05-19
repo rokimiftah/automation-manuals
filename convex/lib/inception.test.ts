@@ -207,7 +207,7 @@ describe("generateGroundedAnswer", () => {
     expect(request.body).toMatchObject({
       max_tokens: 8192,
       model: "mercury-2",
-      reasoning_effort: "medium",
+      reasoning_effort: "low",
       reasoning_summary: false,
       stream: false,
       temperature: 0.75
@@ -407,6 +407,41 @@ describe("generateGroundedAnswer", () => {
     expect(error).toMatchObject({ keyId: "inception:7", retryAfterMs: 4000 })
   })
 
+  it("throws ProviderTransientError when the provider stops before completing JSON", async () => {
+    const fetchImpl = vi.fn(
+      async () =>
+        new Response(
+          JSON.stringify({
+            choices: [
+              {
+                finish_reason: "length",
+                message: {
+                  content: '{"answerSteps":   ',
+                  role: "assistant"
+                }
+              }
+            ]
+          })
+        )
+    )
+
+    const error = await captureError(
+      generateGroundedAnswer(
+        "question",
+        "context",
+        { code: "id", instruction: "Answer in Indonesian." },
+        {
+          apiKey: "key",
+          fetchImpl,
+          keyId: "inception:7"
+        }
+      )
+    )
+
+    expect(error).toBeInstanceOf(ProviderTransientError)
+    expect(error).toMatchObject({ keyId: "inception:7", provider: "inception" })
+  })
+
   it("throws sanitized ProviderPermanentError for malformed JSON", async () => {
     const fetchImpl = vi.fn(async () => createChatResponse("not JSON with sk-secret secret question secret context"))
 
@@ -547,5 +582,30 @@ describe("generateGroundedAnswer", () => {
 
     expect(error).toBeInstanceOf(ProviderPermanentError)
     expectNoSecretLeak(error)
+  })
+
+  it("includes key metadata for authentication HTTP errors", async () => {
+    const fetchImpl = vi.fn(
+      async () =>
+        new Response(JSON.stringify({ error: { code: "unauthorized", message: "invalid api key" } }), {
+          status: 401
+        })
+    )
+
+    const error = await captureError(
+      generateGroundedAnswer(
+        "question",
+        "context",
+        { code: "en", instruction: "Answer in English." },
+        {
+          apiKey: "key",
+          fetchImpl,
+          keyId: "inception:9"
+        }
+      )
+    )
+
+    expect(error).toBeInstanceOf(ProviderPermanentError)
+    expect(error).toMatchObject({ keyId: "inception:9", provider: "inception" })
   })
 })

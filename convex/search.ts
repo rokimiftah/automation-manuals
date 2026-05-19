@@ -1,6 +1,9 @@
-import type { ActionCtx, MutationCtx } from "./_generated/server"
+import type { DataModel, Doc } from "./_generated/dataModel"
+import type { ActionCtx, MutationCtx, QueryCtx } from "./_generated/server"
 import type { AnswerPacket } from "./lib/answerPacket"
+import type { DiagnosticDocumentScope } from "./lib/diagnosticQuery"
 import type { ProviderName } from "./lib/providerKeys"
+import type { FilterExpression, NamedTableInfo, NamedVectorIndex, VectorFilterBuilder } from "convex/server"
 import type { GenericId } from "convex/values"
 
 import { paginationOptsValidator } from "convex/server"
@@ -9,9 +12,16 @@ import { ConvexError, v } from "convex/values"
 import { internal } from "./_generated/api"
 import { action, internalMutation, internalQuery, mutation } from "./_generated/server"
 import { requireAdminWriteSession } from "./lib/adminSession"
-import { answerPacketValidator, buildGroundedPacket, buildRefusalPacket, selectEvidenceByCitationIds } from "./lib/answerPacket"
+import {
+  answerPacketValidator,
+  buildClarificationPacket,
+  buildGroundedPacket,
+  buildRefusalPacket,
+  selectEvidenceByCitationIds
+} from "./lib/answerPacket"
+import { buildClarifyingQuestion, hasDiagnosticSignals, understandDiagnosticQuery } from "./lib/diagnosticQuery"
 import { getProviderEnv } from "./lib/env"
-import { buildChunkTerms, extractExactSearchTerms } from "./lib/exactTerms"
+import { buildChunkTerms, extractExactSearchTerms, isStrongExactIdentifierTerm, normalizeExactTerm } from "./lib/exactTerms"
 import { isLookupLikeQuery, mergeCandidates, rankExactCandidates } from "./lib/hybridRetrieval"
 import { generateGroundedAnswer } from "./lib/inception"
 import { embedSearchQuery, JINA_EMBEDDING_PROVIDER } from "./lib/jina"
@@ -57,6 +67,26 @@ type ExactSearchPage = {
   page: ExactSearchCandidate[]
 }
 
+type ExactTermBackfillChunkSelection = {
+  chunks: ExactTermBackfillChunk[]
+  scannedAll: boolean
+}
+
+type ExactTermBackfillSelection = {
+  chunks: ExactTermBackfillChunk[]
+  isDone: boolean
+  nextCursor: string | null
+}
+
+type SearchScope = {
+  productSlug?: string
+  vendorSlug?: string
+}
+
+type ChunkEmbeddingVectorFilter = (
+  q: VectorFilterBuilder<Doc<"chunkEmbeddings">, NamedVectorIndex<NamedTableInfo<DataModel, "chunkEmbeddings">, "by_embedding">>
+) => FilterExpression<boolean>
+
 export const DEFAULT_VECTOR_LIMIT = 6
 
 export const DOCUMENT_SCOPED_VECTOR_LIMIT = 24
@@ -67,8 +97,15 @@ export const GLOBAL_EXACT_MATCH_SCAN_LIMIT = 128
 
 export const GLOBAL_EXACT_MATCH_PAGE_SIZE = 32
 
+export const READY_DOCUMENT_SCOPE_LIMIT = 128
+
+const SCOPED_READY_DOCUMENT_LIMIT = 32
+const SCOPED_EXACT_CANDIDATE_LIMIT = GLOBAL_EXACT_MATCH_LIMIT
 const GLOBAL_EXACT_TERM_LIMIT = 64
+export const EXACT_TERM_INDEX_VERSION = 2
 const EXACT_TERM_BACKFILL_CHUNK_BATCH_SIZE = 50
+const EXACT_TERM_BACKFILL_SCAN_PAGE_LIMIT = 8
+const EXACT_TERM_BACKFILL_STATE_KEY = "global-current" as const
 const EXACT_TERM_BACKFILL_PHASE_CLEANUP = "cleanup" as const
 const EXACT_TERM_BACKFILL_PHASE_BACKFILL = "backfill" as const
 
@@ -92,6 +129,27 @@ export function getVectorSearchLimit(documentId?: GenericId<"documents">) {
 
 export function getTopEvidenceScore(evidence: Array<{ score: number }>) {
   return evidence.reduce((topScore, item) => Math.max(topScore, item.score), 0)
+}
+
+function buildVectorSearchFilter(
+  documentId: GenericId<"documents"> | undefined,
+  scope: SearchScope | undefined
+): ChunkEmbeddingVectorFilter {
+  return (q) => {
+    if (documentId) {
+      return q.eq("documentCurrentKey", `${documentId}:current`)
+    }
+
+    if (scope?.productSlug) {
+      return q.eq("productSlug", scope.productSlug)
+    }
+
+    if (scope?.vendorSlug) {
+      return q.eq("vendorSlug", scope.vendorSlug)
+    }
+
+    return q.eq("isCurrent", true)
+  }
 }
 
 function estimateTokenCount(text: string) {
@@ -224,11 +282,18 @@ async function handleProviderFailure(
   }
 
   if (args.error instanceof ProviderPermanentError) {
-    await ctx.runMutation(internal.providerRateLimits.disableProviderKey, {
-      keyId: args.error.keyId ?? args.reservedKeyId,
-      provider: args.provider,
-      reason: "permanent_error"
-    })
+    if (args.error.keyId === undefined) {
+      await ctx.runMutation(internal.providerRateLimits.recordProviderTransientFailure, {
+        keyId: args.reservedKeyId,
+        provider: args.provider
+      })
+    } else {
+      await ctx.runMutation(internal.providerRateLimits.disableProviderKey, {
+        keyId: args.error.keyId,
+        provider: args.provider,
+        reason: "permanent_error"
+      })
+    }
     throw providerPermanentError(args.label)
   }
 
@@ -246,6 +311,20 @@ const searchResultValidator = v.object({
   content: v.string(),
   pageNumber: v.number(),
   score: v.number()
+})
+
+const searchScopeValidator = v.object({
+  productSlug: v.optional(v.string()),
+  vendorSlug: v.optional(v.string())
+})
+
+const documentScopeValidator = v.object({
+  documentId: v.id("documents"),
+  language: v.string(),
+  productSlug: v.string(),
+  title: v.string(),
+  vendorSlug: v.string(),
+  version: v.string()
 })
 
 const exactSearchCandidateValidator = v.object({
@@ -267,6 +346,54 @@ const searchRateLimitResultValidator = v.object({
   allowed: v.boolean(),
   retryAfterMs: v.optional(v.number())
 })
+
+function documentMatchesScope(document: { productSlug: string; vendorSlug: string }, scope?: SearchScope) {
+  if (scope?.vendorSlug && document.vendorSlug !== scope.vendorSlug) {
+    return false
+  }
+
+  if (scope?.productSlug && document.productSlug !== scope.productSlug) {
+    return false
+  }
+
+  return true
+}
+
+async function loadReadyDocumentsForScope(ctx: Pick<QueryCtx, "db">, scope?: SearchScope, limit?: number) {
+  if (scope?.vendorSlug && scope.productSlug) {
+    const vendorSlug = scope.vendorSlug
+    const productSlug = scope.productSlug
+    const query = ctx.db
+      .query("documents")
+      .withIndex("by_status_vendor_product", (q) =>
+        q.eq("status", "ready").eq("vendorSlug", vendorSlug).eq("productSlug", productSlug)
+      )
+    return limit === undefined ? await query.collect() : await query.take(limit)
+  }
+
+  if (scope?.vendorSlug) {
+    const vendorSlug = scope.vendorSlug
+    const query = ctx.db
+      .query("documents")
+      .withIndex("by_status_and_vendor", (q) => q.eq("status", "ready").eq("vendorSlug", vendorSlug))
+    return limit === undefined ? await query.collect() : await query.take(limit)
+  }
+
+  if (scope?.productSlug) {
+    const productSlug = scope.productSlug
+    const query = ctx.db
+      .query("documents")
+      .withIndex("by_status_and_product", (q) => q.eq("status", "ready").eq("productSlug", productSlug))
+    return limit === undefined ? await query.collect() : await query.take(limit)
+  }
+
+  const query = ctx.db.query("documents").withIndex("by_status", (q) => q.eq("status", "ready"))
+  return limit === undefined ? await query.collect() : await query.take(limit)
+}
+
+function hasScopedExactCandidateCapacity(candidates: ExactSearchCandidate[]) {
+  return candidates.length < SCOPED_EXACT_CANDIDATE_LIMIT
+}
 
 function rankExactSearchResults(question: string, candidates: ExactSearchCandidate[]) {
   const assetIdByChunkId = new Map<string, GenericId<"documentAssets"> | undefined>()
@@ -291,6 +418,88 @@ function rankExactSearchResults(question: string, candidates: ExactSearchCandida
     })
 }
 
+function normalizeExactIdentifierTerm(term: string) {
+  return normalizeExactTerm(term).replace(/^-+|-+$/g, "")
+}
+
+function getStrongExactTerms(terms: string[]) {
+  const strongTerms = new Set<string>()
+  for (const term of terms) {
+    const normalizedTerm = normalizeExactIdentifierTerm(term)
+    if (isStrongExactIdentifierTerm(normalizedTerm)) {
+      strongTerms.add(normalizedTerm)
+    }
+  }
+
+  return [...strongTerms]
+}
+
+function containsExactTerm(value: string, term: string) {
+  return normalizeExactTerm(value)
+    .split(" ")
+    .map((token) => token.replace(/^-+|-+$/g, ""))
+    .some((token) => token === term)
+}
+
+function getStrongTermScore(candidate: ExactSearchCandidate, terms: string[]) {
+  let score = 0
+  for (const term of terms) {
+    if (containsExactTerm(candidate.content, term)) {
+      score = Math.max(score, 0.9)
+    } else if (containsExactTerm(candidate.citationLabel, term)) {
+      score = Math.max(score, 0.85)
+    }
+  }
+
+  return score
+}
+
+function compareExactCandidateOrder(left: ExactSearchCandidate, right: ExactSearchCandidate) {
+  if (left.pageNumber !== right.pageNumber) {
+    return left.pageNumber - right.pageNumber
+  }
+
+  if (left.citationLabel !== right.citationLabel) {
+    return left.citationLabel < right.citationLabel ? -1 : 1
+  }
+
+  const leftChunkId = String(left.chunkId)
+  const rightChunkId = String(right.chunkId)
+  if (leftChunkId !== rightChunkId) {
+    return leftChunkId < rightChunkId ? -1 : 1
+  }
+
+  return 0
+}
+
+function rankTermAwareExactSearchResults(question: string, terms: string[], candidates: ExactSearchCandidate[]) {
+  const literalResults = rankExactSearchResults(question, candidates)
+  if (literalResults.length >= GLOBAL_EXACT_MATCH_LIMIT) {
+    return literalResults
+  }
+
+  const strongTerms = getStrongExactTerms(terms)
+  if (strongTerms.length === 0) {
+    return literalResults
+  }
+
+  const literalChunkIds = new Set(literalResults.map((candidate) => String(candidate.chunkId)))
+  const termResults = candidates
+    .filter((candidate) => !literalChunkIds.has(String(candidate.chunkId)))
+    .map((candidate) => ({
+      ...candidate,
+      score: getStrongTermScore(candidate, strongTerms)
+    }))
+    .filter((candidate) => candidate.score > 0)
+    .sort((left, right) => right.score - left.score || compareExactCandidateOrder(left, right))
+
+  return [...literalResults, ...termResults].slice(0, GLOBAL_EXACT_MATCH_LIMIT)
+}
+
+function hasCurrentExactTermVersion(terms: Array<{ version?: number }>) {
+  return terms.some((term) => term.version === EXACT_TERM_INDEX_VERSION)
+}
+
 async function insertExactTermsForChunkBatch(ctx: ExactTermInsertCtx, chunks: ExactTermBackfillChunk[]) {
   let inserted = 0
 
@@ -298,16 +507,21 @@ async function insertExactTermsForChunkBatch(ctx: ExactTermInsertCtx, chunks: Ex
     const existingTerms = await ctx.db
       .query("chunkTerms")
       .withIndex("by_chunk", (q) => q.eq("chunkId", chunk._id))
-      .take(1)
-    if (existingTerms.length > 0) {
+      .collect()
+    if (hasCurrentExactTermVersion(existingTerms)) {
       continue
+    }
+
+    for (const term of existingTerms) {
+      await ctx.db.delete("chunkTerms", term._id)
     }
 
     for (const term of buildChunkTerms({ citationLabel: chunk.citationLabel, content: chunk.content })) {
       await ctx.db.insert("chunkTerms", {
         chunkId: chunk._id,
         documentId: chunk.documentId,
-        term
+        term,
+        version: EXACT_TERM_INDEX_VERSION
       })
       inserted += 1
     }
@@ -334,29 +548,112 @@ async function deleteExactTermsForChunkBatch(ctx: ExactTermCleanupCtx, chunks: E
   return deleted
 }
 
-async function selectChunksWithoutExactTerms(ctx: ExactTermInsertCtx, chunks: ExactTermBackfillChunk[], limit: number) {
+async function selectChunksWithoutCurrentExactTerms(
+  ctx: ExactTermInsertCtx,
+  chunks: ExactTermBackfillChunk[],
+  limit: number
+): Promise<ExactTermBackfillChunkSelection> {
   const chunksWithoutTerms: ExactTermBackfillChunk[] = []
+  if (limit <= 0) {
+    return { chunks: chunksWithoutTerms, scannedAll: false }
+  }
 
-  for (const chunk of chunks) {
+  for (const [index, chunk] of chunks.entries()) {
     const existingTerms = await ctx.db
       .query("chunkTerms")
       .withIndex("by_chunk", (q) => q.eq("chunkId", chunk._id))
-      .take(1)
-    if (existingTerms.length > 0) {
+      .collect()
+    if (hasCurrentExactTermVersion(existingTerms)) {
       continue
     }
 
     chunksWithoutTerms.push(chunk)
     if (chunksWithoutTerms.length >= limit) {
-      break
+      return { chunks: chunksWithoutTerms, scannedAll: index === chunks.length - 1 }
     }
   }
 
-  return chunksWithoutTerms
+  return { chunks: chunksWithoutTerms, scannedAll: true }
+}
+
+async function selectCurrentChunksWithoutExactTerms(
+  ctx: ExactTermInsertCtx,
+  limit: number,
+  initialCursor: string | null
+): Promise<ExactTermBackfillSelection> {
+  const chunksWithoutTerms: ExactTermBackfillChunk[] = []
+  let cursor = initialCursor
+
+  for (let pageIndex = 0; pageIndex < EXACT_TERM_BACKFILL_SCAN_PAGE_LIMIT; pageIndex += 1) {
+    const pageStartCursor = cursor
+    const page = await ctx.db
+      .query("chunks")
+      .withIndex("by_current_and_content", (q) => q.eq("isCurrent", true))
+      .paginate({
+        cursor,
+        numItems: EXACT_TERM_BACKFILL_CHUNK_BATCH_SIZE
+      })
+
+    const pageSelection = await selectChunksWithoutCurrentExactTerms(ctx, page.page, limit - chunksWithoutTerms.length)
+    chunksWithoutTerms.push(...pageSelection.chunks)
+    if (chunksWithoutTerms.length >= limit) {
+      const isDone = page.isDone && pageSelection.scannedAll
+      return {
+        chunks: chunksWithoutTerms,
+        isDone,
+        nextCursor: isDone ? null : pageSelection.scannedAll ? page.continueCursor : pageStartCursor
+      }
+    }
+
+    if (page.isDone) {
+      return { chunks: chunksWithoutTerms, isDone: true, nextCursor: null }
+    }
+
+    cursor = page.continueCursor
+  }
+
+  return { chunks: chunksWithoutTerms, isDone: false, nextCursor: cursor }
+}
+
+async function loadExactTermBackfillState(ctx: ExactTermInsertCtx) {
+  return await ctx.db
+    .query("exactTermBackfillState")
+    .withIndex("by_key", (q) => q.eq("key", EXACT_TERM_BACKFILL_STATE_KEY))
+    .first()
+}
+
+async function persistExactTermBackfillCursor(
+  ctx: ExactTermInsertCtx,
+  state: Awaited<ReturnType<typeof loadExactTermBackfillState>>,
+  cursor: string | null
+) {
+  const updatedAt = Date.now()
+  if (state) {
+    await ctx.db.patch("exactTermBackfillState", state._id, { cursor: cursor ?? undefined, updatedAt })
+    return
+  }
+
+  await ctx.db.insert("exactTermBackfillState", {
+    ...(cursor === null ? {} : { cursor }),
+    key: EXACT_TERM_BACKFILL_STATE_KEY,
+    updatedAt
+  })
+}
+
+async function clearExactTermBackfillCursor(
+  ctx: ExactTermInsertCtx,
+  state: Awaited<ReturnType<typeof loadExactTermBackfillState>>
+) {
+  if (!state) {
+    return
+  }
+
+  await ctx.db.delete("exactTermBackfillState", state._id)
 }
 
 export const backfillDocumentExactTermsBatch = internalMutation({
   args: {
+    cursor: v.optional(v.union(v.string(), v.null())),
     documentId: v.id("documents"),
     jobId: v.id("ingestionJobs"),
     offset: v.optional(v.number()),
@@ -364,43 +661,49 @@ export const backfillDocumentExactTermsBatch = internalMutation({
   },
   returns: v.null(),
   handler: async (ctx, args) => {
-    const offset = args.offset ?? 0
+    const cursor = args.cursor ?? null
     const phase = args.phase ?? EXACT_TERM_BACKFILL_PHASE_CLEANUP
 
     if (phase === EXACT_TERM_BACKFILL_PHASE_CLEANUP) {
-      const staleChunks = await ctx.db
+      const staleChunksPage = await ctx.db
         .query("chunks")
         .withIndex("by_document_and_current", (q) => q.eq("documentId", args.documentId).eq("isCurrent", false))
-        .collect()
-      const chunkBatch = staleChunks.slice(offset, offset + EXACT_TERM_BACKFILL_CHUNK_BATCH_SIZE)
+        .paginate({
+          cursor,
+          numItems: EXACT_TERM_BACKFILL_CHUNK_BATCH_SIZE
+        })
 
-      await deleteExactTermsForChunkBatch(ctx, chunkBatch)
+      await deleteExactTermsForChunkBatch(ctx, staleChunksPage.page)
 
-      if (offset + EXACT_TERM_BACKFILL_CHUNK_BATCH_SIZE < staleChunks.length) {
+      if (!staleChunksPage.isDone) {
         await ctx.scheduler.runAfter(0, internal.search.backfillDocumentExactTermsBatch, {
+          cursor: staleChunksPage.continueCursor,
           documentId: args.documentId,
           jobId: args.jobId,
-          offset: offset + EXACT_TERM_BACKFILL_CHUNK_BATCH_SIZE,
           phase
         })
         return null
       }
 
       await ctx.scheduler.runAfter(0, internal.search.backfillDocumentExactTermsBatch, {
+        cursor: null,
         documentId: args.documentId,
         jobId: args.jobId,
-        offset: 0,
         phase: EXACT_TERM_BACKFILL_PHASE_BACKFILL
       })
       return null
     }
 
-    const currentChunks = await ctx.db
+    const currentChunksPage = await ctx.db
       .query("chunks")
       .withIndex("by_document_and_current", (q) => q.eq("documentId", args.documentId).eq("isCurrent", true))
-      .collect()
-    const jobChunks = currentChunks.filter((chunk) => chunk.ingestionJobId === args.jobId)
-    if (jobChunks.length === 0 || jobChunks.length !== currentChunks.length) {
+      .paginate({
+        cursor,
+        numItems: EXACT_TERM_BACKFILL_CHUNK_BATCH_SIZE
+      })
+    const isFirstCurrentChunkPage = cursor === null
+    const hasSupersededChunk = currentChunksPage.page.some((chunk) => chunk.ingestionJobId !== args.jobId)
+    if ((isFirstCurrentChunkPage && currentChunksPage.page.length === 0) || hasSupersededChunk) {
       await ctx.runMutation(internal.documents.markFailed, {
         documentId: args.documentId,
         errorMessage: "Exact-term indexing was superseded by a newer ingestion job.",
@@ -409,15 +712,13 @@ export const backfillDocumentExactTermsBatch = internalMutation({
       return null
     }
 
-    const chunkBatch = jobChunks.slice(offset, offset + EXACT_TERM_BACKFILL_CHUNK_BATCH_SIZE)
+    await insertExactTermsForChunkBatch(ctx, currentChunksPage.page)
 
-    await insertExactTermsForChunkBatch(ctx, chunkBatch)
-
-    if (offset + EXACT_TERM_BACKFILL_CHUNK_BATCH_SIZE < jobChunks.length) {
+    if (!currentChunksPage.isDone) {
       await ctx.scheduler.runAfter(0, internal.search.backfillDocumentExactTermsBatch, {
+        cursor: currentChunksPage.continueCursor,
         documentId: args.documentId,
         jobId: args.jobId,
-        offset: offset + EXACT_TERM_BACKFILL_CHUNK_BATCH_SIZE,
         phase
       })
       return null
@@ -450,27 +751,45 @@ export const loadExactResults = internalQuery({
       return []
     }
 
-    const chunks = await ctx.db
-      .query("chunks")
-      .withIndex("by_document_and_current", (q) => q.eq("documentId", documentId).eq("isCurrent", true))
-      .collect()
+    const terms = extractExactSearchTerms(args.exactContent).slice(0, 12)
+    const seenChunkIds = new Set<string>()
+    const candidates: ExactSearchCandidate[] = []
 
-    return rankExactSearchResults(
-      args.exactContent,
-      chunks.map((chunk) => ({
-        ...(document.sourceAssetId === undefined ? {} : { assetId: document.sourceAssetId }),
-        citationLabel: chunk.citationLabel,
-        chunkId: chunk._id,
-        content: chunk.content,
-        pageNumber: chunk.pageNumber
-      }))
-    )
+    for (const term of terms) {
+      const rows: Doc<"chunkTerms">[] = await ctx.db
+        .query("chunkTerms")
+        .withIndex("by_document_and_term", (q) => q.eq("documentId", documentId).eq("term", term))
+        .take(GLOBAL_EXACT_TERM_LIMIT)
+
+      for (const row of rows) {
+        if (seenChunkIds.has(String(row.chunkId))) {
+          continue
+        }
+
+        const chunk = await ctx.db.get("chunks", row.chunkId)
+        if (!chunk?.isCurrent || chunk.documentId !== documentId) {
+          continue
+        }
+
+        seenChunkIds.add(String(chunk._id))
+        candidates.push({
+          ...(document.sourceAssetId === undefined ? {} : { assetId: document.sourceAssetId }),
+          citationLabel: chunk.citationLabel,
+          chunkId: chunk._id,
+          content: chunk.content,
+          pageNumber: chunk.pageNumber
+        })
+      }
+    }
+
+    return rankTermAwareExactSearchResults(args.exactContent, terms, candidates)
   }
 })
 
 export const loadGlobalExactResultsPage = internalQuery({
   args: {
-    paginationOpts: paginationOptsValidator
+    paginationOpts: paginationOptsValidator,
+    scope: v.optional(searchScopeValidator)
   },
   returns: v.object({
     continueCursor: v.string(),
@@ -486,7 +805,7 @@ export const loadGlobalExactResultsPage = internalQuery({
     const candidates: ExactSearchCandidate[] = []
     for (const chunk of page) {
       const document = await ctx.db.get(chunk.documentId)
-      if (!document || document.status !== "ready") {
+      if (!document || document.status !== "ready" || !documentMatchesScope(document, args.scope)) {
         continue
       }
 
@@ -507,6 +826,22 @@ export const loadGlobalExactResultsPage = internalQuery({
   }
 })
 
+export const loadReadyDocumentScopes = internalQuery({
+  args: {},
+  returns: v.array(documentScopeValidator),
+  handler: async (ctx) => {
+    const documents = await loadReadyDocumentsForScope(ctx, undefined, READY_DOCUMENT_SCOPE_LIMIT)
+    return documents.map((document) => ({
+      documentId: document._id,
+      language: document.language,
+      productSlug: document.productSlug,
+      title: document.title,
+      vendorSlug: document.vendorSlug,
+      version: document.version
+    }))
+  }
+})
+
 export const loadSearchResults = internalQuery({
   args: {
     matches: v.array(
@@ -514,7 +849,8 @@ export const loadSearchResults = internalQuery({
         _id: v.id("chunkEmbeddings"),
         _score: v.number()
       })
-    )
+    ),
+    scope: v.optional(searchScopeValidator)
   },
   returns: v.array(searchResultValidator),
   handler: async (ctx, args) => {
@@ -538,10 +874,7 @@ export const loadSearchResults = internalQuery({
       }
 
       const document = await ctx.db.get(embedding.documentId)
-      if (!document) {
-        continue
-      }
-      if (document.status !== "ready") {
+      if (!document || document.status !== "ready" || !documentMatchesScope(document, args.scope)) {
         continue
       }
 
@@ -650,12 +983,60 @@ export const claimSearchAccess = internalMutation({
 export const loadGlobalExactResultsByTerms = internalQuery({
   args: {
     question: v.string(),
+    scope: v.optional(searchScopeValidator),
     terms: v.array(v.string())
   },
   returns: v.array(searchResultValidator),
   handler: async (ctx, args) => {
     const seenChunkIds = new Set<string>()
     const candidates: ExactSearchCandidate[] = []
+
+    if (args.scope?.vendorSlug || args.scope?.productSlug) {
+      const scopedDocuments = await loadReadyDocumentsForScope(ctx, args.scope, SCOPED_READY_DOCUMENT_LIMIT)
+
+      for (const document of scopedDocuments) {
+        if (!hasScopedExactCandidateCapacity(candidates)) {
+          break
+        }
+
+        for (const term of args.terms.slice(0, 12)) {
+          if (!hasScopedExactCandidateCapacity(candidates)) {
+            break
+          }
+
+          const rows = await ctx.db
+            .query("chunkTerms")
+            .withIndex("by_document_and_term", (q) => q.eq("documentId", document._id).eq("term", term))
+            .take(GLOBAL_EXACT_TERM_LIMIT)
+
+          for (const row of rows) {
+            if (!hasScopedExactCandidateCapacity(candidates)) {
+              break
+            }
+
+            if (seenChunkIds.has(String(row.chunkId))) {
+              continue
+            }
+
+            const chunk = await ctx.db.get(row.chunkId)
+            if (!chunk?.isCurrent) {
+              continue
+            }
+
+            seenChunkIds.add(String(chunk._id))
+            candidates.push({
+              ...(document.sourceAssetId === undefined ? {} : { assetId: document.sourceAssetId }),
+              citationLabel: chunk.citationLabel,
+              chunkId: chunk._id,
+              content: chunk.content,
+              pageNumber: chunk.pageNumber
+            })
+          }
+        }
+      }
+
+      return rankTermAwareExactSearchResults(args.question, args.terms, candidates)
+    }
 
     for (const term of args.terms.slice(0, 12)) {
       const rows = await ctx.db
@@ -674,7 +1055,7 @@ export const loadGlobalExactResultsByTerms = internalQuery({
         }
 
         const document = await ctx.db.get(chunk.documentId)
-        if (!document || document.status !== "ready") {
+        if (!document || document.status !== "ready" || !documentMatchesScope(document, args.scope)) {
           continue
         }
 
@@ -689,7 +1070,7 @@ export const loadGlobalExactResultsByTerms = internalQuery({
       }
     }
 
-    return rankExactSearchResults(args.question, candidates)
+    return rankTermAwareExactSearchResults(args.question, args.terms, candidates)
   }
 })
 
@@ -699,20 +1080,24 @@ export const backfillExactTerms = mutation({
   handler: async (ctx, args) => {
     await requireAdminWriteSession(ctx, args.sessionToken)
 
-    const currentChunks = await ctx.db
-      .query("chunks")
-      .withIndex("by_current_and_content", (q) => q.eq("isCurrent", true))
-      .collect()
+    const state = await loadExactTermBackfillState(ctx)
+    const selection = await selectCurrentChunksWithoutExactTerms(ctx, EXACT_TERM_BACKFILL_CHUNK_BATCH_SIZE, state?.cursor ?? null)
+    const inserted = await insertExactTermsForChunkBatch(ctx, selection.chunks)
 
-    const chunkBatch = await selectChunksWithoutExactTerms(ctx, currentChunks, EXACT_TERM_BACKFILL_CHUNK_BATCH_SIZE)
+    if (selection.isDone) {
+      await clearExactTermBackfillCursor(ctx, state)
+    } else {
+      await persistExactTermBackfillCursor(ctx, state, selection.nextCursor)
+    }
 
-    return await insertExactTermsForChunkBatch(ctx, chunkBatch)
+    return inserted
   }
 })
 
 export const ask = action({
   args: {
     documentId: v.optional(v.id("documents")),
+    previousInterpretedProblem: v.optional(v.string()),
     question: v.string(),
     sessionAccessToken: v.optional(v.string()),
     sessionId: v.optional(v.id("chatSessions"))
@@ -723,7 +1108,11 @@ export const ask = action({
     if (!question) {
       throw new ConvexError("Question is required")
     }
-    const responseLanguage = detectQuestionLanguage(question)
+    const previousInterpretedProblem = args.previousInterpretedProblem?.trim()
+    const effectiveQuestion = previousInterpretedProblem
+      ? `${previousInterpretedProblem}\n\nAdditional context: ${question}`
+      : question
+    const responseLanguage = detectQuestionLanguage(effectiveQuestion)
 
     const shouldRotateSessionToken = args.sessionId !== undefined
     let sessionId = args.sessionId
@@ -766,6 +1155,44 @@ export const ask = action({
       sessionId
     })
 
+    let retrievalScope: SearchScope | undefined
+    let diagnosticContext: ReturnType<typeof understandDiagnosticQuery> | undefined
+    if (!args.documentId && hasDiagnosticSignals(effectiveQuestion)) {
+      const readyScopes = (await ctx.runQuery(internal.search.loadReadyDocumentScopes, {})) as DiagnosticDocumentScope[]
+      diagnosticContext = understandDiagnosticQuery(effectiveQuestion, readyScopes)
+      retrievalScope = diagnosticContext.resolvedScope
+        ? {
+            productSlug: diagnosticContext.resolvedScope.productSlug,
+            vendorSlug: diagnosticContext.resolvedScope.vendorSlug
+          }
+        : undefined
+
+      if (diagnosticContext.needsClarification) {
+        const clarifyingQuestion = buildClarifyingQuestion(diagnosticContext, responseLanguage.code)
+        const packet = buildClarificationPacket(
+          sessionId,
+          sessionAccessToken,
+          diagnosticContext.interpretedProblem,
+          clarifyingQuestion
+        )
+
+        await ctx.runMutation(internal.chats.appendMessage, {
+          answerabilityStatus: packet.answerabilityStatus,
+          content: packet.answerSummary,
+          role: "assistant",
+          sessionId
+        })
+
+        if (shouldRotateSessionToken) {
+          packet.sessionAccessToken = (
+            await ctx.runMutation(internal.chats.rotateSessionAccessToken, { sessionAccessToken, sessionId })
+          ).sessionAccessToken
+        }
+
+        return packet
+      }
+    }
+
     const { jinaKeyPool, providerEnv } = setupProviderKeyPool("Embedding", () => {
       const env = getProviderEnv()
       return {
@@ -779,7 +1206,7 @@ export const ask = action({
     const jinaKeyId = await reserveProviderKey(
       ctx,
       {
-        estimatedInputTokens: estimateTokenCount(question),
+        estimatedInputTokens: estimateTokenCount(effectiveQuestion),
         estimatedOutputTokens: 0,
         inputTpmLimit: providerEnv.jinaTpmPerKey,
         keyIds: jinaKeyPool.map((key) => key.id),
@@ -792,7 +1219,7 @@ export const ask = action({
     )
     const embedding = await (async () => {
       try {
-        return await embedSearchQuery(question, {
+        return await embedSearchQuery(effectiveQuestion, {
           apiKey: resolveProviderKey(jinaKeyPool, jinaKeyId),
           keyId: jinaKeyId,
           model: providerEnv.jinaEmbedModel
@@ -809,24 +1236,35 @@ export const ask = action({
     await recordProviderSuccess(ctx, JINA_EMBEDDING_PROVIDER, jinaKeyId, "Embedding")
 
     const matches = await ctx.vectorSearch("chunkEmbeddings", "by_embedding", {
-      filter: (q) => (args.documentId ? q.eq("documentCurrentKey", `${args.documentId}:current`) : q.eq("isCurrent", true)),
+      filter: buildVectorSearchFilter(args.documentId, retrievalScope),
       limit: getVectorSearchLimit(args.documentId),
       vector: embedding
     })
 
-    const evidence: SearchResult[] = await ctx.runQuery(internal.search.loadSearchResults, { matches })
-    const shouldRunExactFallback = isLookupLikeQuery(question) || getTopEvidenceScore(evidence) < WEAK_VECTOR_EVIDENCE_THRESHOLD
+    const evidence: SearchResult[] = await ctx.runQuery(internal.search.loadSearchResults, {
+      matches,
+      ...(retrievalScope === undefined ? {} : { scope: retrievalScope })
+    })
+    const shouldForceExactFallbackForDiagnostic =
+      diagnosticContext !== undefined &&
+      diagnosticContext.literalIdentifiers.length > 0 &&
+      (diagnosticContext.severity === "operational" || diagnosticContext.severity === "safety-critical")
+    const shouldRunExactFallback =
+      isLookupLikeQuery(effectiveQuestion) ||
+      shouldForceExactFallbackForDiagnostic ||
+      getTopEvidenceScore(evidence) < WEAK_VECTOR_EVIDENCE_THRESHOLD
     const exactEvidence: SearchResult[] = shouldRunExactFallback
       ? args.documentId
         ? await ctx.runQuery(internal.search.loadExactResults, {
             documentId: args.documentId,
-            exactContent: question
+            exactContent: effectiveQuestion
           })
         : await (async () => {
-            const terms = extractExactSearchTerms(question)
+            const terms = extractExactSearchTerms(effectiveQuestion)
             const termMatches = terms.length
               ? await ctx.runQuery(internal.search.loadGlobalExactResultsByTerms, {
-                  question,
+                  question: effectiveQuestion,
+                  ...(retrievalScope === undefined ? {} : { scope: retrievalScope }),
                   terms
                 })
               : []
@@ -846,7 +1284,8 @@ export const ask = action({
                 paginationOpts: {
                   cursor,
                   numItems
-                }
+                },
+                ...(retrievalScope === undefined ? {} : { scope: retrievalScope })
               })
 
               cursor = page.continueCursor
@@ -855,7 +1294,7 @@ export const ask = action({
               candidates.push(...page.page)
             }
 
-            const paginatedMatches = rankExactSearchResults(question, candidates)
+            const paginatedMatches = rankExactSearchResults(effectiveQuestion, candidates)
             return termMatches.length > 0 ? (mergeCandidates(termMatches, paginatedMatches) as SearchResult[]) : paginatedMatches
           })()
       : []
@@ -885,7 +1324,7 @@ export const ask = action({
     }
 
     const context = evidenceWithIds.map((item) => `[${item.evidenceId}] ${item.citationLabel}: ${item.content}`).join("\n\n")
-    const inceptionEstimatedInputTokens = estimateTokenCount(`${question}\n\n${context}`)
+    const inceptionEstimatedInputTokens = estimateTokenCount(`${effectiveQuestion}\n\n${context}`)
     const inceptionEstimatedOutputTokens = Math.max(
       1,
       Math.min(providerEnv.inceptionMaxTokens, providerEnv.inceptionEstimatedOutputTokens)
@@ -906,7 +1345,7 @@ export const ask = action({
     )
     const groundedAnswer = await (async () => {
       try {
-        return await generateGroundedAnswer(question, context, responseLanguage, {
+        return await generateGroundedAnswer(effectiveQuestion, context, responseLanguage, {
           apiKey: resolveProviderKey(inceptionKeyPool, inceptionKeyId),
           baseUrl: providerEnv.inceptionBaseUrl,
           keyId: inceptionKeyId,

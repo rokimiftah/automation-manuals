@@ -6,6 +6,8 @@ export type AnswerPacketViewPacket = {
   answerSummary: string
   answerSteps: string[]
   citations: Citation[]
+  clarifyingQuestion?: string
+  interpretedProblem?: string
   supportingAssets: SupportingAsset[]
 }
 
@@ -14,12 +16,33 @@ export type AnswerPacketViewProps = {
   packet: AnswerPacketViewPacket
 }
 
-export default function AnswerPacketView({ packet, onSelectCitation }: AnswerPacketViewProps) {
-  const _isGrounded = packet.answerabilityStatus === "grounded"
+function statusLabel(status: AnswerabilityStatus) {
+  if (status === "needs_clarification") {
+    return "Clarification Required"
+  }
 
+  if (status === "insufficient_evidence") {
+    return "Insufficient Evidence"
+  }
+
+  return "Grounded Answer"
+}
+
+export default function AnswerPacketView({ packet, onSelectCitation }: AnswerPacketViewProps) {
   return (
     <section className="relative flex flex-col bg-white">
       <div className="space-y-6 p-6">
+        <div className="wire-border inline-flex px-3 py-1 font-mono text-[10px] tracking-[0.2em] text-[#000000] uppercase">
+          {statusLabel(packet.answerabilityStatus)}
+        </div>
+
+        {packet.interpretedProblem ? (
+          <div className="wire-border bg-[#FAFAFA] p-4">
+            <h4 className="mb-2 font-mono text-[10px] tracking-[0.2em] text-[#555555] uppercase">Interpreted Problem</h4>
+            <p className="font-mono text-[13px] leading-relaxed text-[#000000]">{packet.interpretedProblem}</p>
+          </div>
+        ) : null}
+
         <p className="font-mono text-[16px] leading-[1.8] whitespace-pre-wrap text-[#000000]">{packet.answerSummary}</p>
 
         {packet.answerSteps.length > 0 && (

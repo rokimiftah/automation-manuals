@@ -3,12 +3,13 @@ import { v } from "convex/values"
 import { internalQuery, mutation } from "./_generated/server"
 import { insertAdminAuditEvent, requireAdminWriteSession } from "./lib/adminSession"
 import { defaultEvaluationCases } from "./lib/evaluationSeed"
-import { severityValidator } from "./lib/validators"
+import { answerabilityStatusValidator, severityValidator } from "./lib/validators"
 
 const evaluationCaseValidator = v.object({
   _creationTime: v.number(),
   _id: v.id("evaluationCases"),
   category: v.string(),
+  expectedAnswerabilityStatus: v.optional(answerabilityStatusValidator),
   expectedDocumentTitle: v.string(),
   expectedPageNumbers: v.array(v.number()),
   expectedRefusal: v.boolean(),

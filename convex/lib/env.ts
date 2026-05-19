@@ -110,7 +110,7 @@ function inceptionReasoningEffortEnv(value: string | undefined): InceptionReason
     case "high":
       return trimmed
     default:
-      return "medium"
+      return "low"
   }
 }
 

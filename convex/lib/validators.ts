@@ -32,6 +32,10 @@ export const chunkTypeValidator = v.union(
 
 export const messageRoleValidator = v.union(v.literal("user"), v.literal("assistant"))
 
-export const answerabilityStatusValidator = v.union(v.literal("grounded"), v.literal("insufficient_evidence"))
+export const answerabilityStatusValidator = v.union(
+  v.literal("grounded"),
+  v.literal("insufficient_evidence"),
+  v.literal("needs_clarification")
+)
 
 export const severityValidator = v.union(v.literal("informational"), v.literal("operational"), v.literal("safety-critical"))

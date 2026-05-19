@@ -1,31 +1,29 @@
 import { describe, expect, it } from "vitest"
 
-import { detectQuestionLanguage, getRefusalSummaryForLanguage } from "./questionLanguage"
+import { buildResponseLanguagePolicy } from "./questionLanguage"
 
-describe("detectQuestionLanguage", () => {
-  it("detects Indonesian questions", () => {
-    expect(detectQuestionLanguage("Bagaimana cara memasang modul ini?")).toMatchObject({
-      code: "id"
+describe("buildResponseLanguagePolicy", () => {
+  it.each([
+    "كيف أصلح هذا الخطأ؟",
+    "¿Cómo reinicio el variador?",
+    "このエラーを解除する方法は？",
+    "How should I wire the stop input?",
+    "Bagaimana cara memasang modul ini?",
+    "How to reset fault pada PLC ini?"
+  ])("builds the same dominant-language policy for %s", (question) => {
+    const policy = buildResponseLanguagePolicy(question)
+
+    expect(policy).toEqual({
+      instruction:
+        "Determine the response language from the user's question only, not from retrieved context, manual language, or the language of these system instructions. Answer every natural-language response field in the dominant language of the user's question. If the question mixes languages, use the dominant language. If retrieved context is in a different language, translate the answer into the target response language. Preserve the user's script. Do not default to English unless English is the dominant language of the user's question. If the user's question is not English, do not answer in English. Before returning JSON, verify that answerSummary, answerSteps, and clarifyingQuestion use the target response language. Do not translate citation labels, fault codes, model numbers, product names, vendor names, commands, parameter names, or code when translation could change meaning."
     })
+    expect(policy).not.toHaveProperty("code")
   })
 
-  it("detects English questions", () => {
-    expect(detectQuestionLanguage("How should I wire the stop input?")).toMatchObject({
-      code: "en"
-    })
-  })
+  it("forbids English fallback for non-English questions", () => {
+    const policy = buildResponseLanguagePolicy("¿Cómo reinicio el variador?")
 
-  it("falls back safely for ambiguous input", () => {
-    expect(detectQuestionLanguage("1756-L7SP wiring")).toMatchObject({
-      code: "same_as_question"
-    })
-  })
-})
-
-describe("getRefusalSummaryForLanguage", () => {
-  it("returns Indonesian refusal copy", () => {
-    expect(getRefusalSummaryForLanguage({ code: "id", instruction: "Answer in Indonesian." })).toMatch(
-      /Saya tidak menemukan bukti/
-    )
+    expect(policy.instruction).toContain("If the user's question is not English, do not answer in English")
+    expect(policy.instruction).toContain("Before returning JSON, verify")
   })
 })

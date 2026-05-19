@@ -1,35 +1,21 @@
 import { getFunctionName } from "convex/server"
 import { ConvexError } from "convex/values"
 
-import { beforeEach, describe, expect, it, vi } from "vitest"
+import { afterAll, beforeEach, describe, expect, it, vi } from "vitest"
 
+import * as envModule from "./lib/env"
+import * as inceptionModule from "./lib/inception"
+import * as jinaModule from "./lib/jina"
 import { ProviderPermanentError } from "./lib/providerErrors"
+import * as providerKeysModule from "./lib/providerKeys"
 
-const buildProviderKeyPool = vi.fn((provider: "jina" | "inception", rawKeys: string[]) => {
-  return rawKeys.map((secret, index) => ({ id: `${provider}:${index + 1}`, secret: secret.trim() }))
-})
-const embedSearchQuery = vi.fn()
-const generateGroundedAnswer = vi.fn()
-const getProviderEnv = vi.fn()
-const resolveProviderKey = vi.fn((pool: Array<{ id: string; secret: string }>, keyId: string) => {
-  const key = pool.find((item) => item.id === keyId)
-  if (!key) {
-    throw new Error(`Provider key ${keyId} is not configured`)
-  }
-
-  return key.secret
-})
-
-vi.mock("./lib/env", () => ({ getProviderEnv }))
-
-vi.mock("./lib/providerKeys", () => ({ buildProviderKeyPool, resolveProviderKey }))
-
-vi.mock("./lib/jina", () => ({
-  embedSearchQuery,
-  JINA_EMBEDDING_PROVIDER: "jina"
-}))
-
-vi.mock("./lib/inception", () => ({ generateGroundedAnswer }))
+const buildProviderKeyPool = vi.spyOn(providerKeysModule, "buildProviderKeyPool")
+const embedSearchQuery = vi.spyOn(jinaModule, "embedSearchQuery")
+const generateClarifyingQuestion = vi.spyOn(inceptionModule, "generateClarifyingQuestion")
+const generateGroundedAnswer = vi.spyOn(inceptionModule, "generateGroundedAnswer")
+const generateInsufficientEvidenceSummary = vi.spyOn(inceptionModule, "generateInsufficientEvidenceSummary")
+const getProviderEnv = vi.spyOn(envModule, "getProviderEnv")
+const resolveProviderKey = vi.spyOn(providerKeysModule, "resolveProviderKey")
 
 const { ask } = await import("./search")
 
@@ -55,6 +41,10 @@ const askHandler = ask as typeof ask & {
     supportingAssets: Array<{ assetId: never; label: string; pageNumber: number }>
   }>
 }
+
+afterAll(() => {
+  vi.restoreAllMocks()
+})
 
 function exactPage<T>(page: T[], overrides?: Partial<{ continueCursor: string; isDone: boolean }>) {
   return {
@@ -140,24 +130,46 @@ function getMutationArgs(runMutation: ReturnType<typeof createRunMutation>, func
     .map(([, args]) => args as Record<string, unknown>)
 }
 
+function expectDominantLanguagePolicy() {
+  return expect.objectContaining({
+    instruction: expect.stringContaining("dominant language of the user's question")
+  })
+}
+
 describe("ask", () => {
   beforeEach(() => {
     buildProviderKeyPool.mockClear()
     embedSearchQuery.mockReset()
+    generateClarifyingQuestion.mockReset()
     generateGroundedAnswer.mockReset()
+    generateInsufficientEvidenceSummary.mockReset()
     getProviderEnv.mockReset()
     resolveProviderKey.mockClear()
 
     getProviderEnv.mockReturnValue(defaultProviderEnv)
     embedSearchQuery.mockResolvedValue([0.1, 0.2])
+    generateClarifyingQuestion.mockResolvedValue({
+      clarifyingQuestion: "Please provide the vendor and model."
+    })
     generateGroundedAnswer.mockResolvedValue({
       answerSteps: ["Check the chassis."],
       answerSummary: "Install the module beside the controller.",
       citationIds: ["E1"]
     })
+    generateInsufficientEvidenceSummary.mockResolvedValue({
+      answerSummary: "No sufficient official evidence was found."
+    })
   })
 
-  it("asks for vendor and model before provider calls for ambiguous installation fault codes", async () => {
+  it("generates a clarification question for ambiguous installation fault codes", async () => {
+    generateClarifyingQuestion.mockResolvedValueOnce({
+      clarifyingQuestion: "ما الشركة المصنعة والطراز؟",
+      usage: {
+        inputTokens: 41,
+        outputTokens: 12
+      }
+    })
+
     const runQuery = vi.fn().mockResolvedValueOnce([
       {
         documentId: "documents_1" as never,
@@ -189,12 +201,36 @@ describe("ask", () => {
     )
 
     expect(packet.answerabilityStatus).toBe("needs_clarification")
-    expect(packet.answerSummary).toMatch(/vendor dan model/i)
+    expect(packet.answerSummary).toBe("ما الشركة المصنعة والطراز؟")
+    expect(packet.clarifyingQuestion).toBe("ما الشركة المصنعة والطراز؟")
     expect(packet.citations).toEqual([])
     expect(embedSearchQuery).not.toHaveBeenCalled()
     expect(generateGroundedAnswer).not.toHaveBeenCalled()
-    expect(getProviderEnv).not.toHaveBeenCalled()
-    expect(getMutationArgs(runMutation, "providerRateLimits:reserveProviderKey")).toEqual([])
+    expect(generateClarifyingQuestion).toHaveBeenCalledWith(
+      {
+        interpretedProblem: "Saya install drive baru, setelah power on muncul F002. Motor belum jalan.",
+        missingContext: ["vendor", "model"]
+      },
+      expectDominantLanguagePolicy(),
+      expect.objectContaining({
+        apiKey: "mercury-test-key-1",
+        keyId: "inception:1"
+      })
+    )
+    expect(getMutationArgs(runMutation, "providerRateLimits:reserveProviderKey")).toContainEqual(
+      expect.objectContaining({
+        estimatedOutputTokens: 1_024,
+        provider: "inception"
+      })
+    )
+    expect(getMutationArgs(runMutation, "providerRateLimits:recordProviderSuccess")).toContainEqual(
+      expect.objectContaining({
+        inputTokens: 41,
+        keyId: "inception:1",
+        outputTokens: 12,
+        provider: "inception"
+      })
+    )
     expect(vectorSearch).not.toHaveBeenCalled()
     expect(getMutationArgs(runMutation, "chats:appendMessage")).toEqual([
       {
@@ -204,15 +240,14 @@ describe("ask", () => {
       },
       {
         answerabilityStatus: "needs_clarification",
-        content:
-          "Kode atau gejala tersebut dapat berbeda antar vendor dan model. Sebutkan vendor dan model produk agar saya bisa mengambil manual resmi yang tepat.",
+        content: "ما الشركة المصنعة والطراز؟",
         role: "assistant",
         sessionId: "chatSessions_1"
       }
     ])
   })
 
-  it("asks for vendor and model before provider calls for no-code operational symptoms", async () => {
+  it("generates a clarification before retrieval for no-code operational symptoms", async () => {
     const runQuery = vi
       .fn()
       .mockResolvedValueOnce([
@@ -258,11 +293,25 @@ describe("ask", () => {
 
     expect(packet.answerabilityStatus).toBe("needs_clarification")
     expect(packet.interpretedProblem).toBe("Motor belum jalan setelah power on")
+    expect(packet.answerSummary).toBe("Please provide the vendor and model.")
+    expect(packet.clarifyingQuestion).toBe("Please provide the vendor and model.")
     expect(packet.citations).toEqual([])
     expect(embedSearchQuery).not.toHaveBeenCalled()
+    expect(generateClarifyingQuestion).toHaveBeenCalledWith(
+      {
+        interpretedProblem: "Motor belum jalan setelah power on",
+        missingContext: ["vendor", "model"]
+      },
+      expectDominantLanguagePolicy(),
+      expect.objectContaining({
+        apiKey: "mercury-test-key-1",
+        keyId: "inception:1"
+      })
+    )
     expect(generateGroundedAnswer).not.toHaveBeenCalled()
-    expect(getProviderEnv).not.toHaveBeenCalled()
-    expect(getMutationArgs(runMutation, "providerRateLimits:reserveProviderKey")).toEqual([])
+    expect(getMutationArgs(runMutation, "providerRateLimits:reserveProviderKey")).toContainEqual(
+      expect.objectContaining({ provider: "inception" })
+    )
     expect(vectorSearch).not.toHaveBeenCalled()
   })
 
@@ -775,7 +824,7 @@ describe("ask", () => {
     expect(generateGroundedAnswer).toHaveBeenCalledWith(
       "Where should the module go?",
       expect.any(String),
-      expect.objectContaining({ code: "en" }),
+      expectDominantLanguagePolicy(),
       {
         apiKey: "mercury-test-key-2",
         baseUrl: "https://api.inception.test/v1",
@@ -801,7 +850,7 @@ describe("ask", () => {
     expect(packet.answerSummary).toBe("Install the module beside the controller.")
   })
 
-  it("releases the max output token reservation when Mercury omits usage", async () => {
+  it("releases the estimated output token reservation when Mercury omits usage", async () => {
     const runQuery = vi.fn().mockResolvedValueOnce([
       {
         assetId: "documentAssets_1" as never,
@@ -1072,21 +1121,21 @@ describe("ask", () => {
     expect(vectorSearch).not.toHaveBeenCalled()
   })
 
-  it("passes Indonesian response-language instructions into grounded answer generation", async () => {
+  it("passes dominant-language policy for non-Latin questions into grounded answer generation", async () => {
     const runQuery = vi
       .fn()
       .mockResolvedValueOnce({
         _id: "chatSessions_1" as never,
         createdAt: 1,
-        title: "Bagaimana cara memasang modul ini?",
+        title: "このエラーを解除する方法は？",
         updatedAt: 1
       })
       .mockResolvedValueOnce([
         {
           assetId: "documentAssets_1" as never,
-          citationLabel: "Halaman 7",
+          citationLabel: "ページ 7",
           chunkId: "chunks_1" as never,
-          content: "Pasang modul di samping kontroler.",
+          content: "エラー解除手順はマニュアルに記載されています。",
           pageNumber: 7,
           score: 0.97
         }
@@ -1109,16 +1158,16 @@ describe("ask", () => {
         vectorSearch
       } as never,
       {
-        question: "Bagaimana cara memasang modul ini?",
+        question: "このエラーを解除する方法は？",
         sessionAccessToken: "access-token-1",
         sessionId: "chatSessions_1" as never
       }
     )
 
     expect(generateGroundedAnswer).toHaveBeenCalledWith(
-      "Bagaimana cara memasang modul ini?",
+      "このエラーを解除する方法は？",
       expect.any(String),
-      expect.objectContaining({ code: "id" }),
+      expectDominantLanguagePolicy(),
       expect.objectContaining({
         apiKey: "mercury-test-key-1",
         keyId: "inception:1"
@@ -1374,7 +1423,15 @@ describe("ask", () => {
     expect(context).not.toContain("exact result")
   })
 
-  it("returns a refusal packet when neither path finds evidence", async () => {
+  it("uses generated refusal summary when neither retrieval path finds evidence", async () => {
+    generateInsufficientEvidenceSummary.mockResolvedValueOnce({
+      answerSummary: "No hay evidencia oficial suficiente.",
+      usage: {
+        inputTokens: 29,
+        outputTokens: 8
+      }
+    })
+
     const runQuery = vi
       .fn()
       .mockResolvedValueOnce({
@@ -1411,11 +1468,98 @@ describe("ask", () => {
 
     expect(runQuery).toHaveBeenCalledTimes(4)
     expect(packet.answerabilityStatus).toBe("insufficient_evidence")
+    expect(packet.answerSummary).toBe("No hay evidencia oficial suficiente.")
     expect(generateGroundedAnswer).not.toHaveBeenCalled()
+    expect(generateInsufficientEvidenceSummary).toHaveBeenCalledWith(
+      "Where should the module go?",
+      expectDominantLanguagePolicy(),
+      expect.objectContaining({
+        apiKey: "mercury-test-key-1",
+        keyId: "inception:1"
+      })
+    )
+    expect(getMutationArgs(runMutation, "providerRateLimits:recordProviderSuccess")).toContainEqual(
+      expect.objectContaining({
+        inputTokens: 29,
+        keyId: "inception:1",
+        outputTokens: 8,
+        provider: "inception"
+      })
+    )
     expect(getMutationArgs(runMutation, "chats:appendMessage")).toHaveLength(2)
   })
 
-  it("returns an Indonesian refusal packet when neither path finds evidence", async () => {
+  it("uses grounded answer summary when grounded answer lacks support", async () => {
+    generateGroundedAnswer.mockResolvedValueOnce({
+      answerSteps: [],
+      answerSummary: "The retrieved official evidence is insufficient to answer this question.",
+      citationIds: []
+    })
+
+    const runQuery = vi
+      .fn()
+      .mockResolvedValueOnce({
+        _id: "chatSessions_1" as never,
+        createdAt: 1,
+        title: "Where should the module go?",
+        updatedAt: 1
+      })
+      .mockResolvedValueOnce([
+        {
+          assetId: "documentAssets_1" as never,
+          citationLabel: "Page 12",
+          chunkId: "chunks_1" as never,
+          content: "Install the module beside the controller.",
+          pageNumber: 12,
+          score: 0.97
+        }
+      ])
+
+    const runMutation = createRunMutation([
+      { allowed: true },
+      "chatMessages_1",
+      "chatMessages_2",
+      { sessionAccessToken: "access-token-2" }
+    ])
+
+    const vectorSearch = vi.fn().mockResolvedValue([{ _id: "chunkEmbeddings_1" as never, _score: 0.97 }])
+
+    const packet = await askHandler._handler(
+      {
+        runMutation,
+        runQuery,
+        vectorSearch
+      } as never,
+      {
+        question: "Where should the module go?",
+        sessionAccessToken: "access-token-1",
+        sessionId: "chatSessions_1" as never
+      }
+    )
+
+    expect(packet.answerabilityStatus).toBe("insufficient_evidence")
+    expect(packet.answerSummary).toBe("The retrieved official evidence is insufficient to answer this question.")
+    expect(generateInsufficientEvidenceSummary).not.toHaveBeenCalled()
+    expect(
+      getMutationArgs(runMutation, "providerRateLimits:reserveProviderKey").filter((args) => args.provider === "inception")
+    ).toHaveLength(1)
+    expect(
+      getMutationArgs(runMutation, "providerRateLimits:recordProviderSuccess").filter((args) => args.provider === "inception")
+    ).toHaveLength(1)
+    expect(getMutationArgs(runMutation, "chats:appendMessage")).toContainEqual(
+      expect.objectContaining({
+        answerabilityStatus: "insufficient_evidence",
+        content: "The retrieved official evidence is insufficient to answer this question."
+      })
+    )
+    expect(getMutationArgs(runMutation, "search:saveEvidence")).toEqual([])
+  })
+
+  it("uses generated refusal summary for Indonesian no-evidence questions", async () => {
+    generateInsufficientEvidenceSummary.mockResolvedValueOnce({
+      answerSummary: "Saya belum menemukan bukti resmi yang cukup."
+    })
+
     const runQuery = vi
       .fn()
       .mockResolvedValueOnce({
@@ -1451,7 +1595,12 @@ describe("ask", () => {
     )
 
     expect(packet.answerabilityStatus).toBe("insufficient_evidence")
-    expect(packet.answerSummary).toMatch(/Saya tidak menemukan bukti/)
+    expect(packet.answerSummary).toBe("Saya belum menemukan bukti resmi yang cukup.")
+    expect(generateInsufficientEvidenceSummary).toHaveBeenCalledWith(
+      "Bagaimana cara memasang modul ini?",
+      expectDominantLanguagePolicy(),
+      expect.objectContaining({ keyId: "inception:1" })
+    )
   })
 
   it("loads multiple global exact pages through the action", async () => {
@@ -1529,7 +1678,7 @@ describe("ask", () => {
     expect(context).toContain("Page 4")
   })
 
-  it("grounds a global lookup from exact term matches without paginating arbitrary chunk pages", async () => {
+  it("grounds a global lookup from exact term matches with scanned-page fallback", async () => {
     generateGroundedAnswer.mockResolvedValueOnce({
       answerSteps: ["Open the drive settings."],
       answerSummary: "Rockwell Automation guidance found.",

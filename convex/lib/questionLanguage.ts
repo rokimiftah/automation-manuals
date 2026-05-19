@@ -1,45 +1,10 @@
-export type QuestionLanguage = {
-  code: "en" | "id" | "same_as_question"
+export type ResponseLanguagePolicy = {
   instruction: string
 }
 
-const INDONESIAN_MARKERS = ["bagaimana", "apakah", "dengan", "untuk", "yang", "dan", "atau", "bisa", "cara"]
+export const DOMINANT_LANGUAGE_RESPONSE_INSTRUCTION =
+  "Determine the response language from the user's question only, not from retrieved context, manual language, or the language of these system instructions. Answer every natural-language response field in the dominant language of the user's question. If the question mixes languages, use the dominant language. If retrieved context is in a different language, translate the answer into the target response language. Preserve the user's script. Do not default to English unless English is the dominant language of the user's question. If the user's question is not English, do not answer in English. Before returning JSON, verify that answerSummary, answerSteps, and clarifyingQuestion use the target response language. Do not translate citation labels, fault codes, model numbers, product names, vendor names, commands, parameter names, or code when translation could change meaning."
 
-function tokenize(question: string) {
-  return question
-    .toLowerCase()
-    .split(/[^\p{L}\p{N}]+/u)
-    .filter(Boolean)
-}
-
-export function detectQuestionLanguage(question: string): QuestionLanguage {
-  const tokens = tokenize(question)
-  const indonesianHits = tokens.filter((token) => INDONESIAN_MARKERS.includes(token)).length
-
-  if (indonesianHits >= 1) {
-    return {
-      code: "id",
-      instruction: "Answer in Indonesian."
-    }
-  }
-
-  if (/\b(how|what|where|when|why|should|can|please|show)\b/i.test(question)) {
-    return {
-      code: "en",
-      instruction: "Answer in English."
-    }
-  }
-
-  return {
-    code: "same_as_question",
-    instruction: "Answer in the same language as the user's question."
-  }
-}
-
-export function getRefusalSummaryForLanguage(language: QuestionLanguage) {
-  if (language.code === "id") {
-    return "Saya tidak menemukan bukti yang cukup di dokumentasi resmi untuk menjawabnya dengan aman."
-  }
-
-  return "I could not find enough evidence in the official documentation to answer that safely."
+export function buildResponseLanguagePolicy(_question: string): ResponseLanguagePolicy {
+  return { instruction: DOMINANT_LANGUAGE_RESPONSE_INSTRUCTION }
 }

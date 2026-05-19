@@ -1,9 +1,7 @@
-import type { QuestionLanguage } from "./questionLanguage"
 import type { GenericId } from "convex/values"
 
 import { v } from "convex/values"
 
-import { getRefusalSummaryForLanguage } from "./questionLanguage"
 import { answerabilityStatusValidator } from "./validators"
 
 export type AnswerCitation = {
@@ -92,12 +90,12 @@ function normalizeCitationId(value: string) {
 export function buildRefusalPacket(
   sessionId: GenericId<"chatSessions">,
   sessionAccessToken: string,
-  language: QuestionLanguage = { code: "en", instruction: "Answer in English." },
+  answerSummary: string,
   answerSteps: string[] = []
 ): AnswerPacket {
   return {
     answerSteps,
-    answerSummary: getRefusalSummaryForLanguage(language),
+    answerSummary,
     answerabilityStatus: "insufficient_evidence",
     citations: [],
     sessionAccessToken,

@@ -36,6 +36,11 @@ export type DiagnosticQueryUnderstanding = {
   symptoms: string
 }
 
+export type ClarificationPromptInput = {
+  interpretedProblem: string
+  missingContext: MissingDiagnosticContext[]
+}
+
 const DIAGNOSTIC_KEYWORDS = [
   "alarm",
   "commission",
@@ -84,8 +89,6 @@ const OPERATIONAL_SYMPTOM_KEYWORDS = [
   "won't run",
   "won't start"
 ]
-const INDONESIAN_MARKERS = ["atau", "belum", "bisa", "cara", "dan", "dengan", "muncul", "saya", "setelah", "yang"]
-
 function normalize(value: string) {
   return value
     .toLowerCase()
@@ -277,22 +280,9 @@ export function understandDiagnosticQuery(
   }
 }
 
-export function buildClarifyingQuestion(context: DiagnosticQueryUnderstanding, languageCode: "en" | "id" | "same_as_question") {
-  const shouldUseIndonesian =
-    languageCode === "id" ||
-    (languageCode === "same_as_question" && includesAny(normalize(context.interpretedProblem), INDONESIAN_MARKERS))
-
-  if (shouldUseIndonesian) {
-    if (context.missingContext.includes("vendor") || context.missingContext.includes("model")) {
-      return "Kode atau gejala tersebut dapat berbeda antar vendor dan model. Sebutkan vendor dan model produk agar saya bisa mengambil manual resmi yang tepat."
-    }
-
-    return "Saya perlu satu detail tambahan sebelum mengambil manual resmi yang tepat."
+export function buildClarificationPromptInput(context: DiagnosticQueryUnderstanding): ClarificationPromptInput {
+  return {
+    interpretedProblem: context.interpretedProblem,
+    missingContext: context.missingContext
   }
-
-  if (context.missingContext.includes("vendor") || context.missingContext.includes("model")) {
-    return "That code or symptom can differ by vendor and model. Provide the product vendor and model so I can use the correct official manual."
-  }
-
-  return "I need one more detail before selecting the correct official manual."
 }

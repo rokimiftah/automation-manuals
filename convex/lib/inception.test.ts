@@ -1,14 +1,26 @@
+import type { ResponseLanguagePolicy } from "./questionLanguage"
+
 import { describe, expect, it, vi } from "vitest"
 
-import { extractTextContent, generateGroundedAnswer } from "./inception"
+import {
+  extractTextContent,
+  generateClarifyingQuestion,
+  generateGroundedAnswer,
+  generateInsufficientEvidenceSummary
+} from "./inception"
 import {
   ProviderPermanentError,
   ProviderQuotaExhaustedError,
   ProviderRateLimitError,
   ProviderTransientError
 } from "./providerErrors"
+import { buildResponseLanguagePolicy } from "./questionLanguage"
 
 type FetchMock = ReturnType<typeof vi.fn>
+
+const dominantLanguagePolicy: ResponseLanguagePolicy = {
+  instruction: buildResponseLanguagePolicy("¿Cómo reinicio el variador?").instruction
+}
 
 type CapturedRequest = {
   body: Record<string, unknown>
@@ -45,6 +57,10 @@ function createChatResponseWithUsage(content: unknown, usage: Record<string, unk
     }),
     init
   )
+}
+
+function jsonResponse(payload: unknown, init?: ResponseInit) {
+  return new Response(JSON.stringify(payload), init)
 }
 
 function getRequest(fetchImpl: FetchMock): CapturedRequest {
@@ -184,12 +200,7 @@ describe("generateGroundedAnswer", () => {
 
     await expect(
       withProviderEnv(() =>
-        generateGroundedAnswer(
-          "How should I wire it?",
-          "Use the safety relay. [E1]",
-          { code: "en", instruction: "Answer in English." },
-          { fetchImpl }
-        )
+        generateGroundedAnswer("How should I wire it?", "Use the safety relay. [E1]", dominantLanguagePolicy, { fetchImpl })
       )
     ).resolves.toEqual({
       answerSteps: ["Wire channel A"],
@@ -237,7 +248,7 @@ describe("generateGroundedAnswer", () => {
     })
     expect(request.body.messages).toEqual([
       {
-        content: expect.stringContaining("Answer in English."),
+        content: expect.stringContaining("Determine the response language from the user's question only"),
         role: "system"
       },
       {
@@ -246,7 +257,36 @@ describe("generateGroundedAnswer", () => {
       }
     ])
     expect(String((request.body.messages as Array<{ content: string }>)[0]?.content)).toContain("Use only the provided context")
+    expect(String((request.body.messages as Array<{ content: string }>)[0]?.content)).toContain("Preserve the user's script")
     expect(String((request.body.messages as Array<{ content: string }>)[0]?.content)).toContain("preserve technical identifiers")
+  })
+
+  it("passes dominant-language policy into grounded answer generation", async () => {
+    const fetchImpl = vi.fn(async () =>
+      jsonResponse({
+        choices: [
+          {
+            finish_reason: "stop",
+            message: { content: JSON.stringify({ answerSummary: "回答", answerSteps: ["手順"], citationIds: ["E1"] }) }
+          }
+        ]
+      })
+    )
+
+    await withProviderEnv(() =>
+      generateGroundedAnswer("このエラーを解除する方法は？", "[E1] Page 1: Reset the drive.", dominantLanguagePolicy, {
+        fetchImpl
+      })
+    )
+
+    const body = getRequest(fetchImpl).body as { messages: Array<{ content: string }> }
+    expect(String(body.messages[0]?.content)).toContain("Determine the response language from the user's question only")
+    expect(String(body.messages[0]?.content)).toContain("Answer every natural-language response field")
+    expect(String(body.messages[0]?.content)).toContain("not from retrieved context, manual language")
+    expect(String(body.messages[0]?.content)).toContain("Do not default to English")
+    expect(String(body.messages[0]?.content)).toContain("If the user's question is not English, do not answer in English")
+    expect(String(body.messages[0]?.content)).toContain("Before returning JSON, verify")
+    expect(String(body.messages[0]?.content)).toContain("Preserve the user's script")
   })
 
   it("includes all grounded-answer constraints in the system prompt", async () => {
@@ -254,15 +294,10 @@ describe("generateGroundedAnswer", () => {
       createChatResponse('{"answerSummary":"Summary","answerSteps":["Step"],"citationIds":["E1"]}')
     )
 
-    await generateGroundedAnswer(
-      "Question",
-      "Context",
-      { code: "en", instruction: "Answer in English." },
-      {
-        apiKey: "key",
-        fetchImpl
-      }
-    )
+    await generateGroundedAnswer("Question", "Context", dominantLanguagePolicy, {
+      apiKey: "key",
+      fetchImpl
+    })
 
     const request = getRequest(fetchImpl)
     const systemPrompt = String((request.body.messages as Array<{ content: string }>)[0]?.content)
@@ -280,20 +315,15 @@ describe("generateGroundedAnswer", () => {
       createChatResponse('{"answerSummary":"Summary","answerSteps":["Step"],"citationIds":["E1"]}')
     )
 
-    await generateGroundedAnswer(
-      "Question",
-      "Context",
-      { code: "en", instruction: "Answer in English." },
-      {
-        apiKey: "override-key",
-        baseUrl: "https://custom.example/v1",
-        fetchImpl,
-        maxTokens: 256,
-        model: "custom-mercury",
-        reasoningEffort: "high",
-        temperature: 0.6
-      }
-    )
+    await generateGroundedAnswer("Question", "Context", dominantLanguagePolicy, {
+      apiKey: "override-key",
+      baseUrl: "https://custom.example/v1",
+      fetchImpl,
+      maxTokens: 256,
+      model: "custom-mercury",
+      reasoningEffort: "high",
+      temperature: 0.6
+    })
 
     const request = getRequest(fetchImpl)
     expect(request.url).toBe("https://custom.example/v1/chat/completions")
@@ -311,9 +341,7 @@ describe("generateGroundedAnswer", () => {
       createChatResponse('{"answerSummary":"Summary","answerSteps":["Step"],"citationIds":["E1"]}')
     )
 
-    await withCustomInceptionEnv(() =>
-      generateGroundedAnswer("Question", "Context", { code: "en", instruction: "Answer in English." }, { fetchImpl })
-    )
+    await withCustomInceptionEnv(() => generateGroundedAnswer("Question", "Context", dominantLanguagePolicy, { fetchImpl }))
 
     const request = getRequest(fetchImpl)
     expect(request.url).toBe("https://env.example/v1/chat/completions")
@@ -335,15 +363,10 @@ describe("generateGroundedAnswer", () => {
     )
 
     await expect(
-      generateGroundedAnswer(
-        "Where should it go?",
-        "Install beside the controller. [E2]",
-        {
-          code: "en",
-          instruction: "Answer in English."
-        },
-        { apiKey: "key", fetchImpl }
-      )
+      generateGroundedAnswer("Where should it go?", "Install beside the controller. [E2]", dominantLanguagePolicy, {
+        apiKey: "key",
+        fetchImpl
+      })
     ).resolves.toEqual({
       answerSteps: ["Check the rail"],
       answerSummary: "Install beside the controller.",
@@ -364,12 +387,10 @@ describe("generateGroundedAnswer", () => {
     )
 
     await expect(
-      generateGroundedAnswer(
-        "How should I wire it?",
-        "Use the safety relay. [E1]",
-        { code: "en", instruction: "Answer in English." },
-        { apiKey: "key", fetchImpl }
-      )
+      generateGroundedAnswer("How should I wire it?", "Use the safety relay. [E1]", dominantLanguagePolicy, {
+        apiKey: "key",
+        fetchImpl
+      })
     ).resolves.toEqual({
       answerSteps: ["Wire channel A"],
       answerSummary: "Use the safety relay.",
@@ -391,16 +412,11 @@ describe("generateGroundedAnswer", () => {
     )
 
     const error = await captureError(
-      generateGroundedAnswer(
-        "question",
-        "context",
-        { code: "en", instruction: "Answer in English." },
-        {
-          apiKey: "key",
-          fetchImpl,
-          keyId: "inception:7"
-        }
-      )
+      generateGroundedAnswer("question", "context", dominantLanguagePolicy, {
+        apiKey: "key",
+        fetchImpl,
+        keyId: "inception:7"
+      })
     )
 
     expect(error).toBeInstanceOf(ProviderRateLimitError)
@@ -426,16 +442,11 @@ describe("generateGroundedAnswer", () => {
     )
 
     const error = await captureError(
-      generateGroundedAnswer(
-        "question",
-        "context",
-        { code: "id", instruction: "Answer in Indonesian." },
-        {
-          apiKey: "key",
-          fetchImpl,
-          keyId: "inception:7"
-        }
-      )
+      generateGroundedAnswer("question", "context", dominantLanguagePolicy, {
+        apiKey: "key",
+        fetchImpl,
+        keyId: "inception:7"
+      })
     )
 
     expect(error).toBeInstanceOf(ProviderTransientError)
@@ -446,15 +457,10 @@ describe("generateGroundedAnswer", () => {
     const fetchImpl = vi.fn(async () => createChatResponse("not JSON with sk-secret secret question secret context"))
 
     const error = await captureError(
-      generateGroundedAnswer(
-        "secret question",
-        "secret context",
-        { code: "en", instruction: "Answer in English." },
-        {
-          apiKey: "sk-secret",
-          fetchImpl
-        }
-      )
+      generateGroundedAnswer("secret question", "secret context", dominantLanguagePolicy, {
+        apiKey: "sk-secret",
+        fetchImpl
+      })
     )
 
     expect(error).toBeInstanceOf(ProviderPermanentError)
@@ -466,19 +472,27 @@ describe("generateGroundedAnswer", () => {
     const fetchImpl = vi.fn(async () => createChatResponse('{"answerSummary":123,"answerSteps":["Step"],"citationIds":["E1"]}'))
 
     const error = await captureError(
-      generateGroundedAnswer(
-        "secret question",
-        "secret context",
-        { code: "en", instruction: "Answer in English." },
-        {
-          apiKey: "sk-secret",
-          fetchImpl
-        }
-      )
+      generateGroundedAnswer("secret question", "secret context", dominantLanguagePolicy, {
+        apiKey: "sk-secret",
+        fetchImpl
+      })
     )
 
     expect(error).toBeInstanceOf(ProviderPermanentError)
     expectNoSecretLeak(error)
+  })
+
+  it("throws sanitized ProviderPermanentError for empty grounded answer summaries", async () => {
+    const fetchImpl = vi.fn(async () => createChatResponse('{"answerSummary":"   ","answerSteps":[],"citationIds":[]}'))
+
+    const error = await captureError(
+      generateGroundedAnswer("question", "context", dominantLanguagePolicy, {
+        apiKey: "key",
+        fetchImpl
+      })
+    )
+
+    expect(error).toBeInstanceOf(ProviderPermanentError)
   })
 
   it("throws ProviderQuotaExhaustedError for quota signals", async () => {
@@ -487,37 +501,27 @@ describe("generateGroundedAnswer", () => {
     )
 
     await expect(
-      generateGroundedAnswer(
-        "question",
-        "context",
-        { code: "en", instruction: "Answer in English." },
-        {
-          apiKey: "key",
-          fetchImpl,
-          keyId: "inception:3"
-        }
-      )
+      generateGroundedAnswer("question", "context", dominantLanguagePolicy, {
+        apiKey: "key",
+        fetchImpl,
+        keyId: "inception:3"
+      })
     ).rejects.toBeInstanceOf(ProviderQuotaExhaustedError)
   })
 
-  it("throws ProviderQuotaExhaustedError for HTTP 402 quota signals", async () => {
-    const fetchImpl = vi.fn(
-      async () =>
-        new Response(JSON.stringify({ error: { code: "payment_required", message: "insufficient balance" } }), { status: 402 })
+  it("throws ProviderQuotaExhaustedError with key metadata for HTTP 402 payment_required", async () => {
+    const fetchImpl = vi.fn(async () => new Response(JSON.stringify({ error: { code: "payment_required" } }), { status: 402 }))
+
+    const error = await captureError(
+      generateGroundedAnswer("question", "context", dominantLanguagePolicy, {
+        apiKey: "key",
+        fetchImpl,
+        keyId: "inception:4"
+      })
     )
 
-    await expect(
-      generateGroundedAnswer(
-        "question",
-        "context",
-        { code: "en", instruction: "Answer in English." },
-        {
-          apiKey: "key",
-          fetchImpl,
-          keyId: "inception:4"
-        }
-      )
-    ).rejects.toBeInstanceOf(ProviderQuotaExhaustedError)
+    expect(error).toBeInstanceOf(ProviderQuotaExhaustedError)
+    expect(error).toMatchObject({ keyId: "inception:4", provider: "inception" })
   })
 
   it("throws ProviderTransientError for HTTP 5xx and network failures", async () => {
@@ -525,16 +529,11 @@ describe("generateGroundedAnswer", () => {
       async () => new Response("raw body with sk-secret secret question secret context", { status: 503 })
     )
     const httpError = await captureError(
-      generateGroundedAnswer(
-        "secret question",
-        "secret context",
-        { code: "en", instruction: "Answer in English." },
-        {
-          apiKey: "sk-secret",
-          fetchImpl: httpFetchImpl,
-          keyId: "inception:5"
-        }
-      )
+      generateGroundedAnswer("secret question", "secret context", dominantLanguagePolicy, {
+        apiKey: "sk-secret",
+        fetchImpl: httpFetchImpl,
+        keyId: "inception:5"
+      })
     )
 
     expect(httpError).toBeInstanceOf(ProviderTransientError)
@@ -544,16 +543,11 @@ describe("generateGroundedAnswer", () => {
       throw new Error("network failure with sk-secret secret question secret context")
     })
     const networkError = await captureError(
-      generateGroundedAnswer(
-        "secret question",
-        "secret context",
-        { code: "en", instruction: "Answer in English." },
-        {
-          apiKey: "sk-secret",
-          fetchImpl: networkFetchImpl,
-          keyId: "inception:6"
-        }
-      )
+      generateGroundedAnswer("secret question", "secret context", dominantLanguagePolicy, {
+        apiKey: "sk-secret",
+        fetchImpl: networkFetchImpl,
+        keyId: "inception:6"
+      })
     )
 
     expect(networkError).toBeInstanceOf(ProviderTransientError)
@@ -569,15 +563,10 @@ describe("generateGroundedAnswer", () => {
     )
 
     const error = await captureError(
-      generateGroundedAnswer(
-        "secret question",
-        "secret context",
-        { code: "en", instruction: "Answer in English." },
-        {
-          apiKey: "sk-secret",
-          fetchImpl
-        }
-      )
+      generateGroundedAnswer("secret question", "secret context", dominantLanguagePolicy, {
+        apiKey: "sk-secret",
+        fetchImpl
+      })
     )
 
     expect(error).toBeInstanceOf(ProviderPermanentError)
@@ -593,19 +582,98 @@ describe("generateGroundedAnswer", () => {
     )
 
     const error = await captureError(
-      generateGroundedAnswer(
-        "question",
-        "context",
-        { code: "en", instruction: "Answer in English." },
+      generateGroundedAnswer("question", "context", dominantLanguagePolicy, {
+        apiKey: "key",
+        fetchImpl,
+        keyId: "inception:9"
+      })
+    )
+
+    expect(error).toBeInstanceOf(ProviderPermanentError)
+    expect(error).toMatchObject({ keyId: "inception:9", provider: "inception" })
+  })
+
+  it("generates a structured refusal summary with the language policy", async () => {
+    const fetchImpl = vi.fn(async () =>
+      jsonResponse({
+        choices: [
+          { finish_reason: "stop", message: { content: JSON.stringify({ answerSummary: "No hay evidencia suficiente." }) } }
+        ]
+      })
+    )
+
+    const result = await withProviderEnv(() =>
+      generateInsufficientEvidenceSummary("¿Cómo reinicio el variador?", dominantLanguagePolicy, { fetchImpl })
+    )
+
+    expect(result.answerSummary).toBe("No hay evidencia suficiente.")
+    const body = getRequest(fetchImpl).body as {
+      messages: Array<{ content: string }>
+      response_format: { json_schema: { name: string } }
+    }
+    expect(body.response_format.json_schema.name).toBe("InsufficientEvidenceSummary")
+    expect(String(body.messages[0]?.content)).toContain("Determine the response language from the user's question only")
+  })
+
+  it("throws sanitized ProviderPermanentError for empty insufficient-evidence summaries", async () => {
+    const fetchImpl = vi.fn(async () => createChatResponse(JSON.stringify({ answerSummary: "   " })))
+
+    const error = await captureError(
+      generateInsufficientEvidenceSummary("question", dominantLanguagePolicy, {
+        apiKey: "key",
+        fetchImpl
+      })
+    )
+
+    expect(error).toBeInstanceOf(ProviderPermanentError)
+  })
+
+  it("generates a structured clarification question with the language policy", async () => {
+    const fetchImpl = vi.fn(async () =>
+      jsonResponse({
+        choices: [
+          { finish_reason: "stop", message: { content: JSON.stringify({ clarifyingQuestion: "ما الشركة المصنعة والطراز؟" }) } }
+        ]
+      })
+    )
+
+    const result = await withProviderEnv(() =>
+      generateClarifyingQuestion(
+        {
+          interpretedProblem: "كيف أصلح F002؟",
+          missingContext: ["vendor", "model"]
+        },
+        dominantLanguagePolicy,
+        { fetchImpl }
+      )
+    )
+
+    expect(result.clarifyingQuestion).toBe("ما الشركة المصنعة والطراز؟")
+    const body = getRequest(fetchImpl).body as {
+      messages: Array<{ content: string }>
+      response_format: { json_schema: { name: string } }
+    }
+    expect(body.response_format.json_schema.name).toBe("ClarifyingQuestion")
+    expect(String(body.messages[0]?.content)).toContain("Determine the response language from the user's question only")
+  })
+
+  it("throws sanitized ProviderPermanentError for empty clarifying questions", async () => {
+    const fetchImpl = vi.fn(async () => createChatResponse(JSON.stringify({ clarifyingQuestion: "   " })))
+
+    const error = await captureError(
+      generateClarifyingQuestion(
+        {
+          interpretedProblem: "How do I fix F002?",
+          missingContext: ["vendor", "model"]
+        },
+        dominantLanguagePolicy,
         {
           apiKey: "key",
-          fetchImpl,
-          keyId: "inception:9"
+          fetchImpl
         }
       )
     )
 
     expect(error).toBeInstanceOf(ProviderPermanentError)
-    expect(error).toMatchObject({ keyId: "inception:9", provider: "inception" })
   })
 })

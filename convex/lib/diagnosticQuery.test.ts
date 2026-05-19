@@ -1,7 +1,7 @@
 import { describe, expect, it } from "vitest"
 
 import {
-  buildClarifyingQuestion,
+  buildClarificationPromptInput,
   extractLiteralIdentifiers,
   hasDiagnosticSignals,
   understandDiagnosticQuery
@@ -128,20 +128,13 @@ describe("understandDiagnosticQuery", () => {
   })
 })
 
-describe("buildClarifyingQuestion", () => {
-  it("asks one focused Indonesian follow-up when the original question is Indonesian", () => {
-    const result = understandDiagnosticQuery("Saya install drive baru, setelah power on muncul F002.", scopes)
+describe("buildClarificationPromptInput", () => {
+  it("builds language-neutral clarification prompt input", () => {
+    const result = understandDiagnosticQuery("F002 after first power on", scopes)
 
-    expect(buildClarifyingQuestion(result, "id")).toBe(
-      "Kode atau gejala tersebut dapat berbeda antar vendor dan model. Sebutkan vendor dan model produk agar saya bisa mengambil manual resmi yang tepat."
-    )
-  })
-
-  it("uses Indonesian clarification for same-as-question Indonesian context", () => {
-    const result = understandDiagnosticQuery("Saya install drive baru, setelah power on muncul F002.", scopes)
-
-    expect(buildClarifyingQuestion(result, "same_as_question")).toBe(
-      "Kode atau gejala tersebut dapat berbeda antar vendor dan model. Sebutkan vendor dan model produk agar saya bisa mengambil manual resmi yang tepat."
-    )
+    expect(buildClarificationPromptInput(result)).toEqual({
+      interpretedProblem: "F002 after first power on",
+      missingContext: ["vendor", "model"]
+    })
   })
 })

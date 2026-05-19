@@ -2,7 +2,7 @@ import type { DataModel, Doc } from "./_generated/dataModel"
 import type { ActionCtx, MutationCtx, QueryCtx } from "./_generated/server"
 import type { AnswerPacket } from "./lib/answerPacket"
 import type { DiagnosticDocumentScope } from "./lib/diagnosticQuery"
-import type { ProviderName } from "./lib/providerKeys"
+import type { ProviderKey, ProviderName } from "./lib/providerKeys"
 import type { FilterExpression, NamedTableInfo, NamedVectorIndex, VectorFilterBuilder } from "convex/server"
 import type { GenericId } from "convex/values"
 
@@ -19,11 +19,11 @@ import {
   buildRefusalPacket,
   selectEvidenceByCitationIds
 } from "./lib/answerPacket"
-import { buildClarifyingQuestion, hasDiagnosticSignals, understandDiagnosticQuery } from "./lib/diagnosticQuery"
+import { buildClarificationPromptInput, hasDiagnosticSignals, understandDiagnosticQuery } from "./lib/diagnosticQuery"
 import { getProviderEnv } from "./lib/env"
 import { buildChunkTerms, extractExactSearchTerms, isStrongExactIdentifierTerm, normalizeExactTerm } from "./lib/exactTerms"
 import { isLookupLikeQuery, mergeCandidates, rankExactCandidates } from "./lib/hybridRetrieval"
-import { generateGroundedAnswer } from "./lib/inception"
+import { generateClarifyingQuestion, generateGroundedAnswer, generateInsufficientEvidenceSummary } from "./lib/inception"
 import { embedSearchQuery, JINA_EMBEDDING_PROVIDER } from "./lib/jina"
 import {
   ProviderPermanentError,
@@ -32,7 +32,7 @@ import {
   ProviderTransientError
 } from "./lib/providerErrors"
 import { buildProviderKeyPool, resolveProviderKey } from "./lib/providerKeys"
-import { detectQuestionLanguage } from "./lib/questionLanguage"
+import { buildResponseLanguagePolicy } from "./lib/questionLanguage"
 
 type SearchResult = {
   assetId?: GenericId<"documentAssets">
@@ -123,6 +123,46 @@ type ProviderReservation = { available: false; retryAfterMs: number } | { availa
 
 type ProviderLabel = "Answer" | "Embedding"
 
+type ProviderTokenUsage = {
+  inputTokens?: number
+  outputTokens?: number
+}
+
+type ProviderEnv = ReturnType<typeof getProviderEnv>
+
+type InceptionGenerationOptions = {
+  apiKey: string
+  baseUrl: string
+  keyId: string
+  maxTokens: number
+  model: string
+  reasoningEffort: ProviderEnv["inceptionReasoningEffort"]
+  temperature: number
+}
+
+type InceptionShortGeneration<T extends { usage?: ProviderTokenUsage }> = {
+  estimateOutputTokens: (generated: T) => number
+  estimatedInputText: string
+  generate: (options: InceptionGenerationOptions) => Promise<T>
+}
+
+type ClarifyingQuestionGeneration = {
+  clarifyingQuestion: string
+  usage?: ProviderTokenUsage
+}
+
+type InsufficientEvidenceGeneration = {
+  answerSummary: string
+  usage?: ProviderTokenUsage
+}
+
+type GroundedAnswerGeneration = {
+  answerSteps: string[]
+  answerSummary: string
+  citationIds: string[]
+  usage?: ProviderTokenUsage
+}
+
 export function getVectorSearchLimit(documentId?: GenericId<"documents">) {
   return documentId ? DOCUMENT_SCOPED_VECTOR_LIMIT : DEFAULT_VECTOR_LIMIT
 }
@@ -164,6 +204,30 @@ function estimateGroundedAnswerOutputTokens(answer: { answerSteps: string[]; ans
       citationIds: answer.citationIds
     })
   )
+}
+
+function estimateTextGenerationOutputTokens(generated: { answerSummary?: string; clarifyingQuestion?: string }) {
+  return estimateTokenCount(generated.answerSummary ?? generated.clarifyingQuestion ?? "")
+}
+
+function getInceptionEstimatedOutputTokens(providerEnv: ProviderEnv) {
+  return Math.max(1, Math.min(providerEnv.inceptionMaxTokens, providerEnv.inceptionEstimatedOutputTokens))
+}
+
+function buildInceptionGenerationOptions(
+  providerEnv: ProviderEnv,
+  inceptionKeyPool: ProviderKey[],
+  inceptionKeyId: string
+): InceptionGenerationOptions {
+  return {
+    apiKey: resolveProviderKey(inceptionKeyPool, inceptionKeyId),
+    baseUrl: providerEnv.inceptionBaseUrl,
+    keyId: inceptionKeyId,
+    maxTokens: providerEnv.inceptionMaxTokens,
+    model: providerEnv.inceptionChatModel,
+    reasoningEffort: providerEnv.inceptionReasoningEffort,
+    temperature: providerEnv.inceptionTemperature
+  }
 }
 
 function getProviderRetryAfterMs(retryAfterMs: number | undefined) {
@@ -302,6 +366,52 @@ async function handleProviderFailure(
     provider: args.provider
   })
   throw providerPermanentError(args.label)
+}
+
+async function generateShortInceptionResponse<T extends { usage?: ProviderTokenUsage }>(
+  ctx: Pick<ActionCtx, "runMutation">,
+  providerEnv: ProviderEnv,
+  inceptionKeyPool: ProviderKey[],
+  generation: InceptionShortGeneration<T>
+) {
+  const estimatedInputTokens = estimateTokenCount(generation.estimatedInputText)
+  const estimatedOutputTokens = getInceptionEstimatedOutputTokens(providerEnv)
+  const inceptionKeyId = await reserveProviderKey(
+    ctx,
+    {
+      estimatedInputTokens,
+      estimatedOutputTokens,
+      inputTpmLimit: providerEnv.inceptionInputTpmPerKey,
+      keyIds: inceptionKeyPool.map((key) => key.id),
+      maxConcurrent: providerEnv.inceptionMaxConcurrentPerKey,
+      outputTpmLimit: providerEnv.inceptionOutputTpmPerKey,
+      provider: INCEPTION_PROVIDER,
+      rpmLimit: providerEnv.inceptionRpmPerKey
+    },
+    "Answer"
+  )
+
+  const generated = await (async () => {
+    try {
+      return await generation.generate(buildInceptionGenerationOptions(providerEnv, inceptionKeyPool, inceptionKeyId))
+    } catch (error) {
+      return await handleProviderFailure(ctx, {
+        error,
+        label: "Answer",
+        provider: INCEPTION_PROVIDER,
+        reservedKeyId: inceptionKeyId
+      })
+    }
+  })()
+  const outputTokens = generated.usage?.outputTokens ?? generation.estimateOutputTokens(generated)
+  await recordProviderSuccess(ctx, INCEPTION_PROVIDER, inceptionKeyId, "Answer", {
+    ...(generated.usage?.inputTokens === undefined ? {} : { inputTokens: generated.usage.inputTokens }),
+    outputTokens,
+    reservedInputTokens: estimatedInputTokens,
+    reservedOutputTokens: estimatedOutputTokens
+  })
+
+  return generated
 }
 
 const searchResultValidator = v.object({
@@ -1112,7 +1222,7 @@ export const ask = action({
     const effectiveQuestion = previousInterpretedProblem
       ? `${previousInterpretedProblem}\n\nAdditional context: ${question}`
       : question
-    const responseLanguage = detectQuestionLanguage(effectiveQuestion)
+    const responseLanguage = buildResponseLanguagePolicy(effectiveQuestion)
 
     const shouldRotateSessionToken = args.sessionId !== undefined
     let sessionId = args.sessionId
@@ -1168,12 +1278,24 @@ export const ask = action({
         : undefined
 
       if (diagnosticContext.needsClarification) {
-        const clarifyingQuestion = buildClarifyingQuestion(diagnosticContext, responseLanguage.code)
+        const clarificationInput = buildClarificationPromptInput(diagnosticContext)
+        const { inceptionKeyPool, providerEnv } = setupProviderKeyPool("Answer", () => {
+          const env = getProviderEnv()
+          return {
+            inceptionKeyPool: buildProviderKeyPool(INCEPTION_PROVIDER, env.inceptionApiKeys),
+            providerEnv: env
+          }
+        })
+        const generated = await generateShortInceptionResponse<ClarifyingQuestionGeneration>(ctx, providerEnv, inceptionKeyPool, {
+          estimatedInputText: JSON.stringify(clarificationInput),
+          estimateOutputTokens: estimateTextGenerationOutputTokens,
+          generate: (options) => generateClarifyingQuestion(clarificationInput, responseLanguage, options)
+        })
         const packet = buildClarificationPacket(
           sessionId,
           sessionAccessToken,
           diagnosticContext.interpretedProblem,
-          clarifyingQuestion
+          generated.clarifyingQuestion
         )
 
         await ctx.runMutation(internal.chats.appendMessage, {
@@ -1305,7 +1427,12 @@ export const ask = action({
       evidenceId: `E${index + 1}`
     }))
     if (mergedEvidence.length === 0) {
-      const packet = buildRefusalPacket(sessionId, sessionAccessToken, responseLanguage)
+      const generated = await generateShortInceptionResponse<InsufficientEvidenceGeneration>(ctx, providerEnv, inceptionKeyPool, {
+        estimatedInputText: effectiveQuestion,
+        estimateOutputTokens: estimateTextGenerationOutputTokens,
+        generate: (options) => generateInsufficientEvidenceSummary(effectiveQuestion, responseLanguage, options)
+      })
+      const packet = buildRefusalPacket(sessionId, sessionAccessToken, generated.answerSummary)
 
       await ctx.runMutation(internal.chats.appendMessage, {
         answerabilityStatus: packet.answerabilityStatus,
@@ -1324,63 +1451,24 @@ export const ask = action({
     }
 
     const context = evidenceWithIds.map((item) => `[${item.evidenceId}] ${item.citationLabel}: ${item.content}`).join("\n\n")
-    const inceptionEstimatedInputTokens = estimateTokenCount(`${effectiveQuestion}\n\n${context}`)
-    const inceptionEstimatedOutputTokens = Math.max(
-      1,
-      Math.min(providerEnv.inceptionMaxTokens, providerEnv.inceptionEstimatedOutputTokens)
-    )
-    const inceptionKeyId = await reserveProviderKey(
-      ctx,
-      {
-        estimatedInputTokens: inceptionEstimatedInputTokens,
-        estimatedOutputTokens: inceptionEstimatedOutputTokens,
-        inputTpmLimit: providerEnv.inceptionInputTpmPerKey,
-        keyIds: inceptionKeyPool.map((key) => key.id),
-        maxConcurrent: providerEnv.inceptionMaxConcurrentPerKey,
-        outputTpmLimit: providerEnv.inceptionOutputTpmPerKey,
-        provider: INCEPTION_PROVIDER,
-        rpmLimit: providerEnv.inceptionRpmPerKey
-      },
-      "Answer"
-    )
-    const groundedAnswer = await (async () => {
-      try {
-        return await generateGroundedAnswer(effectiveQuestion, context, responseLanguage, {
-          apiKey: resolveProviderKey(inceptionKeyPool, inceptionKeyId),
-          baseUrl: providerEnv.inceptionBaseUrl,
-          keyId: inceptionKeyId,
-          maxTokens: providerEnv.inceptionMaxTokens,
-          model: providerEnv.inceptionChatModel,
-          reasoningEffort: providerEnv.inceptionReasoningEffort,
-          temperature: providerEnv.inceptionTemperature
-        })
-      } catch (error) {
-        return await handleProviderFailure(ctx, {
-          error,
-          label: "Answer",
-          provider: INCEPTION_PROVIDER,
-          reservedKeyId: inceptionKeyId
-        })
-      }
-    })()
-    const inceptionOutputTokens = groundedAnswer.usage?.outputTokens ?? estimateGroundedAnswerOutputTokens(groundedAnswer)
-    await recordProviderSuccess(ctx, INCEPTION_PROVIDER, inceptionKeyId, "Answer", {
-      ...(groundedAnswer.usage?.inputTokens === undefined ? {} : { inputTokens: groundedAnswer.usage.inputTokens }),
-      outputTokens: inceptionOutputTokens,
-      reservedInputTokens: inceptionEstimatedInputTokens,
-      reservedOutputTokens: inceptionEstimatedOutputTokens
+    const groundedAnswer = await generateShortInceptionResponse<GroundedAnswerGeneration>(ctx, providerEnv, inceptionKeyPool, {
+      estimatedInputText: `${effectiveQuestion}\n\n${context}`,
+      estimateOutputTokens: estimateGroundedAnswerOutputTokens,
+      generate: (options) => generateGroundedAnswer(effectiveQuestion, context, responseLanguage, options)
     })
     const selectedEvidence = selectEvidenceByCitationIds(evidenceWithIds, groundedAnswer.citationIds)
-    const packet: AnswerPacket =
-      groundedAnswer.answerSteps.length === 0 || selectedEvidence.length === 0
-        ? buildRefusalPacket(sessionId, sessionAccessToken, responseLanguage)
-        : buildGroundedPacket(
-            sessionId,
-            sessionAccessToken,
-            groundedAnswer.answerSummary,
-            groundedAnswer.answerSteps,
-            selectedEvidence
-          )
+    let packet: AnswerPacket
+    if (groundedAnswer.answerSteps.length === 0 || selectedEvidence.length === 0) {
+      packet = buildRefusalPacket(sessionId, sessionAccessToken, groundedAnswer.answerSummary)
+    } else {
+      packet = buildGroundedPacket(
+        sessionId,
+        sessionAccessToken,
+        groundedAnswer.answerSummary,
+        groundedAnswer.answerSteps,
+        selectedEvidence
+      )
+    }
 
     const assistantMessageId = await ctx.runMutation(internal.chats.appendMessage, {
       answerabilityStatus: packet.answerabilityStatus,

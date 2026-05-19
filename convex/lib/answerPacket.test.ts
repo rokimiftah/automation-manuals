@@ -3,14 +3,14 @@ import { describe, expect, it } from "vitest"
 import { buildClarificationPacket, buildGroundedPacket, buildRefusalPacket, selectEvidenceByCitationIds } from "./answerPacket"
 
 describe("buildRefusalPacket", () => {
-  it("returns an empty citation packet for insufficient evidence", () => {
-    expect(buildRefusalPacket("chatSessions_1" as never, "access-token-1")).toEqual({
-      answerSteps: [],
-      answerSummary: "I could not find enough evidence in the official documentation to answer that safely.",
+  it("builds refusal packets from generated summary text", () => {
+    const packet = buildRefusalPacket("sessions_1" as never, "access-token", "証拠が不足しています。")
+
+    expect(packet).toMatchObject({
       answerabilityStatus: "insufficient_evidence",
+      answerSummary: "証拠が不足しています。",
+      answerSteps: [],
       citations: [],
-      sessionAccessToken: "access-token-1",
-      sessionId: "chatSessions_1",
       supportingAssets: []
     })
   })

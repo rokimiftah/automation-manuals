@@ -140,8 +140,14 @@ function hasOperationalSymptomNarrative(normalizedQuestion: string) {
 }
 
 export function extractLiteralIdentifiers(question: string) {
-  const matches = question.matchAll(/(?:^|[^\p{L}\p{N}])([A-Z]{1,8}-?\d[A-Z0-9-]{0,12})(?=$|[^\p{L}\p{N}])/giu)
-  return unique([...matches].map((match) => match[1].toUpperCase()))
+  const matches = question.matchAll(
+    /(?:^|[^\p{L}\p{N}])(?<!\d-)([A-Z]{1,8}-?\d[A-Z0-9-]{0,12}|\d{2,6}-(?=[A-Z0-9-]*\d)(?=(?:[A-Z0-9-]*[A-Z]){2})[A-Z][A-Z0-9-]{1,12})(?=$|[^\p{L}\p{N}])/giu
+  )
+  return unique(
+    [...matches]
+      .map((match) => match[1].toUpperCase())
+      .filter((identifier) => !/^Q[1-4]$/i.test(identifier) && !/^Q[1-4]-?\d{4}$/i.test(identifier))
+  )
 }
 
 function detectIntent(question: string): DiagnosticIntent {

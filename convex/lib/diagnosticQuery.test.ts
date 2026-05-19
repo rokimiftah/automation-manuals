@@ -42,12 +42,27 @@ describe("extractLiteralIdentifiers", () => {
     expect(extractLiteralIdentifiers("What is on page 12 in 2024?")).toEqual([])
   })
 
+  it("ignores date and quarter-like identifiers", () => {
+    expect(extractLiteralIdentifiers("Review 2024-Q1 maintenance summary")).toEqual([])
+    expect(hasDiagnosticSignals("Review 2024-Q1 maintenance summary")).toBe(false)
+    expect(extractLiteralIdentifiers("Review Q1 2024 maintenance summary")).toEqual([])
+    expect(hasDiagnosticSignals("Review Q1 2024 maintenance summary")).toBe(false)
+    expect(extractLiteralIdentifiers("Review Q1-2024 maintenance summary")).toEqual([])
+    expect(hasDiagnosticSignals("Review Q1-2024 maintenance summary")).toBe(false)
+    expect(extractLiteralIdentifiers("Review Q4-2024 maintenance summary")).toEqual([])
+    expect(hasDiagnosticSignals("Review Q4-2024 maintenance summary")).toBe(false)
+  })
+
   it("ignores voltage supply descriptions for this diagnostic slice", () => {
     expect(extractLiteralIdentifiers("Check 24V supply")).toEqual([])
   })
 
   it("extracts short and separated fault codes", () => {
     expect(extractLiteralIdentifiers("Fault E1 and F-002 appeared")).toEqual(["E1", "F-002"])
+  })
+
+  it("extracts drive and controller model identifiers", () => {
+    expect(extractLiteralIdentifiers("Fault F002 on G120 and 1756-L7SP")).toEqual(["F002", "G120", "1756-L7SP"])
   })
 })
 

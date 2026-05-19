@@ -6,12 +6,13 @@ import { afterAll, beforeEach, describe, expect, it, vi } from "vitest"
 import * as envModule from "./lib/env"
 import * as inceptionModule from "./lib/inception"
 import * as jinaModule from "./lib/jina"
-import { ProviderPermanentError } from "./lib/providerErrors"
+import { ProviderPermanentError, ProviderRateLimitError } from "./lib/providerErrors"
 import * as providerKeysModule from "./lib/providerKeys"
 
 const buildProviderKeyPool = vi.spyOn(providerKeysModule, "buildProviderKeyPool")
 const embedSearchQuery = vi.spyOn(jinaModule, "embedSearchQuery")
 const generateClarifyingQuestion = vi.spyOn(inceptionModule, "generateClarifyingQuestion")
+const generateEnglishQuestion = vi.spyOn(inceptionModule, "generateEnglishQuestion")
 const generateGroundedAnswer = vi.spyOn(inceptionModule, "generateGroundedAnswer")
 const generateInsufficientEvidenceSummary = vi.spyOn(inceptionModule, "generateInsufficientEvidenceSummary")
 const getProviderEnv = vi.spyOn(envModule, "getProviderEnv")
@@ -85,10 +86,13 @@ function createRunMutation(
   options: {
     inceptionReservation?: ProviderReservation
     jinaReservation?: ProviderReservation
+    throwOnProviderAccountingFor?: string
+    throwOnProviderSuccessAttempt?: number
     throwOnProviderSuccessFor?: "inception" | "jina"
   } = {}
 ) {
   const appResultQueue = [...appResults]
+  let providerSuccessAttempts = 0
 
   return vi.fn(async (reference: unknown, args: Record<string, unknown>) => {
     const functionName = getFunctionName(reference as never)
@@ -105,7 +109,19 @@ function createRunMutation(
       functionName === "providerRateLimits:recordProviderSuccess" ||
       functionName === "providerRateLimits:recordProviderTransientFailure"
     ) {
+      if (functionName === options.throwOnProviderAccountingFor) {
+        throw new Error("provider accounting write failed")
+      }
+
       if (functionName === "providerRateLimits:recordProviderSuccess" && args.provider === options.throwOnProviderSuccessFor) {
+        providerSuccessAttempts += 1
+      }
+
+      if (
+        functionName === "providerRateLimits:recordProviderSuccess" &&
+        args.provider === options.throwOnProviderSuccessFor &&
+        providerSuccessAttempts === (options.throwOnProviderSuccessAttempt ?? 1)
+      ) {
         throw new Error("provider accounting write failed")
       }
 
@@ -130,9 +146,11 @@ function getMutationArgs(runMutation: ReturnType<typeof createRunMutation>, func
     .map(([, args]) => args as Record<string, unknown>)
 }
 
-function expectDominantLanguagePolicy() {
+function expectEnglishOnlyPolicy() {
   return expect.objectContaining({
-    instruction: expect.stringContaining("dominant language of the user's question")
+    instruction: expect.stringMatching(
+      /Answer every natural-language assistant response field in English[\s\S]*Do not translate technical identifiers/
+    )
   })
 }
 
@@ -141,6 +159,7 @@ describe("ask", () => {
     buildProviderKeyPool.mockClear()
     embedSearchQuery.mockReset()
     generateClarifyingQuestion.mockReset()
+    generateEnglishQuestion.mockReset()
     generateGroundedAnswer.mockReset()
     generateInsufficientEvidenceSummary.mockReset()
     getProviderEnv.mockReset()
@@ -151,6 +170,7 @@ describe("ask", () => {
     generateClarifyingQuestion.mockResolvedValue({
       clarifyingQuestion: "Please provide the vendor and model."
     })
+    generateEnglishQuestion.mockImplementation(async (question: string) => ({ englishQuestion: question }))
     generateGroundedAnswer.mockResolvedValue({
       answerSteps: ["Check the chassis."],
       answerSummary: "Install the module beside the controller.",
@@ -163,7 +183,7 @@ describe("ask", () => {
 
   it("generates a clarification question for ambiguous installation fault codes", async () => {
     generateClarifyingQuestion.mockResolvedValueOnce({
-      clarifyingQuestion: "ما الشركة المصنعة والطراز؟",
+      clarifyingQuestion: "Which vendor and model are you working with?",
       usage: {
         inputTokens: 41,
         outputTokens: 12
@@ -201,8 +221,8 @@ describe("ask", () => {
     )
 
     expect(packet.answerabilityStatus).toBe("needs_clarification")
-    expect(packet.answerSummary).toBe("ما الشركة المصنعة والطراز؟")
-    expect(packet.clarifyingQuestion).toBe("ما الشركة المصنعة والطراز؟")
+    expect(packet.answerSummary).toBe("Which vendor and model are you working with?")
+    expect(packet.clarifyingQuestion).toBe("Which vendor and model are you working with?")
     expect(packet.citations).toEqual([])
     expect(embedSearchQuery).not.toHaveBeenCalled()
     expect(generateGroundedAnswer).not.toHaveBeenCalled()
@@ -211,7 +231,7 @@ describe("ask", () => {
         interpretedProblem: "Saya install drive baru, setelah power on muncul F002. Motor belum jalan.",
         missingContext: ["vendor", "model"]
       },
-      expectDominantLanguagePolicy(),
+      expectEnglishOnlyPolicy(),
       expect.objectContaining({
         apiKey: "mercury-test-key-1",
         keyId: "inception:1"
@@ -240,11 +260,74 @@ describe("ask", () => {
       },
       {
         answerabilityStatus: "needs_clarification",
-        content: "ما الشركة المصنعة والطراز؟",
+        content: "Which vendor and model are you working with?",
         role: "assistant",
         sessionId: "chatSessions_1"
       }
     ])
+  })
+
+  it("uses an English interpreted problem fallback when canonicalization fallback needs clarification", async () => {
+    const rawQuestion = "Saya install drive baru, setelah power on muncul F002. Motor belum jalan."
+    generateEnglishQuestion.mockRejectedValueOnce(
+      new ProviderRateLimitError({ keyId: "inception:1", provider: "inception", retryAfterMs: 1000 })
+    )
+    generateClarifyingQuestion.mockResolvedValueOnce({
+      clarifyingQuestion: "Which vendor and model are you working with?"
+    })
+
+    const runQuery = vi.fn().mockResolvedValueOnce([
+      {
+        documentId: "documents_1" as never,
+        language: "English",
+        productSlug: "powerflex-755",
+        title: "PowerFlex 755 User Manual",
+        vendorSlug: "rockwell",
+        version: "v1"
+      }
+    ])
+    const runMutation = createRunMutation([
+      { sessionAccessToken: "access-token-1", sessionId: "chatSessions_1" },
+      { allowed: true },
+      "chatMessages_1",
+      "chatMessages_2"
+    ])
+    const vectorSearch = vi.fn().mockResolvedValue([])
+
+    const packet = await askHandler._handler(
+      {
+        runMutation,
+        runQuery,
+        vectorSearch
+      } as never,
+      {
+        question: rawQuestion,
+        sessionId: undefined as never
+      }
+    )
+
+    expect(packet.answerabilityStatus).toBe("needs_clarification")
+    expect(packet.interpretedProblem).toContain(
+      "The question needs vendor and model context before official documentation can be selected."
+    )
+    expect(packet.interpretedProblem).toContain("F002")
+    expect(packet.interpretedProblem).not.toBe(rawQuestion)
+    expect(packet.interpretedProblem).not.toContain(rawQuestion)
+    expect(packet.clarifyingQuestion).toBe("Which vendor and model are you working with?")
+    expect(getMutationArgs(runMutation, "providerRateLimits:recordProviderRateLimit")).toContainEqual(
+      expect.objectContaining({
+        keyId: "inception:1",
+        provider: "inception",
+        retryAfterMs: 1000
+      })
+    )
+    expect(getMutationArgs(runMutation, "chats:appendMessage")[0]).toEqual({
+      content: rawQuestion,
+      role: "user",
+      sessionId: "chatSessions_1"
+    })
+    expect(embedSearchQuery).not.toHaveBeenCalled()
+    expect(vectorSearch).not.toHaveBeenCalled()
   })
 
   it("generates a clarification before retrieval for no-code operational symptoms", async () => {
@@ -302,7 +385,7 @@ describe("ask", () => {
         interpretedProblem: "Motor belum jalan setelah power on",
         missingContext: ["vendor", "model"]
       },
-      expectDominantLanguagePolicy(),
+      expectEnglishOnlyPolicy(),
       expect.objectContaining({
         apiKey: "mercury-test-key-1",
         keyId: "inception:1"
@@ -352,6 +435,134 @@ describe("ask", () => {
     expect(embedSearchQuery).toHaveBeenCalledWith("manual overview", expect.any(Object))
     expect(vectorSearch).toHaveBeenCalledTimes(1)
     expect(generateGroundedAnswer).toHaveBeenCalledTimes(1)
+  })
+
+  it("uses canonical English for retrieval and answer generation while preserving the raw user message", async () => {
+    generateEnglishQuestion.mockResolvedValueOnce({
+      englishQuestion: "How should I install this module?"
+    })
+
+    const runQuery = vi
+      .fn()
+      .mockResolvedValueOnce({
+        _id: "chatSessions_1" as never,
+        createdAt: 1,
+        title: "Bagaimana cara memasang modul ini?",
+        updatedAt: 1
+      })
+      .mockResolvedValueOnce([
+        {
+          documentId: "documents_1" as never,
+          language: "English",
+          productSlug: "module",
+          title: "Module Installation Manual",
+          vendorSlug: "automation",
+          version: "v1"
+        }
+      ])
+      .mockResolvedValueOnce([
+        {
+          assetId: "documentAssets_1" as never,
+          citationLabel: "Page 12",
+          chunkId: "chunks_1" as never,
+          content: "Install the module beside the controller.",
+          pageNumber: 12,
+          score: 0.97
+        }
+      ])
+
+    const runMutation = createRunMutation([
+      { allowed: true },
+      "chatMessages_1",
+      "chatMessages_2",
+      null,
+      { sessionAccessToken: "access-token-2" }
+    ])
+    const vectorSearch = vi.fn().mockResolvedValue([{ _id: "chunkEmbeddings_1" as never, _score: 0.97 }])
+
+    await askHandler._handler(
+      {
+        runMutation,
+        runQuery,
+        vectorSearch
+      } as never,
+      {
+        question: "Bagaimana cara memasang modul ini?",
+        sessionAccessToken: "access-token-1",
+        sessionId: "chatSessions_1" as never
+      }
+    )
+
+    expect(generateEnglishQuestion).toHaveBeenCalledWith(
+      "Bagaimana cara memasang modul ini?",
+      expect.objectContaining({ keyId: "inception:1" })
+    )
+    expect(embedSearchQuery).toHaveBeenCalledWith("How should I install this module?", expect.any(Object))
+    expect(generateGroundedAnswer).toHaveBeenCalledWith(
+      "How should I install this module?",
+      expect.any(String),
+      expectEnglishOnlyPolicy(),
+      expect.objectContaining({ keyId: "inception:1" })
+    )
+    expect(getMutationArgs(runMutation, "chats:appendMessage")[0]).toEqual({
+      content: "Bagaimana cara memasang modul ini?",
+      role: "user",
+      sessionId: "chatSessions_1"
+    })
+  })
+
+  it("falls back to the raw question when canonicalization rate-limit accounting fails", async () => {
+    generateEnglishQuestion.mockRejectedValueOnce(
+      new ProviderRateLimitError({ keyId: "inception:1", provider: "inception", retryAfterMs: 1000 })
+    )
+
+    const runQuery = vi
+      .fn()
+      .mockResolvedValueOnce({
+        _id: "chatSessions_1" as never,
+        createdAt: 1,
+        title: "Where should the module go?",
+        updatedAt: 1
+      })
+      .mockResolvedValueOnce([
+        {
+          assetId: "documentAssets_1" as never,
+          citationLabel: "Page 12",
+          chunkId: "chunks_1" as never,
+          content: "Install the module beside the controller.",
+          pageNumber: 12,
+          score: 0.97
+        }
+      ])
+
+    const runMutation = createRunMutation(
+      [{ allowed: true }, "chatMessages_1", "chatMessages_2", null, { sessionAccessToken: "access-token-2" }],
+      { throwOnProviderAccountingFor: "providerRateLimits:recordProviderRateLimit" }
+    )
+    const vectorSearch = vi.fn().mockResolvedValue([{ _id: "chunkEmbeddings_1" as never, _score: 0.97 }])
+
+    const packet = await askHandler._handler(
+      {
+        runMutation,
+        runQuery,
+        vectorSearch
+      } as never,
+      {
+        question: "Where should the module go?",
+        sessionAccessToken: "access-token-1",
+        sessionId: "chatSessions_1" as never
+      }
+    )
+
+    expect(getMutationArgs(runMutation, "providerRateLimits:recordProviderRateLimit")).toContainEqual(
+      expect.objectContaining({
+        keyId: "inception:1",
+        provider: "inception",
+        retryAfterMs: 1000
+      })
+    )
+    expect(embedSearchQuery).toHaveBeenCalledWith("Where should the module go?", expect.any(Object))
+    expect(packet.answerabilityStatus).toBe("grounded")
   })
 
   it("resumes clarification follow-up with the prior interpreted problem as retrieval context", async () => {
@@ -599,6 +810,135 @@ describe("ask", () => {
     expect(eq).toHaveBeenCalledWith("productSlug", "sinamics-g120")
   })
 
+  it("uses canonical English terms for exact fallback", async () => {
+    generateEnglishQuestion.mockResolvedValueOnce({
+      englishQuestion: "PowerFlex 755 fault F002 after first power on"
+    })
+
+    const runQuery = vi
+      .fn()
+      .mockResolvedValueOnce({
+        _id: "chatSessions_1" as never,
+        createdAt: 1,
+        title: "F002 setelah power on pertama",
+        updatedAt: 1
+      })
+      .mockResolvedValueOnce([
+        {
+          documentId: "documents_1" as never,
+          language: "English",
+          productSlug: "powerflex-755",
+          title: "PowerFlex 755 Manual",
+          vendorSlug: "rockwell-automation",
+          version: "v1"
+        }
+      ])
+      .mockResolvedValueOnce([])
+      .mockResolvedValueOnce([
+        {
+          assetId: "documentAssets_1" as never,
+          citationLabel: "Page 214",
+          chunkId: "chunks_f002" as never,
+          content: "Fault F002 table for PowerFlex 755 first power on.",
+          pageNumber: 214,
+          score: 0.9
+        }
+      ])
+      .mockResolvedValueOnce(exactPage([]))
+
+    const runMutation = createRunMutation([
+      { allowed: true },
+      "chatMessages_1",
+      "chatMessages_2",
+      null,
+      { sessionAccessToken: "access-token-2" }
+    ])
+    const vectorSearch = vi.fn().mockResolvedValue([])
+
+    await askHandler._handler(
+      {
+        runMutation,
+        runQuery,
+        vectorSearch
+      } as never,
+      {
+        question: "Rockwell PowerFlex 755 F002 setelah power on pertama",
+        sessionAccessToken: "access-token-1",
+        sessionId: "chatSessions_1" as never
+      }
+    )
+
+    expect(runQuery).toHaveBeenCalledWith(
+      expect.anything(),
+      expect.objectContaining({
+        question: "PowerFlex 755 fault F002 after first power on",
+        terms: expect.arrayContaining(["f002", "powerflex 755"])
+      })
+    )
+  })
+
+  it("includes raw strong identifiers in global exact fallback terms when canonical English drops them", async () => {
+    generateEnglishQuestion.mockResolvedValueOnce({
+      englishQuestion:
+        "PowerFlex 755 reference catalog specification overview dimensions options accessories ratings details maintenance notes"
+    })
+
+    const runQuery = vi
+      .fn()
+      .mockResolvedValueOnce({
+        _id: "chatSessions_1" as never,
+        createdAt: 1,
+        title: "PowerFlex 755 F002 setelah power on pertama",
+        updatedAt: 1
+      })
+      .mockResolvedValueOnce([])
+      .mockResolvedValueOnce([
+        {
+          assetId: "documentAssets_1" as never,
+          citationLabel: "Page 214",
+          chunkId: "chunks_f002" as never,
+          content: "Fault F002 table for PowerFlex 755 first power on.",
+          pageNumber: 214,
+          score: 0.9
+        }
+      ])
+      .mockResolvedValueOnce(exactPage([]))
+
+    const runMutation = createRunMutation([
+      { allowed: true },
+      "chatMessages_1",
+      "chatMessages_2",
+      null,
+      { sessionAccessToken: "access-token-2" }
+    ])
+    const vectorSearch = vi.fn().mockResolvedValue([])
+
+    await askHandler._handler(
+      {
+        runMutation,
+        runQuery,
+        vectorSearch
+      } as never,
+      {
+        question: "PowerFlex 755 F002 setelah power on pertama",
+        sessionAccessToken: "access-token-1",
+        sessionId: "chatSessions_1" as never
+      }
+    )
+
+    expect(runQuery).toHaveBeenCalledWith(
+      expect.anything(),
+      expect.objectContaining({
+        question:
+          "PowerFlex 755 reference catalog specification overview dimensions options accessories ratings details maintenance notes",
+        terms: expect.arrayContaining(["f002"])
+      })
+    )
+    const exactCall = runQuery.mock.calls.find(([, args]) => Array.isArray((args as { terms?: unknown }).terms))
+    const terms = (exactCall?.[1] as { terms: string[] }).terms
+    expect(terms.slice(0, 12)).toContain("f002")
+  })
+
   it("runs exact fallback for scoped operational diagnostics even when vector evidence is strong", async () => {
     const runQuery = vi
       .fn()
@@ -824,7 +1164,7 @@ describe("ask", () => {
     expect(generateGroundedAnswer).toHaveBeenCalledWith(
       "Where should the module go?",
       expect.any(String),
-      expectDominantLanguagePolicy(),
+      expectEnglishOnlyPolicy(),
       {
         apiKey: "mercury-test-key-2",
         baseUrl: "https://api.inception.test/v1",
@@ -883,7 +1223,7 @@ describe("ask", () => {
     )
 
     const successWrites = getMutationArgs(runMutation, "providerRateLimits:recordProviderSuccess")
-    const answerSuccess = successWrites.find((args) => args.provider === "inception")
+    const answerSuccess = successWrites.filter((args) => args.provider === "inception").at(-1)
     const outputTokens = answerSuccess?.outputTokens
     expect(answerSuccess).toMatchObject({
       keyId: "inception:1",
@@ -944,7 +1284,7 @@ describe("ask", () => {
     expect(getMutationArgs(runMutation, "search:saveEvidence")).toEqual([])
   })
 
-  it("returns a temporary capacity error when Mercury success accounting fails", async () => {
+  it("continues when Mercury success accounting fails after provider success", async () => {
     const runQuery = vi
       .fn()
       .mockResolvedValueOnce({
@@ -963,40 +1303,45 @@ describe("ask", () => {
           score: 0.97
         }
       ])
-    const runMutation = createRunMutation([{ allowed: true }, "chatMessages_1"], {
-      throwOnProviderSuccessFor: "inception"
-    })
+    const runMutation = createRunMutation(
+      [{ allowed: true }, "chatMessages_1", "chatMessages_2", null, { sessionAccessToken: "access-token-2" }],
+      {
+        throwOnProviderSuccessAttempt: 2,
+        throwOnProviderSuccessFor: "inception"
+      }
+    )
     const vectorSearch = vi.fn().mockResolvedValue([{ _id: "chunkEmbeddings_1" as never, _score: 0.97 }])
 
-    await expect(
-      askHandler._handler(
-        {
-          runMutation,
-          runQuery,
-          vectorSearch
-        } as never,
-        {
-          question: "Where should the module go?",
-          sessionAccessToken: "access-token-1",
-          sessionId: "chatSessions_1" as never
-        }
-      )
-    ).rejects.toThrow(/capacity|temporarily unavailable/i)
+    const packet = await askHandler._handler(
+      {
+        runMutation,
+        runQuery,
+        vectorSearch
+      } as never,
+      {
+        question: "Where should the module go?",
+        sessionAccessToken: "access-token-1",
+        sessionId: "chatSessions_1" as never
+      }
+    )
 
     expect(generateGroundedAnswer).toHaveBeenCalledTimes(1)
-    expect(getMutationArgs(runMutation, "providerRateLimits:recordProviderTransientFailure")).toEqual([
-      {
+    expect(packet.answerabilityStatus).toBe("grounded")
+    const inceptionSuccessWrites = getMutationArgs(runMutation, "providerRateLimits:recordProviderSuccess").filter(
+      (args) => args.provider === "inception"
+    )
+    expect(inceptionSuccessWrites.length).toBeGreaterThanOrEqual(2)
+    expect(inceptionSuccessWrites.slice(0, 2)).toEqual([
+      expect.objectContaining({
         keyId: "inception:1",
         provider: "inception"
-      }
+      }),
+      expect.objectContaining({
+        keyId: "inception:1",
+        provider: "inception"
+      })
     ])
-    expect(getMutationArgs(runMutation, "chats:appendMessage")).toEqual([
-      {
-        content: "Where should the module go?",
-        role: "user",
-        sessionId: "chatSessions_1"
-      }
-    ])
+    expect(getMutationArgs(runMutation, "search:saveEvidence")).toHaveLength(1)
   })
 
   it("releases answer reservations without disabling keys for malformed answer responses", async () => {
@@ -1078,7 +1423,7 @@ describe("ask", () => {
       thrown = error
     }
 
-    expect(getErrorMessage(thrown)).toMatch(/Embedding provider configuration needs administrator attention/i)
+    expect(getErrorMessage(thrown)).toMatch(/Answer provider configuration needs administrator attention/i)
     expect(getErrorMessage(thrown)).not.toContain("JINA_API_KEYS")
     expect(embedSearchQuery).not.toHaveBeenCalled()
     expect(vectorSearch).not.toHaveBeenCalled()
@@ -1115,13 +1460,13 @@ describe("ask", () => {
       thrown = error
     }
 
-    expect(getErrorMessage(thrown)).toMatch(/Embedding provider configuration needs administrator attention/i)
+    expect(getErrorMessage(thrown)).toMatch(/Answer provider configuration needs administrator attention/i)
     expect(getErrorMessage(thrown)).not.toContain("JINA_API_KEYS")
     expect(embedSearchQuery).not.toHaveBeenCalled()
     expect(vectorSearch).not.toHaveBeenCalled()
   })
 
-  it("passes dominant-language policy for non-Latin questions into grounded answer generation", async () => {
+  it("passes English-only policy for non-Latin questions into grounded answer generation", async () => {
     const runQuery = vi
       .fn()
       .mockResolvedValueOnce({
@@ -1167,7 +1512,7 @@ describe("ask", () => {
     expect(generateGroundedAnswer).toHaveBeenCalledWith(
       "このエラーを解除する方法は？",
       expect.any(String),
-      expectDominantLanguagePolicy(),
+      expectEnglishOnlyPolicy(),
       expect.objectContaining({
         apiKey: "mercury-test-key-1",
         keyId: "inception:1"
@@ -1425,7 +1770,7 @@ describe("ask", () => {
 
   it("uses generated refusal summary when neither retrieval path finds evidence", async () => {
     generateInsufficientEvidenceSummary.mockResolvedValueOnce({
-      answerSummary: "No hay evidencia oficial suficiente.",
+      answerSummary: "I could not find enough official evidence to answer safely.",
       usage: {
         inputTokens: 29,
         outputTokens: 8
@@ -1468,11 +1813,11 @@ describe("ask", () => {
 
     expect(runQuery).toHaveBeenCalledTimes(4)
     expect(packet.answerabilityStatus).toBe("insufficient_evidence")
-    expect(packet.answerSummary).toBe("No hay evidencia oficial suficiente.")
+    expect(packet.answerSummary).toBe("I could not find enough official evidence to answer safely.")
     expect(generateGroundedAnswer).not.toHaveBeenCalled()
     expect(generateInsufficientEvidenceSummary).toHaveBeenCalledWith(
       "Where should the module go?",
-      expectDominantLanguagePolicy(),
+      expectEnglishOnlyPolicy(),
       expect.objectContaining({
         apiKey: "mercury-test-key-1",
         keyId: "inception:1"
@@ -1542,10 +1887,10 @@ describe("ask", () => {
     expect(generateInsufficientEvidenceSummary).not.toHaveBeenCalled()
     expect(
       getMutationArgs(runMutation, "providerRateLimits:reserveProviderKey").filter((args) => args.provider === "inception")
-    ).toHaveLength(1)
+    ).toHaveLength(2)
     expect(
       getMutationArgs(runMutation, "providerRateLimits:recordProviderSuccess").filter((args) => args.provider === "inception")
-    ).toHaveLength(1)
+    ).toHaveLength(2)
     expect(getMutationArgs(runMutation, "chats:appendMessage")).toContainEqual(
       expect.objectContaining({
         answerabilityStatus: "insufficient_evidence",
@@ -1557,7 +1902,7 @@ describe("ask", () => {
 
   it("uses generated refusal summary for Indonesian no-evidence questions", async () => {
     generateInsufficientEvidenceSummary.mockResolvedValueOnce({
-      answerSummary: "Saya belum menemukan bukti resmi yang cukup."
+      answerSummary: "I could not find enough official evidence to answer safely."
     })
 
     const runQuery = vi
@@ -1595,10 +1940,10 @@ describe("ask", () => {
     )
 
     expect(packet.answerabilityStatus).toBe("insufficient_evidence")
-    expect(packet.answerSummary).toBe("Saya belum menemukan bukti resmi yang cukup.")
+    expect(packet.answerSummary).toBe("I could not find enough official evidence to answer safely.")
     expect(generateInsufficientEvidenceSummary).toHaveBeenCalledWith(
       "Bagaimana cara memasang modul ini?",
-      expectDominantLanguagePolicy(),
+      expectEnglishOnlyPolicy(),
       expect.objectContaining({ keyId: "inception:1" })
     )
   })

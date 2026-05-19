@@ -43,6 +43,11 @@ type GroundedAnswer = {
   usage?: ProviderTokenUsage
 }
 
+type EnglishQuestion = {
+  englishQuestion: string
+  usage?: ProviderTokenUsage
+}
+
 type ChatMessage = {
   content: string
   role: "system" | "user"
@@ -88,6 +93,13 @@ const GROUNDED_ANSWER_SCHEMA = {
   required: ["answerSummary", "answerSteps", "citationIds"],
   type: "object"
 }
+
+const ENGLISH_QUESTION_SCHEMA = {
+  additionalProperties: false,
+  properties: { englishQuestion: { type: "string" } },
+  required: ["englishQuestion"],
+  type: "object"
+} as const
 
 const INSUFFICIENT_EVIDENCE_SCHEMA = {
   additionalProperties: false,
@@ -297,6 +309,28 @@ function parseGroundedAnswer(content: unknown): GroundedAnswer {
   }
 }
 
+function parseEnglishQuestion(content: unknown): EnglishQuestion {
+  const jsonText = extractTextContent(content)
+  if (!jsonText) {
+    throw new ProviderPermanentError({ provider: INCEPTION_PROVIDER })
+  }
+
+  let parsed: unknown
+  try {
+    parsed = JSON.parse(jsonText)
+  } catch {
+    throw new ProviderPermanentError({ provider: INCEPTION_PROVIDER })
+  }
+
+  if (!parsed || typeof parsed !== "object") {
+    throw new ProviderPermanentError({ provider: INCEPTION_PROVIDER })
+  }
+
+  const englishQuestion = requiredTrimmedString((parsed as { englishQuestion?: unknown }).englishQuestion)
+
+  return { englishQuestion }
+}
+
 function parseInsufficientEvidenceSummary(content: unknown) {
   const jsonText = extractTextContent(content)
   if (!jsonText) {
@@ -452,6 +486,31 @@ export async function generateGroundedAnswer(
 
   const groundedAnswer = parseGroundedAnswer(completion.content)
   return completion.usage === undefined ? groundedAnswer : { ...groundedAnswer, usage: completion.usage }
+}
+
+export async function generateEnglishQuestion(
+  question: string,
+  options: InceptionOptions = {}
+): Promise<{ englishQuestion: string; usage?: ProviderTokenUsage }> {
+  const completion = await requestStructuredCompletion({
+    messages: [
+      {
+        content:
+          "Rewrite the user's question as a concise English technical search query for official industrial equipment manuals. Preserve fault codes, alarm codes, model numbers, vendor names, product names, command names, parameter names, values, units, and citation labels exactly. Do not answer the question. Do not add facts, assumptions, causes, fixes, or product details that are not present in the user's question. Return strict JSON with key englishQuestion.",
+        role: "system"
+      },
+      {
+        content: `Question: ${question}`,
+        role: "user"
+      }
+    ],
+    options,
+    schema: ENGLISH_QUESTION_SCHEMA,
+    schemaName: "EnglishQuestion"
+  })
+
+  const englishQuestion = parseEnglishQuestion(completion.content)
+  return completion.usage === undefined ? englishQuestion : { ...englishQuestion, usage: completion.usage }
 }
 
 export async function generateInsufficientEvidenceSummary(

@@ -19,11 +19,21 @@ import {
   buildRefusalPacket,
   selectEvidenceByCitationIds
 } from "./lib/answerPacket"
-import { buildClarificationPromptInput, hasDiagnosticSignals, understandDiagnosticQuery } from "./lib/diagnosticQuery"
+import {
+  buildClarificationPromptInput,
+  extractLiteralIdentifiers,
+  hasDiagnosticSignals,
+  understandDiagnosticQuery
+} from "./lib/diagnosticQuery"
 import { getProviderEnv } from "./lib/env"
 import { buildChunkTerms, extractExactSearchTerms, isStrongExactIdentifierTerm, normalizeExactTerm } from "./lib/exactTerms"
 import { isLookupLikeQuery, mergeCandidates, rankExactCandidates } from "./lib/hybridRetrieval"
-import { generateClarifyingQuestion, generateGroundedAnswer, generateInsufficientEvidenceSummary } from "./lib/inception"
+import {
+  generateClarifyingQuestion,
+  generateEnglishQuestion,
+  generateGroundedAnswer,
+  generateInsufficientEvidenceSummary
+} from "./lib/inception"
 import { embedSearchQuery, JINA_EMBEDDING_PROVIDER } from "./lib/jina"
 import {
   ProviderPermanentError,
@@ -119,6 +129,8 @@ const WEAK_VECTOR_EVIDENCE_THRESHOLD = 0.5
 
 const INCEPTION_PROVIDER = "inception" as const
 
+const FALLBACK_INTERPRETED_PROBLEM = "The question needs vendor and model context before official documentation can be selected."
+
 type ProviderReservation = { available: false; retryAfterMs: number } | { available: true; keyId: string }
 
 type ProviderLabel = "Answer" | "Embedding"
@@ -149,6 +161,16 @@ type InceptionShortGeneration<T extends { usage?: ProviderTokenUsage }> = {
 type ClarifyingQuestionGeneration = {
   clarifyingQuestion: string
   usage?: ProviderTokenUsage
+}
+
+type EnglishQuestionGeneration = {
+  englishQuestion: string
+  usage?: ProviderTokenUsage
+}
+
+type EnglishQuestionResult = {
+  englishQuestion: string
+  usedFallback: boolean
 }
 
 type InsufficientEvidenceGeneration = {
@@ -208,6 +230,19 @@ function estimateGroundedAnswerOutputTokens(answer: { answerSteps: string[]; ans
 
 function estimateTextGenerationOutputTokens(generated: { answerSummary?: string; clarifyingQuestion?: string }) {
   return estimateTokenCount(generated.answerSummary ?? generated.clarifyingQuestion ?? "")
+}
+
+function estimateEnglishQuestionOutputTokens(generated: EnglishQuestionGeneration) {
+  return estimateTokenCount(generated.englishQuestion)
+}
+
+function buildFallbackInterpretedProblem(effectiveQuestion: string) {
+  const identifiers = extractLiteralIdentifiers(effectiveQuestion)
+  if (identifiers.length === 0) {
+    return FALLBACK_INTERPRETED_PROBLEM
+  }
+
+  return `${FALLBACK_INTERPRETED_PROBLEM} Preserved technical identifiers: ${identifiers.join(", ")}.`
 }
 
 function getInceptionEstimatedOutputTokens(providerEnv: ProviderEnv) {
@@ -277,7 +312,7 @@ async function recordProviderSuccess(
   ctx: Pick<ActionCtx, "runMutation">,
   provider: ProviderName,
   keyId: string,
-  label: ProviderLabel,
+  _label: ProviderLabel,
   accounting?: {
     inputTokens?: number
     outputTokens?: number
@@ -295,15 +330,57 @@ async function recordProviderSuccess(
       provider
     })
   } catch {
-    try {
-      await ctx.runMutation(internal.providerRateLimits.recordProviderTransientFailure, {
-        keyId,
-        provider
-      })
-    } catch {
-      // Keep user-facing errors sanitized even when provider accounting is degraded.
-    }
-    throw providerCapacityError(label, undefined)
+    // Provider success accounting is best-effort; do not fail completed provider responses.
+    await recordProviderTransientFailureBestEffort(ctx, provider, keyId)
+  }
+}
+
+async function recordProviderRateLimitBestEffort(
+  ctx: Pick<ActionCtx, "runMutation">,
+  provider: ProviderName,
+  keyId: string,
+  retryAfterMs: number
+) {
+  try {
+    await ctx.runMutation(internal.providerRateLimits.recordProviderRateLimit, {
+      keyId,
+      provider,
+      retryAfterMs
+    })
+  } catch {
+    // Provider accounting is best-effort; keep user-facing errors sanitized.
+  }
+}
+
+async function recordProviderTransientFailureBestEffort(
+  ctx: Pick<ActionCtx, "runMutation">,
+  provider: ProviderName,
+  keyId: string
+) {
+  try {
+    await ctx.runMutation(internal.providerRateLimits.recordProviderTransientFailure, {
+      keyId,
+      provider
+    })
+  } catch {
+    // Provider accounting is best-effort; keep user-facing errors sanitized.
+  }
+}
+
+async function disableProviderKeyBestEffort(
+  ctx: Pick<ActionCtx, "runMutation">,
+  provider: ProviderName,
+  keyId: string,
+  reason: "permanent_error" | "quota_exhausted"
+) {
+  try {
+    await ctx.runMutation(internal.providerRateLimits.disableProviderKey, {
+      keyId,
+      provider,
+      reason
+    })
+  } catch {
+    // Provider accounting is best-effort; keep user-facing errors sanitized.
   }
 }
 
@@ -320,51 +397,35 @@ async function handleProviderFailure(
   args: { error: unknown; label: ProviderLabel; provider: ProviderName; reservedKeyId: string }
 ): Promise<never> {
   if (args.error instanceof ProviderRateLimitError) {
-    await ctx.runMutation(internal.providerRateLimits.recordProviderRateLimit, {
-      keyId: args.error.keyId,
-      provider: args.provider,
-      retryAfterMs: getProviderRetryAfterMs(args.error.retryAfterMs)
-    })
+    await recordProviderRateLimitBestEffort(
+      ctx,
+      args.provider,
+      args.error.keyId,
+      getProviderRetryAfterMs(args.error.retryAfterMs)
+    )
     throw providerCapacityError(args.label, args.error.retryAfterMs)
   }
 
   if (args.error instanceof ProviderQuotaExhaustedError) {
-    await ctx.runMutation(internal.providerRateLimits.disableProviderKey, {
-      keyId: args.error.keyId,
-      provider: args.provider,
-      reason: "quota_exhausted"
-    })
+    await disableProviderKeyBestEffort(ctx, args.provider, args.error.keyId, "quota_exhausted")
     throw providerCapacityError(args.label, undefined)
   }
 
   if (args.error instanceof ProviderTransientError) {
-    await ctx.runMutation(internal.providerRateLimits.recordProviderTransientFailure, {
-      keyId: args.error.keyId ?? args.reservedKeyId,
-      provider: args.provider
-    })
+    await recordProviderTransientFailureBestEffort(ctx, args.provider, args.error.keyId ?? args.reservedKeyId)
     throw providerCapacityError(args.label, undefined)
   }
 
   if (args.error instanceof ProviderPermanentError) {
     if (args.error.keyId === undefined) {
-      await ctx.runMutation(internal.providerRateLimits.recordProviderTransientFailure, {
-        keyId: args.reservedKeyId,
-        provider: args.provider
-      })
+      await recordProviderTransientFailureBestEffort(ctx, args.provider, args.reservedKeyId)
     } else {
-      await ctx.runMutation(internal.providerRateLimits.disableProviderKey, {
-        keyId: args.error.keyId,
-        provider: args.provider,
-        reason: "permanent_error"
-      })
+      await disableProviderKeyBestEffort(ctx, args.provider, args.error.keyId, "permanent_error")
     }
     throw providerPermanentError(args.label)
   }
 
-  await ctx.runMutation(internal.providerRateLimits.recordProviderTransientFailure, {
-    keyId: args.reservedKeyId,
-    provider: args.provider
-  })
+  await recordProviderTransientFailureBestEffort(ctx, args.provider, args.reservedKeyId)
   throw providerPermanentError(args.label)
 }
 
@@ -412,6 +473,68 @@ async function generateShortInceptionResponse<T extends { usage?: ProviderTokenU
   })
 
   return generated
+}
+
+async function generateEnglishQuestionOrFallback(
+  ctx: Pick<ActionCtx, "runMutation">,
+  providerEnv: ProviderEnv,
+  inceptionKeyPool: ProviderKey[],
+  effectiveQuestion: string
+): Promise<EnglishQuestionResult> {
+  const estimatedInputTokens = estimateTokenCount(effectiveQuestion)
+  const estimatedOutputTokens = getInceptionEstimatedOutputTokens(providerEnv)
+  let inceptionKeyId: string
+
+  try {
+    inceptionKeyId = await reserveProviderKey(
+      ctx,
+      {
+        estimatedInputTokens,
+        estimatedOutputTokens,
+        inputTpmLimit: providerEnv.inceptionInputTpmPerKey,
+        keyIds: inceptionKeyPool.map((key) => key.id),
+        maxConcurrent: providerEnv.inceptionMaxConcurrentPerKey,
+        outputTpmLimit: providerEnv.inceptionOutputTpmPerKey,
+        provider: INCEPTION_PROVIDER,
+        rpmLimit: providerEnv.inceptionRpmPerKey
+      },
+      "Answer"
+    )
+  } catch {
+    return { englishQuestion: effectiveQuestion, usedFallback: true }
+  }
+
+  try {
+    const generated = await generateEnglishQuestion(
+      effectiveQuestion,
+      buildInceptionGenerationOptions(providerEnv, inceptionKeyPool, inceptionKeyId)
+    )
+    const outputTokens = generated.usage?.outputTokens ?? estimateEnglishQuestionOutputTokens(generated)
+    await recordProviderSuccess(ctx, INCEPTION_PROVIDER, inceptionKeyId, "Answer", {
+      ...(generated.usage?.inputTokens === undefined ? {} : { inputTokens: generated.usage.inputTokens }),
+      outputTokens,
+      reservedInputTokens: estimatedInputTokens,
+      reservedOutputTokens: estimatedOutputTokens
+    })
+    return { englishQuestion: generated.englishQuestion, usedFallback: false }
+  } catch (error) {
+    if (error instanceof ProviderRateLimitError) {
+      await recordProviderRateLimitBestEffort(ctx, INCEPTION_PROVIDER, error.keyId, getProviderRetryAfterMs(error.retryAfterMs))
+      return { englishQuestion: effectiveQuestion, usedFallback: true }
+    }
+
+    if (error instanceof ProviderTransientError) {
+      await recordProviderTransientFailureBestEffort(ctx, INCEPTION_PROVIDER, error.keyId ?? inceptionKeyId)
+      return { englishQuestion: effectiveQuestion, usedFallback: true }
+    }
+
+    return await handleProviderFailure(ctx, {
+      error,
+      label: "Answer",
+      provider: INCEPTION_PROVIDER,
+      reservedKeyId: inceptionKeyId
+    })
+  }
 }
 
 const searchResultValidator = v.object({
@@ -604,6 +727,12 @@ function rankTermAwareExactSearchResults(question: string, terms: string[], cand
     .sort((left, right) => right.score - left.score || compareExactCandidateOrder(left, right))
 
   return [...literalResults, ...termResults].slice(0, GLOBAL_EXACT_MATCH_LIMIT)
+}
+
+function mergeCanonicalExactSearchTerms(englishQuestion: string, effectiveQuestion: string) {
+  const rawStrongTerms = extractExactSearchTerms(effectiveQuestion).filter(isStrongExactIdentifierTerm)
+  const canonicalTerms = extractExactSearchTerms(englishQuestion)
+  return [...new Set([...rawStrongTerms, ...canonicalTerms])]
 }
 
 function hasCurrentExactTermVersion(terms: Array<{ version?: number }>) {
@@ -1214,7 +1343,8 @@ export const ask = action({
   },
   returns: answerPacketValidator,
   handler: async (ctx, args): Promise<AnswerPacket> => {
-    const question = args.question.trim()
+    const rawQuestion = args.question
+    const question = rawQuestion.trim()
     if (!question) {
       throw new ConvexError("Question is required")
     }
@@ -1222,7 +1352,6 @@ export const ask = action({
     const effectiveQuestion = previousInterpretedProblem
       ? `${previousInterpretedProblem}\n\nAdditional context: ${question}`
       : question
-    const responseLanguage = buildResponseLanguagePolicy(effectiveQuestion)
 
     const shouldRotateSessionToken = args.sessionId !== undefined
     let sessionId = args.sessionId
@@ -1260,16 +1389,24 @@ export const ask = action({
     }
 
     await ctx.runMutation(internal.chats.appendMessage, {
-      content: question,
+      content: rawQuestion,
       role: "user",
       sessionId
     })
 
+    const providerEnv = setupProviderKeyPool("Answer", () => getProviderEnv())
+    const inceptionKeyPool = setupProviderKeyPool("Answer", () =>
+      buildProviderKeyPool(INCEPTION_PROVIDER, providerEnv.inceptionApiKeys)
+    )
+    const englishQuestionResult = await generateEnglishQuestionOrFallback(ctx, providerEnv, inceptionKeyPool, effectiveQuestion)
+    const englishQuestion = englishQuestionResult.englishQuestion
+    const responseLanguage = buildResponseLanguagePolicy(englishQuestion)
+
     let retrievalScope: SearchScope | undefined
     let diagnosticContext: ReturnType<typeof understandDiagnosticQuery> | undefined
-    if (!args.documentId && hasDiagnosticSignals(effectiveQuestion)) {
+    if (!args.documentId && hasDiagnosticSignals(englishQuestion)) {
       const readyScopes = (await ctx.runQuery(internal.search.loadReadyDocumentScopes, {})) as DiagnosticDocumentScope[]
-      diagnosticContext = understandDiagnosticQuery(effectiveQuestion, readyScopes)
+      diagnosticContext = understandDiagnosticQuery(englishQuestion, readyScopes)
       retrievalScope = diagnosticContext.resolvedScope
         ? {
             productSlug: diagnosticContext.resolvedScope.productSlug,
@@ -1279,24 +1416,15 @@ export const ask = action({
 
       if (diagnosticContext.needsClarification) {
         const clarificationInput = buildClarificationPromptInput(diagnosticContext)
-        const { inceptionKeyPool, providerEnv } = setupProviderKeyPool("Answer", () => {
-          const env = getProviderEnv()
-          return {
-            inceptionKeyPool: buildProviderKeyPool(INCEPTION_PROVIDER, env.inceptionApiKeys),
-            providerEnv: env
-          }
-        })
         const generated = await generateShortInceptionResponse<ClarifyingQuestionGeneration>(ctx, providerEnv, inceptionKeyPool, {
           estimatedInputText: JSON.stringify(clarificationInput),
           estimateOutputTokens: estimateTextGenerationOutputTokens,
           generate: (options) => generateClarifyingQuestion(clarificationInput, responseLanguage, options)
         })
-        const packet = buildClarificationPacket(
-          sessionId,
-          sessionAccessToken,
-          diagnosticContext.interpretedProblem,
-          generated.clarifyingQuestion
-        )
+        const interpretedProblem = englishQuestionResult.usedFallback
+          ? buildFallbackInterpretedProblem(effectiveQuestion)
+          : diagnosticContext.interpretedProblem
+        const packet = buildClarificationPacket(sessionId, sessionAccessToken, interpretedProblem, generated.clarifyingQuestion)
 
         await ctx.runMutation(internal.chats.appendMessage, {
           answerabilityStatus: packet.answerabilityStatus,
@@ -1315,20 +1443,13 @@ export const ask = action({
       }
     }
 
-    const { jinaKeyPool, providerEnv } = setupProviderKeyPool("Embedding", () => {
-      const env = getProviderEnv()
-      return {
-        jinaKeyPool: buildProviderKeyPool(JINA_EMBEDDING_PROVIDER, env.jinaApiKeys),
-        providerEnv: env
-      }
-    })
-    const inceptionKeyPool = setupProviderKeyPool("Answer", () =>
-      buildProviderKeyPool(INCEPTION_PROVIDER, providerEnv.inceptionApiKeys)
+    const jinaKeyPool = setupProviderKeyPool("Embedding", () =>
+      buildProviderKeyPool(JINA_EMBEDDING_PROVIDER, providerEnv.jinaApiKeys)
     )
     const jinaKeyId = await reserveProviderKey(
       ctx,
       {
-        estimatedInputTokens: estimateTokenCount(effectiveQuestion),
+        estimatedInputTokens: estimateTokenCount(englishQuestion),
         estimatedOutputTokens: 0,
         inputTpmLimit: providerEnv.jinaTpmPerKey,
         keyIds: jinaKeyPool.map((key) => key.id),
@@ -1341,7 +1462,7 @@ export const ask = action({
     )
     const embedding = await (async () => {
       try {
-        return await embedSearchQuery(effectiveQuestion, {
+        return await embedSearchQuery(englishQuestion, {
           apiKey: resolveProviderKey(jinaKeyPool, jinaKeyId),
           keyId: jinaKeyId,
           model: providerEnv.jinaEmbedModel
@@ -1372,20 +1493,31 @@ export const ask = action({
       diagnosticContext.literalIdentifiers.length > 0 &&
       (diagnosticContext.severity === "operational" || diagnosticContext.severity === "safety-critical")
     const shouldRunExactFallback =
-      isLookupLikeQuery(effectiveQuestion) ||
+      isLookupLikeQuery(englishQuestion) ||
       shouldForceExactFallbackForDiagnostic ||
       getTopEvidenceScore(evidence) < WEAK_VECTOR_EVIDENCE_THRESHOLD
     const exactEvidence: SearchResult[] = shouldRunExactFallback
       ? args.documentId
-        ? await ctx.runQuery(internal.search.loadExactResults, {
-            documentId: args.documentId,
-            exactContent: effectiveQuestion
-          })
+        ? await (async () => {
+            const canonicalExactEvidence: SearchResult[] = await ctx.runQuery(internal.search.loadExactResults, {
+              documentId: args.documentId,
+              exactContent: englishQuestion
+            })
+            if (englishQuestion === effectiveQuestion) {
+              return canonicalExactEvidence
+            }
+
+            const rawExactEvidence: SearchResult[] = await ctx.runQuery(internal.search.loadExactResults, {
+              documentId: args.documentId,
+              exactContent: effectiveQuestion
+            })
+            return mergeCandidates(canonicalExactEvidence, rawExactEvidence) as SearchResult[]
+          })()
         : await (async () => {
-            const terms = extractExactSearchTerms(effectiveQuestion)
+            const terms = mergeCanonicalExactSearchTerms(englishQuestion, effectiveQuestion)
             const termMatches = terms.length
               ? await ctx.runQuery(internal.search.loadGlobalExactResultsByTerms, {
-                  question: effectiveQuestion,
+                  question: englishQuestion,
                   ...(retrievalScope === undefined ? {} : { scope: retrievalScope }),
                   terms
                 })
@@ -1416,7 +1548,7 @@ export const ask = action({
               candidates.push(...page.page)
             }
 
-            const paginatedMatches = rankExactSearchResults(effectiveQuestion, candidates)
+            const paginatedMatches = rankExactSearchResults(englishQuestion, candidates)
             return termMatches.length > 0 ? (mergeCandidates(termMatches, paginatedMatches) as SearchResult[]) : paginatedMatches
           })()
       : []
@@ -1428,9 +1560,9 @@ export const ask = action({
     }))
     if (mergedEvidence.length === 0) {
       const generated = await generateShortInceptionResponse<InsufficientEvidenceGeneration>(ctx, providerEnv, inceptionKeyPool, {
-        estimatedInputText: effectiveQuestion,
+        estimatedInputText: englishQuestion,
         estimateOutputTokens: estimateTextGenerationOutputTokens,
-        generate: (options) => generateInsufficientEvidenceSummary(effectiveQuestion, responseLanguage, options)
+        generate: (options) => generateInsufficientEvidenceSummary(englishQuestion, responseLanguage, options)
       })
       const packet = buildRefusalPacket(sessionId, sessionAccessToken, generated.answerSummary)
 
@@ -1452,9 +1584,9 @@ export const ask = action({
 
     const context = evidenceWithIds.map((item) => `[${item.evidenceId}] ${item.citationLabel}: ${item.content}`).join("\n\n")
     const groundedAnswer = await generateShortInceptionResponse<GroundedAnswerGeneration>(ctx, providerEnv, inceptionKeyPool, {
-      estimatedInputText: `${effectiveQuestion}\n\n${context}`,
+      estimatedInputText: `${englishQuestion}\n\n${context}`,
       estimateOutputTokens: estimateGroundedAnswerOutputTokens,
-      generate: (options) => generateGroundedAnswer(effectiveQuestion, context, responseLanguage, options)
+      generate: (options) => generateGroundedAnswer(englishQuestion, context, responseLanguage, options)
     })
     const selectedEvidence = selectEvidenceByCitationIds(evidenceWithIds, groundedAnswer.citationIds)
     let packet: AnswerPacket
